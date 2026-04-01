@@ -96,14 +96,6 @@ const processedLabs = labs.map(lab => {
 
 const MAX_DAYS = 1260;
 const LAB_LABEL_WIDTH = 180;
-const LEFT_EDGE_FADE_WIDTH = 120;
-
-const leftEdgeFadeStyle: React.CSSProperties = {
-  WebkitMaskImage: `linear-gradient(to right, transparent 0, black ${LEFT_EDGE_FADE_WIDTH}px)`,
-  maskImage: `linear-gradient(to right, transparent 0, black ${LEFT_EDGE_FADE_WIDTH}px)`,
-  WebkitMaskRepeat: 'no-repeat',
-  maskRepeat: 'no-repeat',
-};
 
 // Generate month and year ticks
 const monthTicks: { days: number; label: string }[] = [];
@@ -259,7 +251,7 @@ export default function App() {
             {/* X-axis background lines */}
             <div
               className="absolute top-0 bottom-0 right-0 pointer-events-none"
-              style={{ left: `${LAB_LABEL_WIDTH}px`, ...leftEdgeFadeStyle }}
+              style={{ left: `${LAB_LABEL_WIDTH}px` }}
             >
               {/* Month Lines */}
               {monthTicks.map(tick => (
@@ -305,7 +297,7 @@ export default function App() {
                   
                   {/* Sticky Lab Name */}
                   <div
-                    className="shrink-0 sticky left-0 z-40 bg-zinc-950 py-2 pl-3 flex items-center pr-4 border-r border-zinc-900"
+                    className="shrink-0 sticky left-0 z-20 bg-zinc-950/90 backdrop-blur-md py-2 pl-3 flex items-center pr-4"
                     style={{ width: `${LAB_LABEL_WIDTH}px` }}
                   >
                     <div className={`w-2.5 h-2.5 rounded-full ${lab.color} mr-3 shadow-[0_0_8px_currentColor] opacity-80`} />
@@ -313,7 +305,7 @@ export default function App() {
                   </div>
                   
                   {/* Track */}
-                  <div className="flex-1 relative h-full" style={leftEdgeFadeStyle}>
+                  <div className="flex-1 relative h-full">
                     {/* Base line */}
                     <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[1px] bg-zinc-800/30" />
                     
