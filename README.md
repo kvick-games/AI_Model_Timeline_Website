@@ -2,19 +2,22 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# AI Model Release Timeline
 
-This contains everything you need to run your app locally.
+This is a Vite + React app that renders a shareable timeline of major AI model releases.
 
-View your app in AI Studio: https://ai.studio/apps/2f5b6f1c-acec-4845-a0bc-2f49463cd0e0
+## Local development
 
-## Run Locally
+1. Install dependencies: `npm install`
+2. Start the dev server: `npm run dev`
 
-**Prerequisites:**  Node.js
+## GitHub Pages deployment
 
+This repo now includes a GitHub Actions workflow that builds the Vite app and deploys the `dist` output to GitHub Pages.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. Push the repo to GitHub.
+2. In GitHub, open `Settings` -> `Pages`.
+3. Set the source to `GitHub Actions`.
+4. Push to `main` or run the `Deploy GitHub Pages` workflow manually.
+
+The Vite config is set up so repository Pages deployments use the correct base path automatically.
