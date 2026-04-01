@@ -1,0 +1,5 @@
+{
+  "name": "AI Model Release Timeline",
+  "description": "A horizontal timeline visualization of major AI model releases measured in days.",
+  "requestFramePermissions": []
+}
