@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 const startDate = new Date('2022-11-30T00:00:00Z');
@@ -71,13 +71,18 @@ const labs = [
 ];
 
 const processedLabs = labs.map(lab => {
-  const processedReleases = lab.releases.map((r, index) => {
+  const sortedReleases = [...lab.releases].sort((a, b) => {
+    const dateDifference = new Date(`${a.date}T00:00:00Z`).getTime() - new Date(`${b.date}T00:00:00Z`).getTime();
+    return dateDifference !== 0 ? dateDifference : a.name.localeCompare(b.name);
+  });
+
+  const processedReleases = sortedReleases.map((r, index) => {
     const releaseDate = new Date(`${r.date}T00:00:00Z`);
     const globalDay = Math.round((releaseDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
     
     let gap = 0;
     if (index > 0) {
-      const prevDate = new Date(`${lab.releases[index - 1].date}T00:00:00Z`);
+      const prevDate = new Date(`${sortedReleases[index - 1].date}T00:00:00Z`);
       gap = Math.round((releaseDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
     }
     
@@ -90,6 +95,15 @@ const processedLabs = labs.map(lab => {
 });
 
 const MAX_DAYS = 1260;
+const LAB_LABEL_WIDTH = 180;
+const LEFT_EDGE_FADE_WIDTH = 120;
+
+const leftEdgeFadeStyle: React.CSSProperties = {
+  WebkitMaskImage: `linear-gradient(to right, transparent 0, black ${LEFT_EDGE_FADE_WIDTH}px)`,
+  maskImage: `linear-gradient(to right, transparent 0, black ${LEFT_EDGE_FADE_WIDTH}px)`,
+  WebkitMaskRepeat: 'no-repeat',
+  maskRepeat: 'no-repeat',
+};
 
 // Generate month and year ticks
 const monthTicks: { days: number; label: string }[] = [];
@@ -110,8 +124,11 @@ while (currDate <= endDate) {
 
 export default function App() {
   const [zoom, setZoom] = useState(1);
+  const [isPanning, setIsPanning] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isFirstRender = useRef(true);
+  const activePointerIdRef = useRef<number | null>(null);
+  const panStateRef = useRef({ startX: 0, startScrollLeft: 0 });
   
   const handleZoomChange = (updater: (z: number) => number) => {
     setZoom(prevZoom => {
@@ -138,6 +155,45 @@ export default function App() {
   const handleZoomIn = () => handleZoomChange(z => Math.min(z + 0.5, 4));
   const handleZoomOut = () => handleZoomChange(z => Math.max(z - 0.5, 0.5));
   const handleReset = () => handleZoomChange(() => 1);
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse' || event.button !== 0 || !scrollContainerRef.current) {
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    activePointerIdRef.current = event.pointerId;
+    panStateRef.current = {
+      startX: event.clientX,
+      startScrollLeft: container.scrollLeft,
+    };
+
+    container.setPointerCapture(event.pointerId);
+    setIsPanning(true);
+    event.preventDefault();
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerId !== activePointerIdRef.current || !scrollContainerRef.current) {
+      return;
+    }
+
+    const deltaX = event.clientX - panStateRef.current.startX;
+    scrollContainerRef.current.scrollLeft = panStateRef.current.startScrollLeft - deltaX;
+  };
+
+  const stopPanning = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerId !== activePointerIdRef.current || !scrollContainerRef.current) {
+      return;
+    }
+
+    if (scrollContainerRef.current.hasPointerCapture(event.pointerId)) {
+      scrollContainerRef.current.releasePointerCapture(event.pointerId);
+    }
+
+    activePointerIdRef.current = null;
+    setIsPanning(false);
+  };
 
   // Scroll to the end on initial load
   useEffect(() => {
@@ -187,14 +243,24 @@ export default function App() {
           </div>
         </motion.div>
         
-        <div ref={scrollContainerRef} className="relative overflow-x-auto pb-32 custom-scrollbar">
+        <div
+          ref={scrollContainerRef}
+          className={`relative overflow-x-auto pb-32 custom-scrollbar select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={stopPanning}
+          onPointerCancel={stopPanning}
+        >
           <div 
             className="relative mt-20"
             style={{ minWidth: `${Math.max(1000, 2200 * zoom)}px` }}
           >
             
             {/* X-axis background lines */}
-            <div className="absolute top-0 bottom-0 left-[180px] right-0 pointer-events-none">
+            <div
+              className="absolute top-0 bottom-0 right-0 pointer-events-none"
+              style={{ left: `${LAB_LABEL_WIDTH}px`, ...leftEdgeFadeStyle }}
+            >
               {/* Month Lines */}
               {monthTicks.map(tick => (
                 <div 
@@ -238,13 +304,16 @@ export default function App() {
                 <div key={lab.name} className="relative flex items-center h-12">
                   
                   {/* Sticky Lab Name */}
-                  <div className="w-[180px] shrink-0 sticky left-0 z-20 bg-zinc-950/90 backdrop-blur-md py-2 pl-3 flex items-center pr-4">
+                  <div
+                    className="shrink-0 sticky left-0 z-40 bg-zinc-950 py-2 pl-3 flex items-center pr-4 border-r border-zinc-900"
+                    style={{ width: `${LAB_LABEL_WIDTH}px` }}
+                  >
                     <div className={`w-2.5 h-2.5 rounded-full ${lab.color} mr-3 shadow-[0_0_8px_currentColor] opacity-80`} />
                     <span className="font-medium text-sm text-zinc-200 tracking-wide">{lab.name}</span>
                   </div>
                   
                   {/* Track */}
-                  <div className="flex-1 relative h-full">
+                  <div className="flex-1 relative h-full" style={leftEdgeFadeStyle}>
                     {/* Base line */}
                     <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[1px] bg-zinc-800/30" />
                     
