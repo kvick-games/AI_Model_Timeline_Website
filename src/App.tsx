@@ -31,17 +31,10 @@ type Tick = {
   label: string | number;
 };
 
-type MobileReleasePlacement = {
-  anchor: 'center' | 'end' | 'start';
-  lane: number;
-  leftPercent: number;
-  release: ProcessedRelease;
-  side: 'bottom' | 'top';
-};
-
 const DAY_MS = 1000 * 60 * 60 * 24;
 const START_DATE = new Date('2022-11-30T00:00:00Z');
 const LABEL_RAIL_WIDTH = 220;
+const MOBILE_LABEL_RAIL_WIDTH = 118;
 
 const labs: LabRecord[] = [
   {
@@ -249,54 +242,6 @@ function formatQuietDaysLabel(quietDays: number) {
   return `${quietDays} ${quietDays === 1 ? 'Day' : 'Days'} since last update`;
 }
 
-function formatMobileReleaseLabel(labName: string, releaseName: string) {
-  let label = releaseName;
-
-  if (labName.includes('Anthropic')) {
-    label = label.replace(/^Claude\s+/u, '');
-  } else if (labName.includes('Google')) {
-    label = label.replace(/^Gemini\s+/u, '');
-  } else if (labName.includes('xAI')) {
-    label = label.replace(/^Grok\s+/u, '');
-  }
-
-  return label
-    .replace(/\s*\(Preview\)/gu, ' Prev')
-    .replace(/Flash-Image/gu, 'Flash Img')
-    .replace(/Flash-Lite/gu, 'Flash Lite');
-}
-
-function buildMobileReleasePlacements(lab: ProcessedLab, currentGlobalDay: number) {
-  const minGapPercent = 12;
-  const scaleDay = Math.max(currentGlobalDay, lab.latestRelease?.globalDay ?? 0, 1);
-  const sideState = {
-    bottom: [-100, -100],
-    top: [-100, -100],
-  };
-
-  return lab.releases.map<MobileReleasePlacement>((release, releaseIndex) => {
-    const side = releaseIndex % 2 === 0 ? 'top' : 'bottom';
-    const rawPercent = 4 + (release.globalDay / scaleDay) * 92;
-    const leftPercent = Math.max(4, Math.min(96, rawPercent));
-    const activeLanes = sideState[side];
-    let lane = activeLanes.findIndex((lastPercent) => leftPercent - lastPercent >= minGapPercent);
-
-    if (lane === -1) {
-      lane = activeLanes.indexOf(Math.min(...activeLanes));
-    }
-
-    activeLanes[lane] = leftPercent;
-
-    return {
-      anchor: leftPercent < 14 ? 'start' : leftPercent > 86 ? 'end' : 'center',
-      lane,
-      leftPercent,
-      release,
-      side,
-    };
-  });
-}
-
 const SignalPulse = memo(function SignalPulse({className = 'text-emerald-400'}: {className?: string}) {
   return (
     <span className={`relative flex h-2.5 w-2.5 ${className}`} aria-hidden="true">
@@ -464,9 +409,16 @@ type DesktopTimelineExperienceProps = {
 
 type MobileTimelineExperienceProps = {
   currentGlobalDay: number;
+  handleZoomChange: ZoomHandler;
   latestLab: ProcessedLab | null;
+  maxDays: number;
   maxSummaryQuietDays: number;
+  monthTicks: Tick[];
   processedLabs: ProcessedLab[];
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  timelineWidth: number;
+  yearTicks: Tick[];
+  zoom: number;
 };
 
 function DesktopTimelineExperience({
@@ -804,9 +756,16 @@ function DesktopTimelineExperience({
 
 function MobileTimelineExperience({
   currentGlobalDay,
+  handleZoomChange,
   latestLab,
+  maxDays,
   maxSummaryQuietDays,
+  monthTicks,
   processedLabs,
+  scrollContainerRef,
+  timelineWidth,
+  yearTicks,
+  zoom,
 }: MobileTimelineExperienceProps) {
   return (
     <>
@@ -822,8 +781,8 @@ function MobileTimelineExperience({
               AI model launches, arranged as one continuous race.
             </h1>
             <p className="text-sm leading-7 text-[var(--ink-soft)]">
-              A mobile-first timeline of the same release race. Each provider keeps its own compressed horizontal lane,
-              scaled to the screen so the cadence still reads like a timeline without the desktop drag field.
+              The mobile view keeps the same release field as desktop, but turns it into a touch-first canvas. Swipe
+              across the timeline and zoom the width yourself when labels get dense.
             </p>
           </div>
 
@@ -838,68 +797,248 @@ function MobileTimelineExperience({
         </motion.div>
       </section>
 
-      <section className="mx-auto max-w-[640px] px-4 pb-16">
-        <div className="space-y-4">
+      <section className="mx-auto max-w-[760px] px-4 pb-6">
+        <motion.section
+          initial={{opacity: 0, y: 20}}
+          animate={{opacity: 1, y: 0}}
+          transition={{duration: 0.8, delay: 0.1, ease: [0.22, 1, 0.36, 1]}}
+          className="overflow-hidden rounded-[1.9rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
+        >
+          <div className="border-b border-[var(--edge)] px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Timeline field</p>
+            <div className="mt-3 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.14em] text-[var(--muted)]">
+              <span>Swipe horizontally to move</span>
+              <span className="font-mono">{Math.round(zoom * 100)}%</span>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <SurfaceButton label="Zoom out" onClick={() => handleZoomChange((current) => Math.max(current - 0.25, 0.75))}>
+                <ZoomOutIcon className="h-4 w-4" />
+              </SurfaceButton>
+
+              <SurfaceButton label="Reset zoom" onClick={() => handleZoomChange(() => 1.05)}>
+                <ResetIcon className="h-4 w-4" />
+              </SurfaceButton>
+
+              <SurfaceButton label="Zoom in" onClick={() => handleZoomChange((current) => Math.min(current + 0.25, 3.4))}>
+                <ZoomInIcon className="h-4 w-4" />
+              </SurfaceButton>
+            </div>
+
+            <label className="mt-4 block">
+              <span className="sr-only">Canvas zoom</span>
+              <input
+                type="range"
+                min="0.75"
+                max="3.4"
+                step="0.05"
+                value={zoom}
+                onChange={(event) => handleZoomChange(() => Number(event.target.value))}
+                className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[var(--edge)] accent-[var(--ink)]"
+              />
+            </label>
+          </div>
+
+          <div className="relative">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-[118px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.99)_0%,rgba(11,14,20,0.96)_72%,rgba(11,14,20,0)_100%)]">
+              <div className="px-3 pb-10 pt-20">
+                <div className="flex flex-col gap-8">
+                  {processedLabs.map((lab) => (
+                    <div key={`${lab.name}-mobile-rail`} className="flex min-h-[5rem] items-center">
+                      <div className="min-w-0">
+                        <div className="flex items-start gap-2">
+                          <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: lab.accent}} />
+                          <p className="text-[11px] font-semibold leading-[1.25] tracking-tight text-[var(--ink)]">
+                            {lab.name}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div
+              ref={scrollContainerRef}
+              className="relative overflow-x-auto overflow-y-hidden pb-6 [scrollbar-gutter:stable]"
+            >
+              <div className="relative" style={{minWidth: `${timelineWidth + MOBILE_LABEL_RAIL_WIDTH}px`}}>
+                <div style={{paddingLeft: `${MOBILE_LABEL_RAIL_WIDTH}px`}}>
+                  <div className="relative pb-10" style={{width: `${timelineWidth}px`}}>
+                    <div className="pointer-events-none absolute inset-0">
+                      {monthTicks.map((tick) => (
+                        <div
+                          key={`mobile-month-${tick.days}`}
+                          className="absolute bottom-0 top-0 border-l border-[var(--grid-line)]"
+                          style={{left: `${(tick.days / maxDays) * 100}%`}}
+                        >
+                          <div className="absolute left-0 top-9 -translate-x-1/2 rounded-full bg-[var(--surface-strong)] px-2 py-1 text-[9px] font-medium uppercase tracking-[0.16em] text-[var(--muted)] shadow-[var(--soft-shadow)]">
+                            {tick.label}
+                          </div>
+                        </div>
+                      ))}
+
+                      {yearTicks.map((tick) => (
+                        <div
+                          key={`mobile-year-${tick.label}`}
+                          className="absolute bottom-0 top-0 border-l-2 border-[var(--grid-line-strong)]"
+                          style={{left: `${(tick.days / maxDays) * 100}%`}}
+                        >
+                          <div className="absolute left-0 top-1 -translate-x-1/2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)]">
+                            {tick.label}
+                          </div>
+                        </div>
+                      ))}
+
+                      <div
+                        className="absolute bottom-0 top-0 border-l-2 border-[var(--today-line)]"
+                        style={{left: `${(currentGlobalDay / maxDays) * 100}%`}}
+                      >
+                        <div className="absolute left-0 top-1 -translate-x-1/2">
+                          <div className="inline-flex items-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ink)] shadow-[0_18px_40px_-24px_rgba(0,0,0,0.6)]">
+                            Today
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="relative flex flex-col gap-8 pb-10 pt-20">
+                      {processedLabs.map((lab, labIndex) => (
+                        <div key={`${lab.name}-mobile-row`} className="relative h-[5rem]">
+                          <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--track-line)]" />
+
+                          {lab.releases.map((release, releaseIndex) => {
+                            const previousRelease = lab.releases[releaseIndex - 1];
+                            const leftPercent = (release.globalDay / maxDays) * 100;
+                            const previousPercent = previousRelease ? (previousRelease.globalDay / maxDays) * 100 : leftPercent;
+                            const widthPercent = previousRelease ? leftPercent - previousPercent : 0;
+                            const delay = labIndex * 0.1 + releaseIndex * 0.07;
+                            const isLatestInLab =
+                              lab.latestRelease?.name === release.name && lab.latestRelease?.date === release.date;
+                            const labelTextColor = isLatestInLab ? mixHexColor(lab.accent, 255, 0.12) : mixHexColor(lab.accent, 255, 0.24);
+                            const labelBorderColor = toRgbaFromHex(lab.accent, isLatestInLab ? 0.5 : 0.3);
+                            const labelBackground = isLatestInLab ? toRgbaFromHex(lab.accent, 0.1) : undefined;
+
+                            return (
+                              <React.Fragment key={`${lab.name}-mobile-${release.name}`}>
+                                {previousRelease ? (
+                                  <motion.div
+                                    initial={{opacity: 0, scaleX: 0}}
+                                    animate={{opacity: 0.56, scaleX: 1}}
+                                    transition={{delay, duration: 0.65, ease: [0.22, 1, 0.36, 1]}}
+                                    className="absolute top-1/2 h-[2px] -translate-y-1/2 origin-left"
+                                    style={{
+                                      backgroundColor: lab.accent,
+                                      left: `${previousPercent}%`,
+                                      width: `${widthPercent}%`,
+                                    }}
+                                  >
+                                    <div className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2 py-1 text-[9px] font-mono uppercase tracking-[0.1em] text-[var(--muted)] shadow-[var(--soft-shadow)]">
+                                      {release.gap}d
+                                    </div>
+                                  </motion.div>
+                                ) : null}
+
+                                <motion.div
+                                  initial={{opacity: 0, scale: 0.8, y: 8}}
+                                  animate={{opacity: 1, scale: 1, y: 0}}
+                                  transition={{delay: delay + 0.08, duration: 0.42, type: 'spring', stiffness: 120, damping: 18}}
+                                  className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
+                                  style={{left: `${leftPercent}%`}}
+                                >
+                                  <div className="relative">
+                                    <div
+                                      className="h-3.5 w-3.5 rounded-full border-[3px] border-[var(--surface-strong)]"
+                                      style={{
+                                        backgroundColor: lab.accent,
+                                        boxShadow: isLatestInLab
+                                          ? `0 0 0 4px color-mix(in srgb, ${lab.accent} 18%, transparent), 0 0 18px color-mix(in srgb, ${lab.accent} 34%, transparent)`
+                                          : `0 0 0 4px color-mix(in srgb, ${lab.accent} 10%, transparent)`,
+                                        filter: isLatestInLab ? 'saturate(1.3) brightness(1.08)' : undefined,
+                                      }}
+                                    />
+
+                                    <div
+                                      className="absolute left-3 top-0 origin-bottom-left -translate-y-1 -rotate-[22deg] whitespace-nowrap rounded-[0.7rem] border px-1.5 py-0.5 text-[10px] font-bold tracking-[0.01em] shadow-[var(--soft-shadow)] backdrop-blur-sm"
+                                      style={{
+                                        backgroundColor: labelBackground,
+                                        borderColor: labelBorderColor,
+                                        color: labelTextColor,
+                                      }}
+                                    >
+                                      {release.name}
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              </React.Fragment>
+                            );
+                          })}
+
+                          {lab.latestRelease && currentGlobalDay > lab.latestRelease.globalDay ? (
+                            <>
+                              <motion.div
+                                initial={{opacity: 0, scaleX: 0}}
+                                animate={{opacity: 0.38, scaleX: 1}}
+                                transition={{
+                                  delay: labIndex * 0.12 + lab.releases.length * 0.08,
+                                  duration: 0.75,
+                                  ease: [0.22, 1, 0.36, 1],
+                                }}
+                                className="absolute top-1/2 border-t-2 border-dashed -translate-y-1/2 origin-left"
+                                style={{
+                                  borderColor: lab.accent,
+                                  left: `${(lab.latestRelease.globalDay / maxDays) * 100}%`,
+                                  width: `${((currentGlobalDay - lab.latestRelease.globalDay) / maxDays) * 100}%`,
+                                }}
+                              />
+
+                              <div
+                                className="absolute top-1/2 z-0 -translate-y-1/2 pl-2"
+                                style={{left: `${(currentGlobalDay / maxDays) * 100}%`}}
+                              >
+                                <div className="rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)]">
+                                  +{getQuietDays(lab, currentGlobalDay)}d
+                                </div>
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.section>
+      </section>
+
+      <section className="mx-auto max-w-[760px] px-4 pb-16">
+        <div className="grid gap-3 sm:grid-cols-2">
           {processedLabs.map((lab, index) => {
             const quietDays = getQuietDays(lab, currentGlobalDay);
             const fillWidth = getRecencyFillWidth(quietDays, maxSummaryQuietDays);
-            const latestRelease = lab.latestRelease;
-            const latestLabelTextColor = mixHexColor(lab.accent, 255, 0.12);
-            const latestLabelBorderColor = toRgbaFromHex(lab.accent, 0.52);
-            const latestLabelBackground = toRgbaFromHex(lab.accent, 0.12);
-            const mobilePlacements = buildMobileReleasePlacements(lab, currentGlobalDay);
 
             return (
-              <motion.article
-                key={lab.name}
-                initial={{opacity: 0, y: 18}}
+              <motion.div
+                key={`${lab.name}-mobile-summary`}
+                initial={{opacity: 0, y: 16}}
                 animate={{opacity: 1, y: 0}}
-                transition={{delay: 0.12 + index * 0.08, duration: 0.5, ease: [0.22, 1, 0.36, 1]}}
-                className="rounded-[1.7rem] border border-[var(--edge)] bg-[var(--surface)] p-4 shadow-[var(--soft-shadow)]"
+                transition={{delay: 0.16 + index * 0.06, duration: 0.46, ease: [0.22, 1, 0.36, 1]}}
+                className="rounded-[1.45rem] border border-[var(--edge)] bg-[var(--surface)] p-4 shadow-[var(--soft-shadow)]"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-3">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor: lab.accent,
-                          boxShadow: `0 0 0 4px color-mix(in srgb, ${lab.accent} 16%, transparent), 0 0 18px color-mix(in srgb, ${lab.accent} 34%, transparent)`,
-                          filter: 'saturate(1.35) brightness(1.08)',
-                        }}
-                      />
-                      <p className="min-w-0 text-sm font-semibold tracking-tight text-[var(--ink)]">{lab.name}</p>
-                    </div>
-
-                    {latestRelease ? (
-                      <>
-                        <div
-                          className="mt-3 inline-block max-w-full rounded-[0.8rem] border px-2.5 py-1.5 text-sm font-bold leading-snug shadow-[var(--soft-shadow)]"
-                          style={{
-                            backgroundColor: latestLabelBackground,
-                            borderColor: latestLabelBorderColor,
-                            color: latestLabelTextColor,
-                            textShadow: '0 1px 12px rgba(0, 0, 0, 0.5)',
-                            filter: 'saturate(1.18)',
-                          }}
-                        >
-                          {latestRelease.name}
-                        </div>
-
-                        <div className="mt-3">
-                          <p className="text-base font-semibold tracking-tight text-[var(--ink)]">
-                            {formatQuietDaysLabel(quietDays)}
-                          </p>
-                          <p className="mt-2 text-[11px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                            {latestRelease.dateLabel}
-                          </p>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="mt-3 text-sm text-[var(--ink-soft)]">No releases</p>
-                    )}
-                  </div>
+                <div className="flex items-center gap-3">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: lab.accent}} />
+                  <p className="truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{lab.name}</p>
                 </div>
+                <p className="mt-3 text-base font-semibold tracking-tight text-[var(--ink)]">
+                  {formatQuietDaysLabel(quietDays)}
+                </p>
+                <p className="mt-2 truncate text-sm text-[var(--ink-soft)]">{lab.latestRelease?.name ?? 'No releases'}</p>
+                <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[var(--muted)]">
+                  {lab.latestRelease?.dateLabel ?? 'Date unavailable'}
+                </p>
 
                 <div className="mt-4 h-1.5 rounded-full bg-[var(--edge)]">
                   <div
@@ -907,103 +1046,7 @@ function MobileTimelineExperience({
                     style={{backgroundColor: lab.accent, width: `${fillWidth}%`}}
                   />
                 </div>
-
-                <div className="mt-4 rounded-[1.2rem] border border-[var(--edge)] bg-[var(--surface-strong)]/80 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Timeline</p>
-                    <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                      {lab.releases.length} releases
-                    </p>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                    <span>{formatUtcDate(START_DATE, {month: 'short', year: 'numeric'})}</span>
-                    <span>Today</span>
-                  </div>
-
-                  <div className="relative mt-3 h-[10.5rem] overflow-hidden">
-                    <div className="absolute inset-x-2 top-[5.1rem] h-px bg-[var(--track-line)]" />
-                    <div className="absolute right-2 top-[4.55rem] h-[1.1rem] w-px bg-[var(--today-line)]" />
-
-                    {mobilePlacements.map((placement, releaseIndex) => {
-                      const {release, lane, leftPercent, side, anchor} = placement;
-                      const isLatestRelease =
-                        latestRelease?.name === release.name && latestRelease?.date === release.date;
-                      const labelTop = side === 'top' ? (lane === 0 ? 8 : 34) : lane === 0 ? 100 : 126;
-                      const stemTop = side === 'top' ? 62 : 84;
-                      const stemHeight = 12;
-                      const translateX =
-                        anchor === 'center' ? '-50%' : anchor === 'end' ? '-100%' : '0';
-                      const mobileLabel = formatMobileReleaseLabel(lab.name, release.name);
-
-                      return (
-                        <motion.div
-                          key={`${lab.name}-mobile-${release.name}`}
-                          initial={{opacity: 0, y: side === 'top' ? 8 : -8}}
-                          animate={{opacity: 1, y: 0}}
-                          transition={{
-                            delay: 0.18 + index * 0.06 + releaseIndex * 0.04,
-                            duration: 0.42,
-                            ease: [0.22, 1, 0.36, 1],
-                          }}
-                          className="absolute inset-y-0"
-                          style={{left: `${leftPercent}%`}}
-                        >
-                          <span
-                            className="absolute left-0 w-px -translate-x-1/2"
-                            style={{
-                              backgroundColor: isLatestRelease ? toRgbaFromHex(lab.accent, 0.46) : 'var(--edge-strong)',
-                              height: `${stemHeight}px`,
-                              top: `${stemTop}px`,
-                            }}
-                          />
-
-                          <span
-                            className="absolute left-0 top-[5.1rem] h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-[var(--surface-strong)]"
-                            style={{
-                              backgroundColor: lab.accent,
-                              boxShadow: isLatestRelease
-                                ? `0 0 0 4px color-mix(in srgb, ${lab.accent} 18%, transparent), 0 0 18px color-mix(in srgb, ${lab.accent} 38%, transparent)`
-                                : `0 0 0 4px color-mix(in srgb, ${lab.accent} 10%, transparent)`,
-                              filter: isLatestRelease ? 'saturate(1.32) brightness(1.06)' : undefined,
-                            }}
-                          />
-
-                          <div
-                            className="absolute max-w-[4.5rem]"
-                            style={{
-                              left: 0,
-                              top: `${labelTop}px`,
-                              transform: `translateX(${translateX})`,
-                            }}
-                          >
-                            {releaseIndex > 0 ? (
-                              <p className="mb-1 text-center font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--muted)]">
-                                +{release.gap}d
-                              </p>
-                            ) : null}
-
-                            <span
-                              className="block rounded-[0.9rem] border px-2 py-1 text-center text-[9px] font-semibold leading-[1.12] shadow-[var(--soft-shadow)]"
-                              style={{
-                                backgroundColor: isLatestRelease ? latestLabelBackground : 'var(--surface)',
-                                borderColor: isLatestRelease ? latestLabelBorderColor : 'var(--edge)',
-                                color: isLatestRelease ? latestLabelTextColor : 'var(--ink)',
-                              }}
-                            >
-                              {mobileLabel}
-                            </span>
-
-                            <p className="mt-1 text-center text-[9px] uppercase tracking-[0.08em] text-[var(--muted)]">
-                              {formatUtcDate(parseUtcDate(release.date), {month: 'short', year: '2-digit'})}
-                            </p>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </motion.article>
+              </motion.div>
             );
           })}
         </div>
@@ -1014,10 +1057,13 @@ function MobileTimelineExperience({
 
 export default function App() {
   const [zoom, setZoom] = useState(1);
+  const [mobileZoom, setMobileZoom] = useState(1.05);
   const [isPanning, setIsPanning] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const mobileScrollContainerRef = useRef<HTMLDivElement>(null);
   const hasPositionedInitialView = useRef(false);
+  const hasPositionedInitialMobileView = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
   const panStateRef = useRef({startScrollLeft: 0, startX: 0});
 
@@ -1026,6 +1072,7 @@ export default function App() {
   const currentGlobalDay = (today.getTime() - START_DATE.getTime()) / DAY_MS;
   const maxDays = Math.max(Math.ceil(currentGlobalDay) + 36, timelineData.latestGlobalDay + 36, 720);
   const timelineWidth = Math.max(1320, Math.round(maxDays * 2.24 * zoom));
+  const mobileTimelineWidth = Math.max(1320, Math.round(maxDays * 2.24 * mobileZoom));
   const {monthTicks, yearTicks} = useMemo(() => buildTicks(maxDays), [maxDays]);
 
   const latestLab = useMemo(() => {
@@ -1053,15 +1100,64 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (hasPositionedInitialView.current || !scrollContainerRef.current) {
+    if (hasPositionedInitialView.current) {
       return;
     }
 
-    const container = scrollContainerRef.current;
-    const dayOffset = LABEL_RAIL_WIDTH + (currentGlobalDay / maxDays) * timelineWidth;
-    container.scrollLeft = Math.max(0, dayOffset - container.clientWidth * 0.68);
-    hasPositionedInitialView.current = true;
+    const positionInitialDesktopView = () => {
+      if (hasPositionedInitialView.current || !scrollContainerRef.current) {
+        return;
+      }
+
+      const container = scrollContainerRef.current;
+      if (container.clientWidth === 0) {
+        return;
+      }
+
+      const dayOffset = LABEL_RAIL_WIDTH + (currentGlobalDay / maxDays) * timelineWidth;
+      container.scrollLeft = Math.max(0, dayOffset - container.clientWidth * 0.68);
+      hasPositionedInitialView.current = true;
+    };
+
+    positionInitialDesktopView();
+
+    if (hasPositionedInitialView.current) {
+      return;
+    }
+
+    window.addEventListener('resize', positionInitialDesktopView);
+    return () => window.removeEventListener('resize', positionInitialDesktopView);
   }, [currentGlobalDay, maxDays, timelineWidth]);
+
+  useEffect(() => {
+    if (hasPositionedInitialMobileView.current) {
+      return;
+    }
+
+    const positionInitialMobileView = () => {
+      if (hasPositionedInitialMobileView.current || !mobileScrollContainerRef.current) {
+        return;
+      }
+
+      const container = mobileScrollContainerRef.current;
+      if (container.clientWidth === 0) {
+        return;
+      }
+
+      const dayOffset = MOBILE_LABEL_RAIL_WIDTH + (currentGlobalDay / maxDays) * mobileTimelineWidth;
+      container.scrollLeft = Math.max(0, dayOffset - container.clientWidth * 0.78);
+      hasPositionedInitialMobileView.current = true;
+    };
+
+    positionInitialMobileView();
+
+    if (hasPositionedInitialMobileView.current) {
+      return;
+    }
+
+    window.addEventListener('resize', positionInitialMobileView);
+    return () => window.removeEventListener('resize', positionInitialMobileView);
+  }, [currentGlobalDay, maxDays, mobileTimelineWidth]);
 
   const handleZoomChange = (updater: (zoomLevel: number) => number) => {
     const container = scrollContainerRef.current;
@@ -1083,6 +1179,35 @@ export default function App() {
 
             scrollContainerRef.current.scrollLeft =
               centerRatio * scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth / 2;
+          });
+        }
+
+        return nextZoom;
+      });
+    });
+  };
+
+  const handleMobileZoomChange = (updater: (zoomLevel: number) => number) => {
+    const container = mobileScrollContainerRef.current;
+    const centerRatio = container ? (container.scrollLeft + container.clientWidth / 2) / container.scrollWidth : null;
+
+    startTransition(() => {
+      setMobileZoom((previousZoom) => {
+        const nextZoom = Number(updater(previousZoom).toFixed(2));
+
+        if (nextZoom === previousZoom) {
+          return previousZoom;
+        }
+
+        if (centerRatio !== null) {
+          requestAnimationFrame(() => {
+            if (!mobileScrollContainerRef.current) {
+              return;
+            }
+
+            mobileScrollContainerRef.current.scrollLeft =
+              centerRatio * mobileScrollContainerRef.current.scrollWidth -
+              mobileScrollContainerRef.current.clientWidth / 2;
           });
         }
 
@@ -1157,9 +1282,16 @@ export default function App() {
       <div className="md:hidden">
         <MobileTimelineExperience
           currentGlobalDay={currentGlobalDay}
+          handleZoomChange={handleMobileZoomChange}
           latestLab={latestLab}
+          maxDays={maxDays}
           maxSummaryQuietDays={maxSummaryQuietDays}
+          monthTicks={monthTicks}
           processedLabs={timelineData.processedLabs}
+          scrollContainerRef={mobileScrollContainerRef}
+          timelineWidth={mobileTimelineWidth}
+          yearTicks={yearTicks}
+          zoom={mobileZoom}
         />
       </div>
 
