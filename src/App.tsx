@@ -37,6 +37,7 @@ const labs = [
       { name: "Claude 4.5 Opus", date: "2025-11-24" },
       { name: "Claude 4.6 Sonnet", date: "2026-02-17" },
       { name: "Claude 4.6 Opus", date: "2026-02-05" },
+      { name: "Claude 4.7 Opus", date: "2026-04-16" },
     ]
   },
   {
