@@ -96,6 +96,7 @@ const labs: LabRecord[] = [
       {name: 'Grok 4', date: '2025-07-09'},
       {name: 'Grok 4.1', date: '2025-11-17'},
       {name: 'Grok 4.20', date: '2026-02-17'},
+      {name: 'Grok 4.3 (Beta)', date: '2026-04-17'},
     ],
   },
 ];
