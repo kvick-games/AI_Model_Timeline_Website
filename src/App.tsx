@@ -1,21 +1,72 @@
-import React, {memo, startTransition, useEffect, useMemo, useRef, useState} from 'react';
+import React, {startTransition, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Box,
+  BrainCircuit,
+  Check,
+  ChevronDown,
+  Globe2,
+  GripVertical,
+  Image as ImageIcon,
+  Layers3,
+  RotateCcw,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react';
 import {motion} from 'motion/react';
 
+type ModelClassId = 'frontier-llms' | 'open-source-llms' | 'image-generation' | '3d-generation';
+type PresetId =
+  | 'frontier-llms'
+  | 'chinese-open-source'
+  | 'mistral'
+  | 'image-generation'
+  | '3d-generation';
+
+type ModelClassConfig = {
+  id: ModelClassId;
+  label: string;
+  description: string;
+};
+
+type PresetConfig = {
+  id: PresetId;
+  classId: ModelClassId;
+  label: string;
+  description: string;
+};
+
+type BoardView = {
+  description: string;
+  isComposite: boolean;
+  isDefault: boolean;
+  isEmpty: boolean;
+  label: string;
+};
+
 type ReleaseRecord = {
+  classes?: ModelClassId[];
   name: string;
+  presets?: PresetId[];
   date: string;
 };
 
 type LabRecord = {
+  id: string;
   name: string;
   accent: string;
+  defaultClasses: ModelClassId[];
+  defaultPresets: PresetId[];
   releases: ReleaseRecord[];
 };
 
 type ProcessedRelease = ReleaseRecord & {
+  classes: ModelClassId[];
   dateLabel: string;
   globalDay: number;
   gap: number;
+  presets: PresetId[];
 };
 
 type ProcessedLab = Omit<LabRecord, 'releases'> & {
@@ -34,8 +85,8 @@ type Tick = {
 const DAY_MS = 1000 * 60 * 60 * 24;
 const START_DATE = new Date('2022-11-30T00:00:00Z');
 const TIMELINE_PIXELS_PER_DAY = 2.24;
-const LABEL_RAIL_WIDTH = 220;
-const MOBILE_LABEL_RAIL_WIDTH = 118;
+const LABEL_RAIL_WIDTH = 320;
+const MOBILE_LABEL_RAIL_WIDTH = 196;
 const DEFAULT_DESKTOP_ZOOM = 1;
 const DEFAULT_MOBILE_ZOOM = 1.05;
 const DESKTOP_MAX_ZOOM = 4;
@@ -45,11 +96,72 @@ const SIGMOID_STEEPNESS = 6;
 const FIT_BUFFER_MULTIPLIER = 0.92;
 const DRAG_ZOOM_PROGRESS_PER_PIXEL = 0.0011;
 const DRAG_ZOOM_DEADZONE_PX = 12;
+const DEFAULT_PRESET_ID: PresetId = 'frontier-llms';
+const DEFAULT_SELECTED_PRESET_IDS: PresetId[] = [DEFAULT_PRESET_ID];
+
+const modelClasses: ModelClassConfig[] = [
+  {
+    id: 'frontier-llms',
+    label: 'Frontier LLMs',
+    description: 'Closed and frontier text/reasoning labs.',
+  },
+  {
+    id: 'open-source-llms',
+    label: 'Open-Source LLMs',
+    description: 'Open-weight and community-distributed language models.',
+  },
+  {
+    id: 'image-generation',
+    label: 'Image Generation',
+    description: 'Text-to-image and multimodal image model releases.',
+  },
+  {
+    id: '3d-generation',
+    label: '3D Generation',
+    description: 'Image-to-3D and asset-generation model releases.',
+  },
+];
+
+const modelPresets: PresetConfig[] = [
+  {
+    id: 'frontier-llms',
+    classId: 'frontier-llms',
+    label: 'Frontier LLMs',
+    description: 'The default board for OpenAI, Anthropic, Google, and xAI.',
+  },
+  {
+    id: 'chinese-open-source',
+    classId: 'open-source-llms',
+    label: 'Chinese Open Source',
+    description: 'DeepSeek, Qwen, Kimi, and GLM release cadence.',
+  },
+  {
+    id: 'mistral',
+    classId: 'open-source-llms',
+    label: 'Mistral',
+    description: 'Mistral open and commercial model milestones.',
+  },
+  {
+    id: 'image-generation',
+    classId: 'image-generation',
+    label: 'Image Generation',
+    description: 'Major image model generations across creative labs.',
+  },
+  {
+    id: '3d-generation',
+    classId: '3d-generation',
+    label: '3D Generation',
+    description: '3D asset and reconstruction models from specialized labs.',
+  },
+];
 
 const labs: LabRecord[] = [
   {
+    id: 'openai-gpt',
     name: 'OpenAI (GPT)',
     accent: '#139a74',
+    defaultClasses: ['frontier-llms'],
+    defaultPresets: ['frontier-llms'],
     releases: [
       {name: 'GPT-3.5', date: '2022-11-30'},
       {name: 'GPT-4', date: '2023-03-14'},
@@ -66,8 +178,11 @@ const labs: LabRecord[] = [
     ],
   },
   {
+    id: 'anthropic-claude',
     name: 'Anthropic (Claude)',
     accent: '#d38b14',
+    defaultClasses: ['frontier-llms'],
+    defaultPresets: ['frontier-llms'],
     releases: [
       {name: 'Claude 1', date: '2023-03-14'},
       {name: 'Claude 2', date: '2023-07-11'},
@@ -83,8 +198,11 @@ const labs: LabRecord[] = [
     ],
   },
   {
+    id: 'google-gemini',
     name: 'Google (Gemini)',
     accent: '#2d6ed8',
+    defaultClasses: ['frontier-llms'],
+    defaultPresets: ['frontier-llms'],
     releases: [
       {name: 'Gemini 1.0', date: '2023-12-06'},
       {name: 'Gemini 1.5', date: '2024-02-15'},
@@ -97,8 +215,11 @@ const labs: LabRecord[] = [
     ],
   },
   {
+    id: 'xai-grok',
     name: 'xAI (Grok)',
     accent: '#777f90',
+    defaultClasses: ['frontier-llms'],
+    defaultPresets: ['frontier-llms'],
     releases: [
       {name: 'Grok 1', date: '2023-11-04'},
       {name: 'Grok 1.5', date: '2024-03-28'},
@@ -108,6 +229,167 @@ const labs: LabRecord[] = [
       {name: 'Grok 4.1', date: '2025-11-17'},
       {name: 'Grok 4.20', date: '2026-02-17'},
       {name: 'Grok 4.3 (Beta)', date: '2026-04-17'},
+    ],
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    accent: '#4d8bd6',
+    defaultClasses: ['open-source-llms'],
+    defaultPresets: ['chinese-open-source'],
+    releases: [
+      {name: 'DeepSeek-V2', date: '2024-05-06'},
+      {name: 'DeepSeek-V2.5', date: '2024-09-05'},
+      {name: 'DeepSeek-V3', date: '2024-12-26'},
+      {name: 'DeepSeek-R1', date: '2025-01-20'},
+      {name: 'DeepSeek-R1-0528', date: '2025-05-28'},
+      {name: 'DeepSeek-V3.1', date: '2025-08-21'},
+    ],
+  },
+  {
+    id: 'qwen',
+    name: 'Alibaba (Qwen)',
+    accent: '#8c79d6',
+    defaultClasses: ['open-source-llms'],
+    defaultPresets: ['chinese-open-source'],
+    releases: [
+      {name: 'Qwen2', date: '2024-06-07'},
+      {name: 'Qwen2.5', date: '2024-09-19'},
+      {name: 'Qwen2.5-VL', date: '2025-01-28'},
+      {name: 'Qwen3', date: '2025-04-29'},
+      {name: 'Qwen3-Coder', date: '2025-07-29'},
+      {name: 'Qwen3.6-35B-A3B', date: '2026-04-17'},
+    ],
+  },
+  {
+    id: 'moonshot-kimi',
+    name: 'Moonshot AI (Kimi)',
+    accent: '#56a3a6',
+    defaultClasses: ['open-source-llms'],
+    defaultPresets: ['chinese-open-source'],
+    releases: [
+      {name: 'Kimi Chat', date: '2023-10-09'},
+      {name: 'Kimi k1.5', date: '2025-01-20'},
+      {name: 'Kimi K2', date: '2025-07-11'},
+    ],
+  },
+  {
+    id: 'zhipu-glm',
+    name: 'Zhipu AI (GLM)',
+    accent: '#c78f38',
+    defaultClasses: ['open-source-llms'],
+    defaultPresets: ['chinese-open-source'],
+    releases: [
+      {name: 'GLM-4', date: '2024-01-16'},
+      {name: 'GLM-4-9B', date: '2024-06-05'},
+      {name: 'GLM-4.5', date: '2025-07-28'},
+    ],
+  },
+  {
+    id: 'mistral-ai',
+    name: 'Mistral AI',
+    accent: '#ff9f1c',
+    defaultClasses: ['open-source-llms'],
+    defaultPresets: ['mistral'],
+    releases: [
+      {name: 'Mistral 7B', date: '2023-09-27'},
+      {name: 'Mixtral 8x7B', date: '2023-12-11'},
+      {name: 'Mistral Large', date: '2024-02-26'},
+      {name: 'Mixtral 8x22B', date: '2024-04-17'},
+      {name: 'Codestral', date: '2024-05-29'},
+      {name: 'Mistral Large 2', date: '2024-07-24'},
+      {name: 'Mistral Small 3', date: '2025-01-30'},
+      {name: 'Mistral Medium 3', date: '2025-05-07'},
+    ],
+  },
+  {
+    id: 'openai-image',
+    name: 'OpenAI (Image)',
+    accent: '#1da17d',
+    defaultClasses: ['image-generation'],
+    defaultPresets: ['image-generation'],
+    releases: [
+      {name: 'DALL-E 2', date: '2022-09-28'},
+      {name: 'DALL-E 3', date: '2023-09-20'},
+      {name: 'GPT-4o Image', date: '2025-03-25'},
+      {name: 'GPT Image 2', date: '2026-04-21'},
+    ],
+  },
+  {
+    id: 'midjourney',
+    name: 'Midjourney',
+    accent: '#c0537a',
+    defaultClasses: ['image-generation'],
+    defaultPresets: ['image-generation'],
+    releases: [
+      {name: 'Midjourney V5', date: '2023-03-15'},
+      {name: 'Midjourney V6', date: '2023-12-20'},
+      {name: 'Midjourney V6.1', date: '2024-07-30'},
+      {name: 'Midjourney V7', date: '2025-04-03'},
+      {name: 'Niji 7', date: '2026-01-09'},
+    ],
+  },
+  {
+    id: 'stability-image',
+    name: 'Stability AI (Image)',
+    accent: '#6b8e4e',
+    defaultClasses: ['image-generation'],
+    defaultPresets: ['image-generation'],
+    releases: [
+      {name: 'Stable Diffusion 2.0', date: '2022-11-24'},
+      {name: 'SDXL 1.0', date: '2023-07-26'},
+      {name: 'Stable Diffusion 3 Medium', date: '2024-06-12'},
+      {name: 'Stable Diffusion 3.5', date: '2024-10-22'},
+    ],
+  },
+  {
+    id: 'black-forest-labs',
+    name: 'Black Forest Labs',
+    accent: '#7b6bd6',
+    defaultClasses: ['image-generation'],
+    defaultPresets: ['image-generation'],
+    releases: [
+      {name: 'FLUX.1', date: '2024-08-01'},
+      {name: 'FLUX.1 Tools', date: '2024-11-21'},
+      {name: 'FLUX.1 Kontext', date: '2025-05-29'},
+    ],
+  },
+  {
+    id: 'stability-3d',
+    name: 'Stability AI (3D)',
+    accent: '#9b8a52',
+    defaultClasses: ['3d-generation'],
+    defaultPresets: ['3d-generation'],
+    releases: [
+      {name: 'Stable Zero123', date: '2023-12-13'},
+      {name: 'TripoSR', date: '2024-03-04'},
+      {name: 'Stable Video 3D', date: '2024-03-18'},
+      {name: 'Stable Fast 3D', date: '2024-08-01'},
+      {name: 'Stable Point Aware 3D', date: '2025-03-18'},
+    ],
+  },
+  {
+    id: 'tencent-hunyuan-3d',
+    name: 'Tencent (Hunyuan3D)',
+    accent: '#327ec7',
+    defaultClasses: ['3d-generation'],
+    defaultPresets: ['3d-generation'],
+    releases: [
+      {name: 'Hunyuan3D 1.0', date: '2024-11-05'},
+      {name: 'Hunyuan3D 2.0', date: '2025-01-21'},
+      {name: 'Hunyuan3D 2.1', date: '2025-06-18'},
+    ],
+  },
+  {
+    id: 'tripo-ai',
+    name: 'Tripo AI',
+    accent: '#d15f45',
+    defaultClasses: ['3d-generation'],
+    defaultPresets: ['3d-generation'],
+    releases: [
+      {name: 'Tripo AI', date: '2023-09-12'},
+      {name: 'TripoSR', date: '2024-03-04'},
+      {name: 'Tripo 2.0', date: '2025-01-21'},
     ],
   },
 ];
@@ -156,11 +438,195 @@ function toRgbaFromHex(hexColor: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function getReleaseClasses(lab: LabRecord, release: ReleaseRecord): ModelClassId[] {
+  return release.classes ?? lab.defaultClasses;
+}
+
+function getReleasePresets(lab: LabRecord, release: ReleaseRecord): PresetId[] {
+  return release.presets ?? lab.defaultPresets;
+}
+
+function getModelClassById(classId: ModelClassId) {
+  return modelClasses.find((modelClass) => modelClass.id === classId) ?? modelClasses[0];
+}
+
+function getPresetById(presetId: PresetId) {
+  return modelPresets.find((preset) => preset.id === presetId) ?? modelPresets[0];
+}
+
+function getBoardView(selectedPresetIds: PresetId[]): BoardView {
+  const selectedPresets = modelPresets.filter((preset) => selectedPresetIds.includes(preset.id));
+
+  if (selectedPresets.length === 0) {
+    return {
+      description: 'No model groups are currently selected.',
+      isComposite: true,
+      isDefault: false,
+      isEmpty: true,
+      label: 'No groups selected',
+    };
+  }
+
+  if (selectedPresets.length === 1) {
+    const preset = selectedPresets[0];
+
+    return {
+      description: preset.description,
+      isComposite: false,
+      isDefault: preset.id === DEFAULT_PRESET_ID,
+      isEmpty: false,
+      label: preset.label,
+    };
+  }
+
+  if (selectedPresets.length === modelPresets.length) {
+    return {
+      description: 'Every tracked LLM, image, and 3D model release is visible.',
+      isComposite: true,
+      isDefault: false,
+      isEmpty: false,
+      label: 'All groups selected',
+    };
+  }
+
+  return {
+    description: selectedPresets.map((preset) => preset.label).join(', '),
+    isComposite: true,
+    isDefault: false,
+    isEmpty: false,
+    label: `${selectedPresets.length} groups selected`,
+  };
+}
+
+function getVisibleLabs(data: LabRecord[], selectedPresetIds: PresetId[]) {
+  if (selectedPresetIds.length === 0) {
+    return [];
+  }
+
+  return data
+    .map<LabRecord>((lab) => ({
+      ...lab,
+      releases: lab.releases.filter((release) => {
+        const releasePresets = getReleasePresets(lab, release);
+        return selectedPresetIds.some((presetId) => releasePresets.includes(presetId));
+      }),
+    }))
+    .filter((lab) => lab.releases.length > 0);
+}
+
+function buildPresetStats(data: LabRecord[]) {
+  return modelPresets.reduce<Record<PresetId, {providerCount: number; releaseCount: number}>>((stats, preset) => {
+    const visibleLabs = getVisibleLabs(data, [preset.id]);
+
+    stats[preset.id] = {
+      providerCount: visibleLabs.length,
+      releaseCount: visibleLabs.reduce((sum, lab) => sum + lab.releases.length, 0),
+    };
+
+    return stats;
+  }, {} as Record<PresetId, {providerCount: number; releaseCount: number}>);
+}
+
+function getPrimaryLabClass(lab: Pick<LabRecord, 'defaultClasses'>): ModelClassId {
+  return lab.defaultClasses[0] ?? 'frontier-llms';
+}
+
+function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
+  const nextItems = [...items];
+  const [item] = nextItems.splice(fromIndex, 1);
+
+  if (item === undefined) {
+    return items;
+  }
+
+  nextItems.splice(toIndex, 0, item);
+  return nextItems;
+}
+
+function getCanonicalLabOrderIds(labOrderIds: string[]) {
+  const knownIds = new Set(labs.map((lab) => lab.id));
+  const orderedIds = labOrderIds.filter((labId) => knownIds.has(labId));
+  const orderedIdSet = new Set(orderedIds);
+  const newLabIds = labs.map((lab) => lab.id).filter((labId) => !orderedIdSet.has(labId));
+
+  return [...orderedIds, ...newLabIds];
+}
+
+function orderLabs(data: LabRecord[], labOrderIds: string[], hiddenLabIds: string[]) {
+  const labById = new Map(data.map((lab) => [lab.id, lab]));
+  const hiddenLabIdSet = new Set(hiddenLabIds);
+  const orderedLabs = getCanonicalLabOrderIds(labOrderIds)
+    .map((labId) => labById.get(labId))
+    .filter((lab): lab is LabRecord => Boolean(lab));
+  const orderedLabIdSet = new Set(orderedLabs.map((lab) => lab.id));
+  const newLabs = data.filter((lab) => !orderedLabIdSet.has(lab.id));
+
+  return [...orderedLabs, ...newLabs].filter((lab) => !hiddenLabIdSet.has(lab.id));
+}
+
+function reorderVisibleLabIds(
+  labOrderIds: string[],
+  visibleLabIds: string[],
+  sourceLabId: string,
+  targetLabId: string,
+) {
+  if (sourceLabId === targetLabId) {
+    return labOrderIds;
+  }
+
+  const visibleLabIdSet = new Set(visibleLabIds);
+  const orderedLabIds = getCanonicalLabOrderIds(labOrderIds);
+  const orderedVisibleLabIds = orderedLabIds.filter((labId) => visibleLabIdSet.has(labId));
+  const sourceIndex = orderedVisibleLabIds.indexOf(sourceLabId);
+  const targetIndex = orderedVisibleLabIds.indexOf(targetLabId);
+
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return orderedLabIds;
+  }
+
+  const nextVisibleLabIds = moveArrayItem(orderedVisibleLabIds, sourceIndex, targetIndex);
+  let visibleIndex = 0;
+
+  return orderedLabIds.map((labId) => {
+    if (!visibleLabIdSet.has(labId)) {
+      return labId;
+    }
+
+    const nextLabId = nextVisibleLabIds[visibleIndex];
+    visibleIndex += 1;
+    return nextLabId ?? labId;
+  });
+}
+
+function moveVisibleLabId(
+  labOrderIds: string[],
+  visibleLabIds: string[],
+  labId: string,
+  direction: 'up' | 'down',
+) {
+  const visibleLabIdSet = new Set(visibleLabIds);
+  const orderedVisibleLabIds = getCanonicalLabOrderIds(labOrderIds).filter((currentLabId) =>
+    visibleLabIdSet.has(currentLabId),
+  );
+  const sourceIndex = orderedVisibleLabIds.indexOf(labId);
+  const targetIndex = direction === 'up' ? sourceIndex - 1 : sourceIndex + 1;
+
+  if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= orderedVisibleLabIds.length) {
+    return labOrderIds;
+  }
+
+  return reorderVisibleLabIds(labOrderIds, visibleLabIds, labId, orderedVisibleLabIds[targetIndex]);
+}
+
 function buildTimelineData(data: LabRecord[]) {
   const invalidEntries: string[] = [];
 
   const processedLabs = data.map<ProcessedLab>((lab) => {
-    const sortedReleases = [...lab.releases].sort((left, right) => {
+    const sortedReleases = lab.releases.map((release) => ({
+      ...release,
+      classes: getReleaseClasses(lab, release),
+      presets: getReleasePresets(lab, release),
+    })).sort((left, right) => {
       const leftDate = parseUtcDate(left.date).getTime();
       const rightDate = parseUtcDate(right.date).getTime();
       return leftDate - rightDate || left.name.localeCompare(right.name);
@@ -324,16 +790,6 @@ function getScrollLeftForTimelineAnchor(
   return railWidth + anchorRatio * timelineWidth - anchorOffsetX;
 }
 
-const SignalPulse = memo(function SignalPulse({className = 'text-emerald-400'}: {className?: string}) {
-  return (
-    <span className={`relative flex h-2.5 w-2.5 ${className}`} aria-hidden="true">
-      <span className="signal-pulse-ring absolute inset-0 rounded-full border border-current" />
-      <span className="signal-pulse-ring signal-pulse-ring-delay absolute inset-0 rounded-full border border-current" />
-      <span className="relative h-2.5 w-2.5 rounded-full bg-current shadow-[0_0_12px_currentColor]" />
-    </span>
-  );
-});
-
 function ZoomInIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
@@ -374,6 +830,209 @@ function DragIcon(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
+function ModelClassIcon({classId, className}: {classId: ModelClassId; className?: string}) {
+  const iconClassName = className ?? 'h-4 w-4';
+
+  if (classId === 'frontier-llms') {
+    return <BrainCircuit className={iconClassName} strokeWidth={1.8} />;
+  }
+
+  if (classId === 'open-source-llms') {
+    return <Globe2 className={iconClassName} strokeWidth={1.8} />;
+  }
+
+  if (classId === 'image-generation') {
+    return <ImageIcon className={iconClassName} strokeWidth={1.8} />;
+  }
+
+  if (classId === '3d-generation') {
+    return <Box className={iconClassName} strokeWidth={1.8} />;
+  }
+
+  return <Layers3 className={iconClassName} strokeWidth={1.8} />;
+}
+
+type ModelClassExplorerProps = {
+  activeClassId: ModelClassId;
+  boardView: BoardView;
+  isOpen: boolean;
+  onClassSelect: (classId: ModelClassId) => void;
+  onClearAll: () => void;
+  onClose: () => void;
+  onPresetToggle: (presetId: PresetId) => void;
+  onReset: () => void;
+  onSelectAll: () => void;
+  onToggle: () => void;
+  presetStats: Record<PresetId, {providerCount: number; releaseCount: number}>;
+  selectedPresetIds: PresetId[];
+};
+
+function ModelClassExplorer({
+  activeClassId,
+  boardView,
+  isOpen,
+  onClassSelect,
+  onClearAll,
+  onClose,
+  onPresetToggle,
+  onReset,
+  onSelectAll,
+  onToggle,
+  presetStats,
+  selectedPresetIds,
+}: ModelClassExplorerProps) {
+  const activeClass = getModelClassById(activeClassId);
+  const classPresets = modelPresets.filter((preset) => preset.classId === activeClassId);
+  const selectedCount = selectedPresetIds.length;
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        aria-label="Explore model classes"
+        onClick={onToggle}
+        className="inline-flex h-11 max-w-full items-center justify-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface)] px-4 text-sm font-medium text-[var(--ink)] shadow-[var(--soft-shadow)] transition duration-300 hover:-translate-y-[1px] hover:border-[var(--edge-strong)] hover:bg-[var(--surface-strong)] active:translate-y-0 active:scale-[0.98]"
+      >
+        <SlidersHorizontal className="h-4 w-4 shrink-0" strokeWidth={1.8} />
+        <span className="min-w-0 truncate">{boardView.label}</span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 transition duration-300 ${isOpen ? 'rotate-180' : ''}`}
+          strokeWidth={1.8}
+        />
+      </button>
+
+      {isOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="Close model class explorer"
+            onClick={onClose}
+            className="fixed inset-0 z-30 cursor-default bg-[#05070b]/70 backdrop-blur-sm md:bg-transparent md:backdrop-blur-none"
+          />
+
+          <motion.div
+            initial={{opacity: 0, y: 16, scale: 0.98}}
+            animate={{opacity: 1, y: 0, scale: 1}}
+            transition={{duration: 0.24, ease: [0.22, 1, 0.36, 1]}}
+            className="fixed inset-x-3 bottom-3 z-40 max-h-[82dvh] overflow-hidden rounded-[1.4rem] border border-[var(--edge-strong)] bg-[rgba(10,13,19,0.98)] shadow-[0_34px_90px_-42px_rgba(0,0,0,0.9)] backdrop-blur-xl md:absolute md:inset-x-auto md:bottom-auto md:right-0 md:top-[calc(100%+0.75rem)] md:w-[520px]"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-[var(--edge)] px-4 py-4">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Model class</p>
+                <p className="mt-1 truncate text-base font-semibold tracking-tight text-[var(--ink)]">{activeClass.label}</p>
+                <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
+                  {selectedCount} of {modelPresets.length} groups active
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close model class explorer"
+                onClick={onClose}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--edge)] text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface-strong)] active:scale-[0.96]"
+              >
+                <X className="h-4 w-4" strokeWidth={1.8} />
+              </button>
+            </div>
+
+            <div className="max-h-[calc(82dvh-4.5rem)] overflow-y-auto px-4 py-4">
+              <div className="grid grid-cols-2 gap-2">
+                {modelClasses.map((modelClass) => {
+                  const isActive = modelClass.id === activeClassId;
+
+                  return (
+                    <button
+                      key={modelClass.id}
+                      type="button"
+                      onClick={() => onClassSelect(modelClass.id)}
+                      className={`min-h-20 rounded-[0.9rem] border p-3 text-left transition duration-300 active:scale-[0.98] ${
+                        isActive
+                          ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] text-[var(--ink)]'
+                          : 'border-[var(--edge)] bg-transparent text-[var(--ink-soft)] hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <ModelClassIcon classId={modelClass.id} className="h-4 w-4 shrink-0" />
+                        <span className="text-sm font-semibold tracking-tight">{modelClass.label}</span>
+                      </span>
+                      <span className="mt-2 block text-xs leading-5 text-[var(--muted)]">{modelClass.description}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 space-y-2">
+                {classPresets.map((preset) => {
+                  const isSelected = selectedPresetIds.includes(preset.id);
+                  const stats = presetStats[preset.id];
+
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => onPresetToggle(preset.id)}
+                      className={`grid w-full grid-cols-[1fr_auto] gap-4 rounded-[0.95rem] border p-4 text-left transition duration-300 active:scale-[0.99] ${
+                        isSelected
+                          ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
+                          : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{preset.label}</span>
+                        <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">{preset.description}</span>
+                        <span className="mt-3 block font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
+                          {stats.providerCount} labs / {stats.releaseCount} releases
+                        </span>
+                      </span>
+
+                      <span
+                        className={`mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border ${
+                          isSelected
+                            ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]'
+                            : 'border-[var(--edge)] text-transparent'
+                        }`}
+                      >
+                        <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={onSelectAll}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+                >
+                  <Layers3 className="h-4 w-4" strokeWidth={1.8} />
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={onClearAll}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+                >
+                  <X className="h-4 w-4" strokeWidth={1.8} />
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={onReset}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+                >
+                  <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
+                  Reset
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function SurfaceButton({
   children,
   label,
@@ -395,18 +1054,141 @@ function SurfaceButton({
   );
 }
 
-function LabRailItem({lab}: {lab: ProcessedLab}) {
+function LabTypeIconBadge({className = '', lab}: {className?: string; lab: Pick<LabRecord, 'defaultClasses'>}) {
   return (
-    <div className="flex h-[4.5rem] items-center">
-      <div className="min-w-0">
-        <div className="flex items-center gap-3">
-          <span className="flex h-3 w-3 items-center justify-center rounded-full" style={{color: lab.accent}}>
-            <SignalPulse className="text-inherit" />
-          </span>
-          <p className="truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{lab.name}</p>
+    <span className={`inline-flex shrink-0 items-center justify-center text-[var(--ink)] ${className}`}>
+      <ModelClassIcon classId={getPrimaryLabClass(lab)} className="h-[1rem] w-[1rem]" />
+    </span>
+  );
+}
+
+function LabRailItem({
+  compact = false,
+  draggedLabId,
+  isFirst,
+  isLast,
+  lab,
+  onDragEnd,
+  onDragStart,
+  onHide,
+  onMove,
+  onReorder,
+}: {
+  compact?: boolean;
+  draggedLabId: string | null;
+  isFirst: boolean;
+  isLast: boolean;
+  lab: ProcessedLab;
+  onDragEnd: () => void;
+  onDragStart: (labId: string) => void;
+  onHide: (labId: string) => void;
+  onMove: LabMoveHandler;
+  onReorder: LabReorderHandler;
+}) {
+  const isDragging = draggedLabId === lab.id;
+  const canDrop = Boolean(draggedLabId && draggedLabId !== lab.id);
+  const actionClassName =
+    'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-transparent text-[var(--muted)] transition duration-200 hover:border-[var(--edge)] hover:bg-[var(--surface-strong)] hover:text-[var(--ink)] disabled:pointer-events-none disabled:opacity-30';
+
+  const handleButtonClick = (event: React.MouseEvent<HTMLButtonElement>, action: () => void) => {
+    event.stopPropagation();
+    action();
+  };
+
+  return (
+    <motion.div
+      layout
+      className={`group/rail pointer-events-auto flex ${compact ? 'min-h-[5rem]' : 'h-[4.5rem]'} items-center`}
+    >
+      <div
+        draggable
+        onDragEnd={onDragEnd}
+        onDragOver={(event) => {
+          if (!canDrop) {
+            return;
+          }
+
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+        }}
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', lab.id);
+          onDragStart(lab.id);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const sourceLabId = event.dataTransfer.getData('text/plain') || draggedLabId;
+
+          if (sourceLabId) {
+            onReorder(sourceLabId, lab.id);
+          }
+
+          onDragEnd();
+        }}
+        className={`relative w-full cursor-grab rounded-[0.95rem] border px-3 py-2 transition duration-200 active:cursor-grabbing ${
+          isDragging
+            ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] opacity-55'
+            : canDrop
+              ? 'border-[var(--edge)] bg-[rgba(255,255,255,0.02)] hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+              : 'border-transparent bg-transparent hover:border-[var(--edge)] hover:bg-[var(--surface)]'
+        }`}
+      >
+        <div className={`flex items-center ${compact ? 'gap-2' : 'gap-3'}`}>
+          <GripVertical className="h-4 w-4 shrink-0 text-[var(--muted)]" strokeWidth={1.8} />
+          <LabTypeIconBadge className={compact ? 'h-7 w-7' : 'h-8 w-8'} lab={lab} />
+          <p
+            className={`min-w-0 flex-1 truncate font-semibold tracking-tight text-[var(--ink)] ${
+              compact ? 'text-[12px] leading-[1.2]' : 'text-sm'
+            }`}
+          >
+            {lab.name}
+          </p>
+
+          <div
+            className={`shrink-0 items-center gap-0.5 transition duration-200 ${
+              compact
+                ? 'flex'
+                : 'absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-full border border-[var(--edge)] bg-[rgba(10,13,19,0.96)] px-1 py-1 shadow-[var(--soft-shadow)] group-hover/rail:flex group-focus-within/rail:flex'
+            }`}
+          >
+            {!compact ? (
+              <>
+                <button
+                  type="button"
+                  aria-label={`Move ${lab.name} up`}
+                  className={actionClassName}
+                  disabled={isFirst}
+                  onClick={(event) => handleButtonClick(event, () => onMove(lab.id, 'up'))}
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
+                  <ArrowUp className="h-3.5 w-3.5" strokeWidth={1.8} />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Move ${lab.name} down`}
+                  className={actionClassName}
+                  disabled={isLast}
+                  onClick={(event) => handleButtonClick(event, () => onMove(lab.id, 'down'))}
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
+                  <ArrowDown className="h-3.5 w-3.5" strokeWidth={1.8} />
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              aria-label={`Hide ${lab.name}`}
+              className={`${actionClassName} hover:border-[rgba(255,255,255,0.16)] hover:text-[var(--ink)]`}
+              onClick={(event) => handleButtonClick(event, () => onHide(lab.id))}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={1.9} />
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -425,6 +1207,46 @@ function StateScreen({
           <h1 className="mt-4 text-4xl tracking-tighter text-[var(--ink)]">{title}</h1>
           <p className="mt-4 max-w-[56ch] text-base leading-relaxed text-[var(--ink-soft)]">{detail}</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TimelineEmptyState({
+  boardView,
+  hiddenModelCount,
+  onShowHiddenLabs,
+}: {
+  boardView: BoardView;
+  hiddenModelCount: number;
+  onShowHiddenLabs: () => void;
+}) {
+  const hasHiddenModels = hiddenModelCount > 0;
+
+  return (
+    <div className="flex min-h-[18rem] items-center justify-center px-6 py-14">
+      <div className="max-w-[34rem] text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] text-[var(--ink-soft)]">
+          <Layers3 className="h-5 w-5" strokeWidth={1.8} />
+        </div>
+        <p className="mt-5 text-lg font-semibold tracking-tight text-[var(--ink)]">
+          {hasHiddenModels ? 'All visible models are hidden' : `${boardView.label} has no releases yet`}
+        </p>
+        <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
+          {hasHiddenModels
+            ? 'Show hidden rows or turn on another model group to repopulate the timeline.'
+            : 'Add releases tagged to the selected groups and the same timeline, summary cards, and recency markers will render here.'}
+        </p>
+        {hasHiddenModels ? (
+          <button
+            type="button"
+            onClick={onShowHiddenLabs}
+            className="mt-5 inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+          >
+            <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
+            Show hidden rows
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -469,11 +1291,17 @@ function TimelineSkeleton() {
 
 type ZoomHandler = (updater: (zoomLevel: number) => number) => void;
 type TimelinePointerHandler = (event: React.PointerEvent<HTMLDivElement>) => void;
+type LabMoveDirection = 'up' | 'down';
+type LabMoveHandler = (labId: string, direction: LabMoveDirection) => void;
+type LabReorderHandler = (sourceLabId: string, targetLabId: string) => void;
 
 type DesktopTimelineExperienceProps = {
+  boardView: BoardView;
   currentGlobalDay: number;
+  draggedLabId: string | null;
   handlePointerDown: TimelinePointerHandler;
   handlePointerMove: TimelinePointerHandler;
+  hiddenModelCount: number;
   handleZoomChange: ZoomHandler;
   isPanning: boolean;
   latestLab: ProcessedLab | null;
@@ -481,7 +1309,14 @@ type DesktopTimelineExperienceProps = {
   minZoom: number;
   maxZoom: number;
   maxSummaryQuietDays: number;
+  modelExplorer: React.ReactNode;
   monthTicks: Tick[];
+  onLabDragEnd: () => void;
+  onLabDragStart: (labId: string) => void;
+  onLabHide: (labId: string) => void;
+  onLabMove: LabMoveHandler;
+  onLabReorder: LabReorderHandler;
+  onShowHiddenLabs: () => void;
   processedLabs: ProcessedLab[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   stopPanning: TimelinePointerHandler;
@@ -492,14 +1327,24 @@ type DesktopTimelineExperienceProps = {
 };
 
 type MobileTimelineExperienceProps = {
+  boardView: BoardView;
   currentGlobalDay: number;
+  draggedLabId: string | null;
   handleZoomChange: ZoomHandler;
   latestLab: ProcessedLab | null;
+  hiddenModelCount: number;
   minZoom: number;
   maxZoom: number;
   maxDays: number;
   maxSummaryQuietDays: number;
+  modelExplorer: React.ReactNode;
   monthTicks: Tick[];
+  onLabDragEnd: () => void;
+  onLabDragStart: (labId: string) => void;
+  onLabHide: (labId: string) => void;
+  onLabMove: LabMoveHandler;
+  onLabReorder: LabReorderHandler;
+  onShowHiddenLabs: () => void;
   processedLabs: ProcessedLab[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   timelineWidth: number;
@@ -508,9 +1353,12 @@ type MobileTimelineExperienceProps = {
 };
 
 function DesktopTimelineExperience({
+  boardView,
   currentGlobalDay,
+  draggedLabId,
   handlePointerDown,
   handlePointerMove,
+  hiddenModelCount,
   handleZoomChange,
   isPanning,
   latestLab,
@@ -518,7 +1366,14 @@ function DesktopTimelineExperience({
   minZoom,
   maxZoom,
   maxSummaryQuietDays,
+  modelExplorer,
   monthTicks,
+  onLabDragEnd,
+  onLabDragStart,
+  onLabHide,
+  onLabMove,
+  onLabReorder,
+  onShowHiddenLabs,
   processedLabs,
   scrollContainerRef,
   stopPanning,
@@ -542,8 +1397,13 @@ function DesktopTimelineExperience({
                 AI model launches, arranged as one continuous race.
               </h1>
               <p className="max-w-[68ch] text-base leading-relaxed text-[var(--ink-soft)] md:text-lg">
-                Compare the cadence of OpenAI, Anthropic, Google, and xAI on one horizontal field. Every node marks a
-                release, every segment shows the gap, and the live marker makes it obvious who has gone quiet.
+                {boardView.isDefault
+                  ? 'Compare the cadence of OpenAI, Anthropic, Google, and xAI on one horizontal field. Every node marks a release, every segment shows the gap, and the live marker makes it obvious who has gone quiet.'
+                  : boardView.isEmpty
+                    ? 'Turn on one or more model groups to compose the timeline.'
+                  : boardView.isComposite
+                    ? `${boardView.label} puts selected model groups onto one shared timeline for full-field comparison.`
+                  : `${boardView.label} is shown on the same absolute timeline, so newer model classes can be scanned without stacking every lab into the default board.`}
               </p>
             </div>
 
@@ -574,10 +1434,16 @@ function DesktopTimelineExperience({
                     <DragIcon className="h-4 w-4" />
                     Drag sideways to pan, up or down to zoom
                   </span>
+                  <span className="inline-flex items-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1.5 text-[var(--ink-soft)] shadow-[var(--soft-shadow)]">
+                    <Layers3 className="h-4 w-4" strokeWidth={1.8} />
+                    {boardView.label}
+                  </span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 lg:justify-self-end">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-self-end">
+                {modelExplorer}
+
                 <SurfaceButton
                   label="Zoom out"
                   onClick={() => handleZoomChange((current) => getSteppedZoom(current, -ZOOM_PROGRESS_STEP, minZoom, maxZoom))}
@@ -600,17 +1466,34 @@ function DesktopTimelineExperience({
                   <ResetIcon className="h-4 w-4" />
                   <span className="hidden sm:inline">Reset</span>
                 </SurfaceButton>
+
+                {hiddenModelCount > 0 ? (
+                  <SurfaceButton label="Show hidden model rows" onClick={onShowHiddenLabs}>
+                    <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
+                    <span className="hidden sm:inline">Rows</span>
+                  </SurfaceButton>
+                ) : null}
               </div>
             </div>
           </div>
 
           <div className="relative">
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-[220px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.98)_0%,rgba(11,14,20,0.95)_72%,rgba(11,14,20,0)_100%)]">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-[320px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.98)_0%,rgba(11,14,20,0.95)_78%,rgba(11,14,20,0)_100%)]">
               <div className="px-5 pb-14 pt-24">
                 <div className="flex flex-col gap-11">
-                  {processedLabs.map((lab) => (
-                    <React.Fragment key={lab.name}>
-                      <LabRailItem lab={lab} />
+                  {processedLabs.map((lab, labIndex) => (
+                    <React.Fragment key={lab.id}>
+                      <LabRailItem
+                        draggedLabId={draggedLabId}
+                        isFirst={labIndex === 0}
+                        isLast={labIndex === processedLabs.length - 1}
+                        lab={lab}
+                        onDragEnd={onLabDragEnd}
+                        onDragStart={onLabDragStart}
+                        onHide={onLabHide}
+                        onMove={onLabMove}
+                        onReorder={onLabReorder}
+                      />
                     </React.Fragment>
                   ))}
                 </div>
@@ -673,9 +1556,16 @@ function DesktopTimelineExperience({
                       </div>
                     </div>
 
+                    {processedLabs.length === 0 ? (
+                      <TimelineEmptyState
+                        boardView={boardView}
+                        hiddenModelCount={hiddenModelCount}
+                        onShowHiddenLabs={onShowHiddenLabs}
+                      />
+                    ) : (
                     <div className="relative flex flex-col gap-11 pb-14 pt-24">
                       {processedLabs.map((lab, labIndex) => (
-                        <div key={lab.name} className="relative h-[4.5rem]">
+                        <div key={lab.id} className="relative h-[4.5rem]">
                           <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--track-line)]" />
 
                           {lab.releases.map((release, releaseIndex) => {
@@ -691,7 +1581,7 @@ function DesktopTimelineExperience({
                             const labelBackground = isLatestInLab ? toRgbaFromHex(lab.accent, 0.12) : undefined;
 
                             return (
-                              <React.Fragment key={`${lab.name}-${release.name}`}>
+                              <React.Fragment key={`${lab.id}-${release.name}`}>
                                 {previousRelease ? (
                                   <motion.div
                                     initial={{opacity: 0, scaleX: 0}}
@@ -784,6 +1674,7 @@ function DesktopTimelineExperience({
                         </div>
                       ))}
                     </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -814,7 +1705,7 @@ function DesktopTimelineExperience({
 
               return (
                 <motion.div
-                  key={lab.name}
+                  key={lab.id}
                   initial={{opacity: 0, y: 18}}
                   animate={{opacity: 1, y: 0}}
                   transition={{delay: 0.2 + index * 0.06, duration: 0.55, ease: [0.22, 1, 0.36, 1]}}
@@ -822,7 +1713,7 @@ function DesktopTimelineExperience({
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-3">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: lab.accent}} />
+                      <LabTypeIconBadge className="h-7 w-7" lab={lab} />
                       <p className="truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{lab.name}</p>
                     </div>
                     <p className="mt-3 text-base font-semibold tracking-tight text-[var(--ink)]">
@@ -855,14 +1746,24 @@ function DesktopTimelineExperience({
 }
 
 function MobileTimelineExperience({
+  boardView,
   currentGlobalDay,
+  draggedLabId,
   handleZoomChange,
   latestLab,
+  hiddenModelCount,
   minZoom,
   maxZoom,
   maxDays,
   maxSummaryQuietDays,
+  modelExplorer,
   monthTicks,
+  onLabDragEnd,
+  onLabDragStart,
+  onLabHide,
+  onLabMove,
+  onLabReorder,
+  onShowHiddenLabs,
   processedLabs,
   scrollContainerRef,
   timelineWidth,
@@ -883,18 +1784,34 @@ function MobileTimelineExperience({
               AI model launches, arranged as one continuous race.
             </h1>
             <p className="text-sm leading-7 text-[var(--ink-soft)]">
-              The mobile view keeps the same release field as desktop, but turns it into a touch-first canvas. Swipe
-              across the timeline and zoom the width yourself when labels get dense.
+              {boardView.isDefault
+                ? 'The default board stays focused on frontier labs, with open-source, image, and 3D generation timelines kept in separate views.'
+                : boardView.isEmpty
+                  ? 'Turn on one or more model groups to compose the mobile timeline.'
+                : boardView.isComposite
+                  ? `${boardView.label} shows selected groups together. Use zoom when the field gets dense.`
+                : `${boardView.label} is isolated into its own board, keeping the release field readable on mobile.`}
             </p>
           </div>
 
           <div className="rounded-[1.6rem] border border-[var(--edge)] bg-[var(--surface)] p-4 shadow-[var(--soft-shadow)]">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Latest on the board</p>
-            <p className="mt-3 text-sm leading-relaxed text-[var(--ink)]">
-              <span className="font-semibold">{latestLab?.name ?? 'n/a'}</span>
-              {' '}with <span className="font-semibold">{latestLab?.latestRelease?.name ?? 'n/a'}</span>.
-            </p>
-            <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">All dates rendered in UTC</p>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Latest on the board</p>
+              <p className="mt-3 text-sm leading-relaxed text-[var(--ink)]">
+                <span className="font-semibold">{latestLab?.name ?? 'n/a'}</span>
+                {' '}with <span className="font-semibold">{latestLab?.latestRelease?.name ?? 'n/a'}</span>.
+              </p>
+              <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">{boardView.label}</p>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {modelExplorer}
+              {hiddenModelCount > 0 ? (
+                <SurfaceButton label="Show hidden model rows" onClick={onShowHiddenLabs}>
+                  <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
+                  <span>Rows</span>
+                </SurfaceButton>
+              ) : null}
+            </div>
           </div>
         </motion.div>
       </section>
@@ -950,20 +1867,24 @@ function MobileTimelineExperience({
           </div>
 
           <div className="relative">
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-[118px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.99)_0%,rgba(11,14,20,0.96)_72%,rgba(11,14,20,0)_100%)]">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-[196px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.99)_0%,rgba(11,14,20,0.96)_78%,rgba(11,14,20,0)_100%)]">
               <div className="px-3 pb-10 pt-20">
                 <div className="flex flex-col gap-8">
-                  {processedLabs.map((lab) => (
-                    <div key={`${lab.name}-mobile-rail`} className="flex min-h-[5rem] items-center">
-                      <div className="min-w-0">
-                        <div className="flex items-start gap-2">
-                          <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: lab.accent}} />
-                          <p className="text-[11px] font-semibold leading-[1.25] tracking-tight text-[var(--ink)]">
-                            {lab.name}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                  {processedLabs.map((lab, labIndex) => (
+                    <React.Fragment key={`${lab.id}-mobile-rail`}>
+                      <LabRailItem
+                        compact
+                        draggedLabId={draggedLabId}
+                        isFirst={labIndex === 0}
+                        isLast={labIndex === processedLabs.length - 1}
+                        lab={lab}
+                        onDragEnd={onLabDragEnd}
+                        onDragStart={onLabDragStart}
+                        onHide={onLabHide}
+                        onMove={onLabMove}
+                        onReorder={onLabReorder}
+                      />
+                    </React.Fragment>
                   ))}
                 </div>
               </div>
@@ -1019,9 +1940,16 @@ function MobileTimelineExperience({
                       </div>
                     </div>
 
+                    {processedLabs.length === 0 ? (
+                      <TimelineEmptyState
+                        boardView={boardView}
+                        hiddenModelCount={hiddenModelCount}
+                        onShowHiddenLabs={onShowHiddenLabs}
+                      />
+                    ) : (
                     <div className="relative flex flex-col gap-8 pb-10 pt-20">
                       {processedLabs.map((lab, labIndex) => (
-                        <div key={`${lab.name}-mobile-row`} className="relative h-[5rem]">
+                        <div key={`${lab.id}-mobile-row`} className="relative h-[5rem]">
                           <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--track-line)]" />
 
                           {lab.releases.map((release, releaseIndex) => {
@@ -1037,7 +1965,7 @@ function MobileTimelineExperience({
                             const labelBackground = isLatestInLab ? toRgbaFromHex(lab.accent, 0.1) : undefined;
 
                             return (
-                              <React.Fragment key={`${lab.name}-mobile-${release.name}`}>
+                              <React.Fragment key={`${lab.id}-mobile-${release.name}`}>
                                 {previousRelease ? (
                                   <motion.div
                                     initial={{opacity: 0, scaleX: 0}}
@@ -1122,6 +2050,7 @@ function MobileTimelineExperience({
                         </div>
                       ))}
                     </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1138,14 +2067,14 @@ function MobileTimelineExperience({
 
             return (
               <motion.div
-                key={`${lab.name}-mobile-summary`}
+                key={`${lab.id}-mobile-summary`}
                 initial={{opacity: 0, y: 16}}
                 animate={{opacity: 1, y: 0}}
                 transition={{delay: 0.16 + index * 0.06, duration: 0.46, ease: [0.22, 1, 0.36, 1]}}
                 className="rounded-[1.45rem] border border-[var(--edge)] bg-[var(--surface)] p-4 shadow-[var(--soft-shadow)]"
               >
                 <div className="flex items-center gap-3">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: lab.accent}} />
+                  <LabTypeIconBadge className="h-7 w-7" lab={lab} />
                   <p className="truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{lab.name}</p>
                 </div>
                 <p className="mt-3 text-base font-semibold tracking-tight text-[var(--ink)]">
@@ -1172,10 +2101,16 @@ function MobileTimelineExperience({
 }
 
 export default function App() {
+  const [selectedPresetIds, setSelectedPresetIds] = useState<PresetId[]>(DEFAULT_SELECTED_PRESET_IDS);
+  const [activeClassId, setActiveClassId] = useState<ModelClassId>(getPresetById(DEFAULT_PRESET_ID).classId);
+  const [isExplorerOpen, setIsExplorerOpen] = useState(false);
   const [zoom, setZoom] = useState(DEFAULT_DESKTOP_ZOOM);
   const [mobileZoom, setMobileZoom] = useState(DEFAULT_MOBILE_ZOOM);
   const [isPanning, setIsPanning] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [draggedLabId, setDraggedLabId] = useState<string | null>(null);
+  const [hiddenLabIds, setHiddenLabIds] = useState<string[]>([]);
+  const [labOrderIds, setLabOrderIds] = useState<string[]>(() => labs.map((lab) => lab.id));
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const mobileScrollContainerRef = useRef<HTMLDivElement>(null);
   const desktopPointerOffsetXRef = useRef<number | null>(null);
@@ -1189,7 +2124,19 @@ export default function App() {
   });
   const [viewportWidths, setViewportWidths] = useState({desktop: 0, mobile: 0});
 
-  const timelineData = useMemo(() => buildTimelineData(labs), []);
+  const boardView = useMemo(() => getBoardView(selectedPresetIds), [selectedPresetIds]);
+  const visibleLabs = useMemo(() => getVisibleLabs(labs, selectedPresetIds), [selectedPresetIds]);
+  const orderedVisibleLabs = useMemo(
+    () => orderLabs(visibleLabs, labOrderIds, hiddenLabIds),
+    [hiddenLabIds, labOrderIds, visibleLabs],
+  );
+  const displayedLabIds = useMemo(() => orderedVisibleLabs.map((lab) => lab.id), [orderedVisibleLabs]);
+  const hiddenModelCount = useMemo(() => {
+    const hiddenLabIdSet = new Set(hiddenLabIds);
+    return visibleLabs.filter((lab) => hiddenLabIdSet.has(lab.id)).length;
+  }, [hiddenLabIds, visibleLabs]);
+  const presetStats = useMemo(() => buildPresetStats(labs), []);
+  const timelineData = useMemo(() => buildTimelineData(orderedVisibleLabs), [orderedVisibleLabs]);
   const today = new Date();
   const currentGlobalDay = (today.getTime() - START_DATE.getTime()) / DAY_MS;
   const maxDays = Math.max(Math.ceil(currentGlobalDay) + 36, timelineData.latestGlobalDay + 36, 720);
@@ -1207,9 +2154,7 @@ export default function App() {
   }, [timelineData.processedLabs]);
 
   const summaryLabs = useMemo(() => {
-    return [...timelineData.processedLabs].sort((left, right) => {
-      return (right.latestRelease?.globalDay ?? 0) - (left.latestRelease?.globalDay ?? 0);
-    });
+    return timelineData.processedLabs;
   }, [timelineData.processedLabs]);
 
   const maxSummaryQuietDays = useMemo(() => {
@@ -1223,6 +2168,11 @@ export default function App() {
     const timeout = window.setTimeout(() => setIsReady(true), 120);
     return () => window.clearTimeout(timeout);
   }, []);
+
+  useEffect(() => {
+    hasPositionedInitialView.current = false;
+    hasPositionedInitialMobileView.current = false;
+  }, [selectedPresetIds]);
 
   useEffect(() => {
     const updateViewportWidths = () => {
@@ -1270,7 +2220,7 @@ export default function App() {
 
     window.addEventListener('resize', positionInitialDesktopView);
     return () => window.removeEventListener('resize', positionInitialDesktopView);
-  }, [currentGlobalDay, maxDays, timelineWidth]);
+  }, [currentGlobalDay, maxDays, selectedPresetIds, timelineWidth]);
 
   useEffect(() => {
     if (hasPositionedInitialMobileView.current) {
@@ -1300,7 +2250,69 @@ export default function App() {
 
     window.addEventListener('resize', positionInitialMobileView);
     return () => window.removeEventListener('resize', positionInitialMobileView);
-  }, [currentGlobalDay, maxDays, mobileTimelineWidth]);
+  }, [currentGlobalDay, maxDays, mobileTimelineWidth, selectedPresetIds]);
+
+  const togglePreset = (presetId: PresetId) => {
+    setSelectedPresetIds((currentIds) => {
+      if (currentIds.includes(presetId)) {
+        return currentIds.filter((currentId) => currentId !== presetId);
+      }
+
+      return [...currentIds, presetId];
+    });
+  };
+
+  const resetPreset = () => {
+    setActiveClassId(getPresetById(DEFAULT_PRESET_ID).classId);
+    setSelectedPresetIds(DEFAULT_SELECTED_PRESET_IDS);
+    setHiddenLabIds([]);
+    setLabOrderIds(labs.map((lab) => lab.id));
+  };
+
+  const selectAllPresets = () => {
+    setSelectedPresetIds(modelPresets.map((preset) => preset.id));
+  };
+
+  const clearAllPresets = () => {
+    setSelectedPresetIds([]);
+  };
+
+  const hideLab = (labId: string) => {
+    setHiddenLabIds((currentIds) => {
+      if (currentIds.includes(labId)) {
+        return currentIds;
+      }
+
+      return [...currentIds, labId];
+    });
+  };
+
+  const showHiddenLabs = () => {
+    setHiddenLabIds([]);
+  };
+
+  const reorderLab = (sourceLabId: string, targetLabId: string) => {
+    setLabOrderIds((currentIds) => reorderVisibleLabIds(currentIds, displayedLabIds, sourceLabId, targetLabId));
+  };
+
+  const moveLab = (labId: string, direction: LabMoveDirection) => {
+    setLabOrderIds((currentIds) => moveVisibleLabId(currentIds, displayedLabIds, labId, direction));
+  };
+
+  const explorerProps = {
+    activeClassId,
+    boardView,
+    isOpen: isExplorerOpen,
+    onClassSelect: setActiveClassId,
+    onClearAll: clearAllPresets,
+    onClose: () => setIsExplorerOpen(false),
+    onPresetToggle: togglePreset,
+    onReset: resetPreset,
+    onSelectAll: selectAllPresets,
+    onToggle: () => setIsExplorerOpen((isOpen) => !isOpen),
+    presetStats,
+    selectedPresetIds,
+  };
 
   const handleZoomChange = (updater: (zoomLevel: number) => number) => {
     const container = scrollContainerRef.current;
@@ -1508,14 +2520,24 @@ export default function App() {
     <div className="min-h-[100dvh] bg-[var(--page-bg)] text-[var(--ink)] selection:bg-emerald-500/25 selection:text-[var(--ink)]">
       <div className="md:hidden">
         <MobileTimelineExperience
+          boardView={boardView}
           currentGlobalDay={currentGlobalDay}
+          draggedLabId={draggedLabId}
           handleZoomChange={handleMobileZoomChange}
+          hiddenModelCount={hiddenModelCount}
           latestLab={latestLab}
           minZoom={mobileMinZoom}
           maxZoom={MOBILE_MAX_ZOOM}
           maxDays={maxDays}
           maxSummaryQuietDays={maxSummaryQuietDays}
+          modelExplorer={<ModelClassExplorer {...explorerProps} />}
           monthTicks={monthTicks}
+          onLabDragEnd={() => setDraggedLabId(null)}
+          onLabDragStart={setDraggedLabId}
+          onLabHide={hideLab}
+          onLabMove={moveLab}
+          onLabReorder={reorderLab}
+          onShowHiddenLabs={showHiddenLabs}
           processedLabs={timelineData.processedLabs}
           scrollContainerRef={mobileScrollContainerRef}
           timelineWidth={mobileTimelineWidth}
@@ -1526,17 +2548,27 @@ export default function App() {
 
       <div className="hidden md:block">
         <DesktopTimelineExperience
+          boardView={boardView}
           currentGlobalDay={currentGlobalDay}
+          draggedLabId={draggedLabId}
           handlePointerDown={handlePointerDown}
           handlePointerMove={handlePointerMove}
           handleZoomChange={handleZoomChange}
+          hiddenModelCount={hiddenModelCount}
           isPanning={isPanning}
           latestLab={latestLab}
           maxDays={maxDays}
           minZoom={desktopMinZoom}
           maxZoom={DESKTOP_MAX_ZOOM}
           maxSummaryQuietDays={maxSummaryQuietDays}
+          modelExplorer={<ModelClassExplorer {...explorerProps} />}
           monthTicks={monthTicks}
+          onLabDragEnd={() => setDraggedLabId(null)}
+          onLabDragStart={setDraggedLabId}
+          onLabHide={hideLab}
+          onLabMove={moveLab}
+          onLabReorder={reorderLab}
+          onShowHiddenLabs={showHiddenLabs}
           processedLabs={timelineData.processedLabs}
           scrollContainerRef={scrollContainerRef}
           stopPanning={stopPanning}
