@@ -33,8 +33,18 @@ type Tick = {
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 const START_DATE = new Date('2022-11-30T00:00:00Z');
+const TIMELINE_PIXELS_PER_DAY = 2.24;
 const LABEL_RAIL_WIDTH = 220;
 const MOBILE_LABEL_RAIL_WIDTH = 118;
+const DEFAULT_DESKTOP_ZOOM = 1;
+const DEFAULT_MOBILE_ZOOM = 1.05;
+const DESKTOP_MAX_ZOOM = 4;
+const MOBILE_MAX_ZOOM = 3.4;
+const ZOOM_PROGRESS_STEP = 0.12;
+const SIGMOID_STEEPNESS = 6;
+const FIT_BUFFER_MULTIPLIER = 0.92;
+const DRAG_ZOOM_PROGRESS_PER_PIXEL = 0.0011;
+const DRAG_ZOOM_DEADZONE_PX = 12;
 
 const labs: LabRecord[] = [
   {
@@ -52,6 +62,7 @@ const labs: LabRecord[] = [
       {name: 'GPT-5.2', date: '2025-12-11'},
       {name: 'GPT-5.3', date: '2026-02-05'},
       {name: 'GPT-5.4', date: '2026-03-05'},
+      {name: 'GPT-5.5', date: '2026-04-23'},
     ],
   },
   {
@@ -243,6 +254,76 @@ function formatQuietDaysLabel(quietDays: number) {
   return `${quietDays} ${quietDays === 1 ? 'Day' : 'Days'} since last update`;
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getSigmoidUnit(progress: number) {
+  const clampedProgress = clampNumber(progress, 0, 1);
+  const rawMin = 1 / (1 + Math.exp(SIGMOID_STEEPNESS / 2));
+  const rawMax = 1 / (1 + Math.exp(-SIGMOID_STEEPNESS / 2));
+  const raw = 1 / (1 + Math.exp(-SIGMOID_STEEPNESS * (clampedProgress - 0.5)));
+  return (raw - rawMin) / (rawMax - rawMin);
+}
+
+function getSigmoidProgress(unit: number) {
+  const clampedUnit = clampNumber(unit, 0, 1);
+  const rawMin = 1 / (1 + Math.exp(SIGMOID_STEEPNESS / 2));
+  const rawMax = 1 / (1 + Math.exp(-SIGMOID_STEEPNESS / 2));
+  const target = rawMin + clampedUnit * (rawMax - rawMin);
+  return clampNumber(0.5 + Math.log(target / (1 - target)) / SIGMOID_STEEPNESS, 0, 1);
+}
+
+function getZoomFromProgress(progress: number, minZoom: number, maxZoom: number) {
+  if (maxZoom <= minZoom) {
+    return minZoom;
+  }
+
+  const unit = getSigmoidUnit(progress);
+  return minZoom + unit * (maxZoom - minZoom);
+}
+
+function getZoomProgress(zoom: number, minZoom: number, maxZoom: number) {
+  if (maxZoom <= minZoom) {
+    return 0;
+  }
+
+  const unit = (clampNumber(zoom, minZoom, maxZoom) - minZoom) / (maxZoom - minZoom);
+  return getSigmoidProgress(unit);
+}
+
+function getSteppedZoom(currentZoom: number, delta: number, minZoom: number, maxZoom: number) {
+  const currentProgress = getZoomProgress(currentZoom, minZoom, maxZoom);
+  return getZoomFromProgress(currentProgress + delta, minZoom, maxZoom);
+}
+
+function getFitZoom(viewportWidth: number, railWidth: number, baseTimelineWidth: number) {
+  if (viewportWidth <= 0 || baseTimelineWidth <= 0) {
+    return 0.35;
+  }
+
+  const availableWidth = Math.max(viewportWidth - railWidth, 120);
+  return clampNumber((availableWidth / baseTimelineWidth) * FIT_BUFFER_MULTIPLIER, 0.08, 1);
+}
+
+function getTimelineAnchorRatio(scrollLeft: number, anchorOffsetX: number, railWidth: number, timelineWidth: number) {
+  if (timelineWidth <= 0) {
+    return 0;
+  }
+
+  const timelineOffset = clampNumber(scrollLeft + anchorOffsetX - railWidth, 0, timelineWidth);
+  return timelineOffset / timelineWidth;
+}
+
+function getScrollLeftForTimelineAnchor(
+  anchorRatio: number,
+  anchorOffsetX: number,
+  railWidth: number,
+  timelineWidth: number,
+) {
+  return railWidth + anchorRatio * timelineWidth - anchorOffsetX;
+}
+
 const SignalPulse = memo(function SignalPulse({className = 'text-emerald-400'}: {className?: string}) {
   return (
     <span className={`relative flex h-2.5 w-2.5 ${className}`} aria-hidden="true">
@@ -397,6 +478,8 @@ type DesktopTimelineExperienceProps = {
   isPanning: boolean;
   latestLab: ProcessedLab | null;
   maxDays: number;
+  minZoom: number;
+  maxZoom: number;
   maxSummaryQuietDays: number;
   monthTicks: Tick[];
   processedLabs: ProcessedLab[];
@@ -412,6 +495,8 @@ type MobileTimelineExperienceProps = {
   currentGlobalDay: number;
   handleZoomChange: ZoomHandler;
   latestLab: ProcessedLab | null;
+  minZoom: number;
+  maxZoom: number;
   maxDays: number;
   maxSummaryQuietDays: number;
   monthTicks: Tick[];
@@ -430,6 +515,8 @@ function DesktopTimelineExperience({
   isPanning,
   latestLab,
   maxDays,
+  minZoom,
+  maxZoom,
   maxSummaryQuietDays,
   monthTicks,
   processedLabs,
@@ -485,13 +572,16 @@ function DesktopTimelineExperience({
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-[var(--muted)]">
                   <span className="inline-flex items-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1.5 shadow-[var(--soft-shadow)]">
                     <DragIcon className="h-4 w-4" />
-                    Click and drag horizontally on desktop
+                    Drag sideways to pan, up or down to zoom
                   </span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 lg:justify-self-end">
-                <SurfaceButton label="Zoom out" onClick={() => handleZoomChange((current) => Math.max(current - 0.35, 0.7))}>
+                <SurfaceButton
+                  label="Zoom out"
+                  onClick={() => handleZoomChange((current) => getSteppedZoom(current, -ZOOM_PROGRESS_STEP, minZoom, maxZoom))}
+                >
                   <ZoomOutIcon className="h-4 w-4" />
                 </SurfaceButton>
 
@@ -499,11 +589,14 @@ function DesktopTimelineExperience({
                   {Math.round(zoom * 100)}%
                 </div>
 
-                <SurfaceButton label="Zoom in" onClick={() => handleZoomChange((current) => Math.min(current + 0.35, 4))}>
+                <SurfaceButton
+                  label="Zoom in"
+                  onClick={() => handleZoomChange((current) => getSteppedZoom(current, ZOOM_PROGRESS_STEP, minZoom, maxZoom))}
+                >
                   <ZoomInIcon className="h-4 w-4" />
                 </SurfaceButton>
 
-                <SurfaceButton label="Reset zoom" onClick={() => handleZoomChange(() => 1)}>
+                <SurfaceButton label="Reset zoom" onClick={() => handleZoomChange(() => minZoom)}>
                   <ResetIcon className="h-4 w-4" />
                   <span className="hidden sm:inline">Reset</span>
                 </SurfaceButton>
@@ -534,9 +627,15 @@ function DesktopTimelineExperience({
               onPointerUp={stopPanning}
               onPointerCancel={stopPanning}
             >
-              <div className="relative" style={{minWidth: `${timelineWidth + LABEL_RAIL_WIDTH}px`}}>
+              <div
+                className={`relative ${isPanning ? 'transition-none' : 'transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+                style={{minWidth: `${timelineWidth + LABEL_RAIL_WIDTH}px`}}
+              >
                 <div style={{paddingLeft: `${LABEL_RAIL_WIDTH}px`}}>
-                  <div className="relative pb-14" style={{width: `${timelineWidth}px`}}>
+                  <div
+                    className={`relative pb-14 ${isPanning ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+                    style={{width: `${timelineWidth}px`}}
+                  >
                     <div className="pointer-events-none absolute inset-0">
                       {monthTicks.map((tick) => (
                         <div
@@ -759,6 +858,8 @@ function MobileTimelineExperience({
   currentGlobalDay,
   handleZoomChange,
   latestLab,
+  minZoom,
+  maxZoom,
   maxDays,
   maxSummaryQuietDays,
   monthTicks,
@@ -813,15 +914,21 @@ function MobileTimelineExperience({
             </div>
 
             <div className="mt-3 flex items-center gap-2">
-              <SurfaceButton label="Zoom out" onClick={() => handleZoomChange((current) => Math.max(current - 0.25, 0.75))}>
+              <SurfaceButton
+                label="Zoom out"
+                onClick={() => handleZoomChange((current) => getSteppedZoom(current, -ZOOM_PROGRESS_STEP, minZoom, maxZoom))}
+              >
                 <ZoomOutIcon className="h-4 w-4" />
               </SurfaceButton>
 
-              <SurfaceButton label="Reset zoom" onClick={() => handleZoomChange(() => 1.05)}>
+              <SurfaceButton label="Reset zoom" onClick={() => handleZoomChange(() => minZoom)}>
                 <ResetIcon className="h-4 w-4" />
               </SurfaceButton>
 
-              <SurfaceButton label="Zoom in" onClick={() => handleZoomChange((current) => Math.min(current + 0.25, 3.4))}>
+              <SurfaceButton
+                label="Zoom in"
+                onClick={() => handleZoomChange((current) => getSteppedZoom(current, ZOOM_PROGRESS_STEP, minZoom, maxZoom))}
+              >
                 <ZoomInIcon className="h-4 w-4" />
               </SurfaceButton>
             </div>
@@ -830,11 +937,13 @@ function MobileTimelineExperience({
               <span className="sr-only">Canvas zoom</span>
               <input
                 type="range"
-                min="0.75"
-                max="3.4"
-                step="0.05"
-                value={zoom}
-                onChange={(event) => handleZoomChange(() => Number(event.target.value))}
+                min="0"
+                max="1"
+                step="0.001"
+                value={getZoomProgress(zoom, minZoom, maxZoom)}
+                onChange={(event) =>
+                  handleZoomChange(() => getZoomFromProgress(Number(event.target.value), minZoom, maxZoom))
+                }
                 className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[var(--edge)] accent-[var(--ink)]"
               />
             </label>
@@ -864,9 +973,15 @@ function MobileTimelineExperience({
               ref={scrollContainerRef}
               className="relative overflow-x-auto overflow-y-hidden pb-6 [scrollbar-gutter:stable]"
             >
-              <div className="relative" style={{minWidth: `${timelineWidth + MOBILE_LABEL_RAIL_WIDTH}px`}}>
+              <div
+                className="relative transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                style={{minWidth: `${timelineWidth + MOBILE_LABEL_RAIL_WIDTH}px`}}
+              >
                 <div style={{paddingLeft: `${MOBILE_LABEL_RAIL_WIDTH}px`}}>
-                  <div className="relative pb-10" style={{width: `${timelineWidth}px`}}>
+                  <div
+                    className="relative pb-10 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                    style={{width: `${timelineWidth}px`}}
+                  >
                     <div className="pointer-events-none absolute inset-0">
                       {monthTicks.map((tick) => (
                         <div
@@ -1057,23 +1172,32 @@ function MobileTimelineExperience({
 }
 
 export default function App() {
-  const [zoom, setZoom] = useState(1);
-  const [mobileZoom, setMobileZoom] = useState(1.05);
+  const [zoom, setZoom] = useState(DEFAULT_DESKTOP_ZOOM);
+  const [mobileZoom, setMobileZoom] = useState(DEFAULT_MOBILE_ZOOM);
   const [isPanning, setIsPanning] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const mobileScrollContainerRef = useRef<HTMLDivElement>(null);
+  const desktopPointerOffsetXRef = useRef<number | null>(null);
   const hasPositionedInitialView = useRef(false);
   const hasPositionedInitialMobileView = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
-  const panStateRef = useRef({startScrollLeft: 0, startX: 0});
+  const panStateRef = useRef({
+    lastX: 0,
+    zoomReferenceProgress: 0,
+    zoomReferenceY: 0,
+  });
+  const [viewportWidths, setViewportWidths] = useState({desktop: 0, mobile: 0});
 
   const timelineData = useMemo(() => buildTimelineData(labs), []);
   const today = new Date();
   const currentGlobalDay = (today.getTime() - START_DATE.getTime()) / DAY_MS;
   const maxDays = Math.max(Math.ceil(currentGlobalDay) + 36, timelineData.latestGlobalDay + 36, 720);
-  const timelineWidth = Math.max(1320, Math.round(maxDays * 2.24 * zoom));
-  const mobileTimelineWidth = Math.max(1320, Math.round(maxDays * 2.24 * mobileZoom));
+  const baseTimelineWidth = Math.max(Math.round(maxDays * TIMELINE_PIXELS_PER_DAY), 1);
+  const desktopMinZoom = getFitZoom(viewportWidths.desktop, LABEL_RAIL_WIDTH, baseTimelineWidth);
+  const mobileMinZoom = getFitZoom(viewportWidths.mobile, MOBILE_LABEL_RAIL_WIDTH, baseTimelineWidth);
+  const timelineWidth = Math.max(Math.round(baseTimelineWidth * zoom), 1);
+  const mobileTimelineWidth = Math.max(Math.round(baseTimelineWidth * mobileZoom), 1);
   const {monthTicks, yearTicks} = useMemo(() => buildTicks(maxDays), [maxDays]);
 
   const latestLab = useMemo(() => {
@@ -1099,6 +1223,24 @@ export default function App() {
     const timeout = window.setTimeout(() => setIsReady(true), 120);
     return () => window.clearTimeout(timeout);
   }, []);
+
+  useEffect(() => {
+    const updateViewportWidths = () => {
+      setViewportWidths({
+        desktop: scrollContainerRef.current?.clientWidth ?? 0,
+        mobile: mobileScrollContainerRef.current?.clientWidth ?? 0,
+      });
+    };
+
+    updateViewportWidths();
+    const animationFrame = window.requestAnimationFrame(updateViewportWidths);
+    window.addEventListener('resize', updateViewportWidths);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener('resize', updateViewportWidths);
+    };
+  }, [isReady]);
 
   useEffect(() => {
     if (hasPositionedInitialView.current) {
@@ -1162,24 +1304,35 @@ export default function App() {
 
   const handleZoomChange = (updater: (zoomLevel: number) => number) => {
     const container = scrollContainerRef.current;
-    const centerRatio = container ? (container.scrollLeft + container.clientWidth / 2) / container.scrollWidth : null;
+    const anchorOffsetX = container
+      ? clampNumber(desktopPointerOffsetXRef.current ?? container.clientWidth / 2, 0, container.clientWidth)
+      : null;
+    const anchorRatio =
+      container && anchorOffsetX !== null
+        ? getTimelineAnchorRatio(container.scrollLeft, anchorOffsetX, LABEL_RAIL_WIDTH, timelineWidth)
+        : null;
 
     startTransition(() => {
       setZoom((previousZoom) => {
-        const nextZoom = Number(updater(previousZoom).toFixed(2));
+        const nextZoom = Number(clampNumber(updater(previousZoom), desktopMinZoom, DESKTOP_MAX_ZOOM).toFixed(3));
+        const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
 
         if (nextZoom === previousZoom) {
           return previousZoom;
         }
 
-        if (centerRatio !== null) {
+        if (anchorRatio !== null && anchorOffsetX !== null) {
           requestAnimationFrame(() => {
             if (!scrollContainerRef.current) {
               return;
             }
 
-            scrollContainerRef.current.scrollLeft =
-              centerRatio * scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth / 2;
+            scrollContainerRef.current.scrollLeft = getScrollLeftForTimelineAnchor(
+              anchorRatio,
+              anchorOffsetX,
+              LABEL_RAIL_WIDTH,
+              nextTimelineWidth,
+            );
           });
         }
 
@@ -1190,25 +1343,33 @@ export default function App() {
 
   const handleMobileZoomChange = (updater: (zoomLevel: number) => number) => {
     const container = mobileScrollContainerRef.current;
-    const centerRatio = container ? (container.scrollLeft + container.clientWidth / 2) / container.scrollWidth : null;
+    const anchorOffsetX = container ? container.clientWidth / 2 : null;
+    const anchorRatio =
+      container && anchorOffsetX !== null
+        ? getTimelineAnchorRatio(container.scrollLeft, anchorOffsetX, MOBILE_LABEL_RAIL_WIDTH, mobileTimelineWidth)
+        : null;
 
     startTransition(() => {
       setMobileZoom((previousZoom) => {
-        const nextZoom = Number(updater(previousZoom).toFixed(2));
+        const nextZoom = Number(clampNumber(updater(previousZoom), mobileMinZoom, MOBILE_MAX_ZOOM).toFixed(3));
+        const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
 
         if (nextZoom === previousZoom) {
           return previousZoom;
         }
 
-        if (centerRatio !== null) {
+        if (anchorRatio !== null && anchorOffsetX !== null) {
           requestAnimationFrame(() => {
             if (!mobileScrollContainerRef.current) {
               return;
             }
 
-            mobileScrollContainerRef.current.scrollLeft =
-              centerRatio * mobileScrollContainerRef.current.scrollWidth -
-              mobileScrollContainerRef.current.clientWidth / 2;
+            mobileScrollContainerRef.current.scrollLeft = getScrollLeftForTimelineAnchor(
+              anchorRatio,
+              anchorOffsetX,
+              MOBILE_LABEL_RAIL_WIDTH,
+              nextTimelineWidth,
+            );
           });
         }
 
@@ -1223,10 +1384,14 @@ export default function App() {
     }
 
     const container = scrollContainerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    desktopPointerOffsetXRef.current = event.clientX - containerRect.left;
+
     activePointerIdRef.current = event.pointerId;
     panStateRef.current = {
-      startScrollLeft: container.scrollLeft,
-      startX: event.clientX,
+      lastX: event.clientX,
+      zoomReferenceProgress: getZoomProgress(zoom, desktopMinZoom, DESKTOP_MAX_ZOOM),
+      zoomReferenceY: event.clientY,
     };
 
     container.setPointerCapture(event.pointerId);
@@ -1235,12 +1400,73 @@ export default function App() {
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.pointerId !== activePointerIdRef.current || !scrollContainerRef.current) {
+    if (!scrollContainerRef.current) {
       return;
     }
 
-    const deltaX = event.clientX - panStateRef.current.startX;
-    scrollContainerRef.current.scrollLeft = panStateRef.current.startScrollLeft - deltaX;
+    const container = scrollContainerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const pointerOffsetX = event.clientX - containerRect.left;
+    desktopPointerOffsetXRef.current = pointerOffsetX;
+
+    if (event.pointerId !== activePointerIdRef.current) {
+      return;
+    }
+
+    const deltaX = event.clientX - panStateRef.current.lastX;
+    const deltaY = event.clientY - panStateRef.current.zoomReferenceY;
+    const deadzoneAdjustedDeltaY =
+      Math.abs(deltaY) <= DRAG_ZOOM_DEADZONE_PX
+        ? 0
+        : Math.sign(deltaY) * (Math.abs(deltaY) - DRAG_ZOOM_DEADZONE_PX);
+    const currentGestureZoom = Number(
+      getZoomFromProgress(panStateRef.current.zoomReferenceProgress, desktopMinZoom, DESKTOP_MAX_ZOOM).toFixed(3),
+    );
+    const nextZoom = Number(
+      clampNumber(
+        getZoomFromProgress(
+          panStateRef.current.zoomReferenceProgress - deadzoneAdjustedDeltaY * DRAG_ZOOM_PROGRESS_PER_PIXEL,
+          desktopMinZoom,
+          DESKTOP_MAX_ZOOM,
+        ),
+        desktopMinZoom,
+        DESKTOP_MAX_ZOOM,
+      ).toFixed(3),
+    );
+    const targetScrollLeftBeforeZoom = container.scrollLeft - deltaX;
+    container.scrollLeft = targetScrollLeftBeforeZoom;
+    const contentRatioBeforeZoom = getTimelineAnchorRatio(
+      container.scrollLeft,
+      pointerOffsetX,
+      LABEL_RAIL_WIDTH,
+      timelineWidth,
+    );
+    const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
+
+    const applyScrollPosition = () => {
+      if (!scrollContainerRef.current) {
+        return;
+      }
+
+      const nextScrollLeft = getScrollLeftForTimelineAnchor(
+        contentRatioBeforeZoom,
+        pointerOffsetX,
+        LABEL_RAIL_WIDTH,
+        nextTimelineWidth,
+      );
+      scrollContainerRef.current.scrollLeft = nextScrollLeft;
+    };
+
+    if (nextZoom !== currentGestureZoom) {
+      setZoom(nextZoom);
+      requestAnimationFrame(applyScrollPosition);
+
+      panStateRef.current.zoomReferenceProgress = getZoomProgress(nextZoom, desktopMinZoom, DESKTOP_MAX_ZOOM);
+      panStateRef.current.zoomReferenceY = event.clientY;
+    }
+
+    panStateRef.current.lastX = event.clientX;
+    event.preventDefault();
   };
 
   const stopPanning = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1285,6 +1511,8 @@ export default function App() {
           currentGlobalDay={currentGlobalDay}
           handleZoomChange={handleMobileZoomChange}
           latestLab={latestLab}
+          minZoom={mobileMinZoom}
+          maxZoom={MOBILE_MAX_ZOOM}
           maxDays={maxDays}
           maxSummaryQuietDays={maxSummaryQuietDays}
           monthTicks={monthTicks}
@@ -1305,6 +1533,8 @@ export default function App() {
           isPanning={isPanning}
           latestLab={latestLab}
           maxDays={maxDays}
+          minZoom={desktopMinZoom}
+          maxZoom={DESKTOP_MAX_ZOOM}
           maxSummaryQuietDays={maxSummaryQuietDays}
           monthTicks={monthTicks}
           processedLabs={timelineData.processedLabs}
