@@ -1,4 +1,5 @@
 import React, {startTransition, useEffect, useMemo, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
 import {
   ArrowDown,
   ArrowUp,
@@ -6,6 +7,7 @@ import {
   BrainCircuit,
   Check,
   ChevronDown,
+  Clapperboard,
   Globe2,
   GripVertical,
   Image as ImageIcon,
@@ -16,19 +18,14 @@ import {
 } from 'lucide-react';
 import {motion} from 'motion/react';
 
-type ModelClassId = 'frontier-llms' | 'open-source-llms' | 'image-generation' | '3d-generation';
+type ModelClassId = 'frontier-llms' | 'open-source-llms' | 'image-generation' | 'video-generation' | '3d-generation';
 type PresetId =
   | 'frontier-llms'
   | 'chinese-open-source'
   | 'mistral'
   | 'image-generation'
+  | 'video-generation'
   | '3d-generation';
-
-type ModelClassConfig = {
-  id: ModelClassId;
-  label: string;
-  description: string;
-};
 
 type PresetConfig = {
   id: PresetId;
@@ -99,29 +96,6 @@ const DRAG_ZOOM_DEADZONE_PX = 12;
 const DEFAULT_PRESET_ID: PresetId = 'frontier-llms';
 const DEFAULT_SELECTED_PRESET_IDS: PresetId[] = [DEFAULT_PRESET_ID];
 
-const modelClasses: ModelClassConfig[] = [
-  {
-    id: 'frontier-llms',
-    label: 'Frontier LLMs',
-    description: 'Closed and frontier text/reasoning labs.',
-  },
-  {
-    id: 'open-source-llms',
-    label: 'Open-Source LLMs',
-    description: 'Open-weight and community-distributed language models.',
-  },
-  {
-    id: 'image-generation',
-    label: 'Image Generation',
-    description: 'Text-to-image and multimodal image model releases.',
-  },
-  {
-    id: '3d-generation',
-    label: '3D Generation',
-    description: 'Image-to-3D and asset-generation model releases.',
-  },
-];
-
 const modelPresets: PresetConfig[] = [
   {
     id: 'frontier-llms',
@@ -146,6 +120,12 @@ const modelPresets: PresetConfig[] = [
     classId: 'image-generation',
     label: 'Image Generation',
     description: 'Major image model generations across creative labs.',
+  },
+  {
+    id: 'video-generation',
+    classId: 'video-generation',
+    label: 'Video Generation',
+    description: 'Text-to-video, image-to-video, and filmmaking model releases.',
   },
   {
     id: '3d-generation',
@@ -229,6 +209,7 @@ const labs: LabRecord[] = [
       {name: 'Grok 4.1', date: '2025-11-17'},
       {name: 'Grok 4.20', date: '2026-02-17'},
       {name: 'Grok 4.3 (Beta)', date: '2026-04-17'},
+      {name: 'Grok Build (Beta)', date: '2026-05-14'},
     ],
   },
   {
@@ -355,6 +336,101 @@ const labs: LabRecord[] = [
     ],
   },
   {
+    id: 'stability-video',
+    name: 'Stability AI (Video)',
+    accent: '#7f9d57',
+    defaultClasses: ['video-generation'],
+    defaultPresets: ['video-generation'],
+    releases: [
+      {name: 'Stable Video Diffusion', date: '2023-11-21'},
+      {name: 'Stable Video 4D', date: '2024-07-24'},
+    ],
+  },
+  {
+    id: 'runway-video',
+    name: 'Runway',
+    accent: '#d7d0c3',
+    defaultClasses: ['video-generation'],
+    defaultPresets: ['video-generation'],
+    releases: [
+      {name: 'Gen-2', date: '2023-03-20'},
+      {name: 'Gen-3 Alpha', date: '2024-06-17'},
+      {name: 'Gen-4', date: '2025-03-31'},
+      {name: 'Gen-4.5', date: '2025-12-01'},
+    ],
+  },
+  {
+    id: 'openai-video',
+    name: 'OpenAI (Sora)',
+    accent: '#15a77e',
+    defaultClasses: ['video-generation'],
+    defaultPresets: ['video-generation'],
+    releases: [
+      {name: 'Sora Preview', date: '2024-02-15'},
+      {name: 'Sora Turbo', date: '2024-12-09'},
+      {name: 'Sora 2', date: '2025-09-30'},
+    ],
+  },
+  {
+    id: 'google-veo',
+    name: 'Google (Veo)',
+    accent: '#3d7ce3',
+    defaultClasses: ['video-generation'],
+    defaultPresets: ['video-generation'],
+    releases: [
+      {name: 'Veo', date: '2024-05-14'},
+      {name: 'Veo 2', date: '2024-12-16'},
+      {name: 'Veo 3', date: '2025-05-20'},
+      {name: 'Veo 3.1', date: '2025-10-15'},
+    ],
+  },
+  {
+    id: 'luma-ai',
+    name: 'Luma AI',
+    accent: '#58a9c7',
+    defaultClasses: ['video-generation'],
+    defaultPresets: ['video-generation'],
+    releases: [
+      {name: 'Dream Machine', date: '2024-06-12'},
+      {name: 'Ray2', date: '2025-01-15'},
+      {name: 'Ray3', date: '2025-09-18'},
+    ],
+  },
+  {
+    id: 'pika-labs',
+    name: 'Pika',
+    accent: '#e39b4d',
+    defaultClasses: ['video-generation'],
+    defaultPresets: ['video-generation'],
+    releases: [
+      {name: 'Pika 1.0', date: '2023-11-28'},
+      {name: 'Pika 1.5', date: '2024-10-01'},
+      {name: 'Pika 2.0', date: '2024-12-13'},
+    ],
+  },
+  {
+    id: 'kuaishou-kling',
+    name: 'Kuaishou (Kling)',
+    accent: '#c75c4f',
+    defaultClasses: ['video-generation'],
+    defaultPresets: ['video-generation'],
+    releases: [
+      {name: 'Kling', date: '2024-06-06'},
+      {name: 'Kling 2.0', date: '2025-04-15'},
+    ],
+  },
+  {
+    id: 'bytedance-seedance',
+    name: 'ByteDance (Seedance)',
+    accent: '#5f75d6',
+    defaultClasses: ['video-generation'],
+    defaultPresets: ['video-generation'],
+    releases: [
+      {name: 'Seedance 1.0', date: '2025-06-11'},
+      {name: 'Seedance 2.0', date: '2026-02-12'},
+    ],
+  },
+  {
     id: 'stability-3d',
     name: 'Stability AI (3D)',
     accent: '#9b8a52',
@@ -446,14 +522,6 @@ function getReleasePresets(lab: LabRecord, release: ReleaseRecord): PresetId[] {
   return release.presets ?? lab.defaultPresets;
 }
 
-function getModelClassById(classId: ModelClassId) {
-  return modelClasses.find((modelClass) => modelClass.id === classId) ?? modelClasses[0];
-}
-
-function getPresetById(presetId: PresetId) {
-  return modelPresets.find((preset) => preset.id === presetId) ?? modelPresets[0];
-}
-
 function getBoardView(selectedPresetIds: PresetId[]): BoardView {
   const selectedPresets = modelPresets.filter((preset) => selectedPresetIds.includes(preset.id));
 
@@ -481,7 +549,7 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
 
   if (selectedPresets.length === modelPresets.length) {
     return {
-      description: 'Every tracked LLM, image, and 3D model release is visible.',
+      description: 'Every tracked LLM, image, video, and 3D model release is visible.',
       isComposite: true,
       isDefault: false,
       isEmpty: false,
@@ -845,6 +913,10 @@ function ModelClassIcon({classId, className}: {classId: ModelClassId; className?
     return <ImageIcon className={iconClassName} strokeWidth={1.8} />;
   }
 
+  if (classId === 'video-generation') {
+    return <Clapperboard className={iconClassName} strokeWidth={1.8} />;
+  }
+
   if (classId === '3d-generation') {
     return <Box className={iconClassName} strokeWidth={1.8} />;
   }
@@ -853,10 +925,9 @@ function ModelClassIcon({classId, className}: {classId: ModelClassId; className?
 }
 
 type ModelClassExplorerProps = {
-  activeClassId: ModelClassId;
   boardView: BoardView;
+  isOverlayEnabled: boolean;
   isOpen: boolean;
-  onClassSelect: (classId: ModelClassId) => void;
   onClearAll: () => void;
   onClose: () => void;
   onPresetToggle: (presetId: PresetId) => void;
@@ -868,10 +939,9 @@ type ModelClassExplorerProps = {
 };
 
 function ModelClassExplorer({
-  activeClassId,
   boardView,
+  isOverlayEnabled,
   isOpen,
-  onClassSelect,
   onClearAll,
   onClose,
   onPresetToggle,
@@ -881,16 +951,116 @@ function ModelClassExplorer({
   presetStats,
   selectedPresetIds,
 }: ModelClassExplorerProps) {
-  const activeClass = getModelClassById(activeClassId);
-  const classPresets = modelPresets.filter((preset) => preset.classId === activeClassId);
   const selectedCount = selectedPresetIds.length;
+  const pickerOverlay =
+    isOverlayEnabled && isOpen && typeof document !== 'undefined'
+      ? createPortal(
+          <div className="pointer-events-none fixed inset-0 z-[100] px-3 pb-3 pt-4 md:px-8 md:pt-8">
+            <motion.div
+              initial={{opacity: 0, y: -18, scale: 0.98}}
+              animate={{opacity: 1, y: 0, scale: 1}}
+              transition={{duration: 0.24, ease: [0.22, 1, 0.36, 1]}}
+              className="pointer-events-auto relative mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-[620px] flex-col overflow-hidden rounded-[1.4rem] border border-[var(--edge-strong)] bg-[rgba(10,13,19,0.98)] shadow-[0_34px_90px_-42px_rgba(0,0,0,0.9)] backdrop-blur-xl md:max-h-[calc(100dvh-4rem)]"
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-[var(--edge)] px-4 py-4">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Timeline categories</p>
+                  <p className="mt-1 truncate text-base font-semibold tracking-tight text-[var(--ink)]">Add model groups</p>
+                  <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
+                    {selectedCount} of {modelPresets.length} groups active
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close timeline category picker"
+                  onClick={onClose}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--edge)] text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface-strong)] active:scale-[0.96]"
+                >
+                  <X className="h-4 w-4" strokeWidth={1.8} />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto px-4 py-4">
+                <div className="space-y-2">
+                  {modelPresets.map((preset) => {
+                    const isSelected = selectedPresetIds.includes(preset.id);
+                    const stats = presetStats[preset.id];
+
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => onPresetToggle(preset.id)}
+                        className={`grid w-full grid-cols-[1fr_auto] gap-4 rounded-[0.95rem] border p-4 text-left transition duration-300 active:scale-[0.99] ${
+                          isSelected
+                            ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
+                            : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                        }`}
+                      >
+                        <span className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] gap-3">
+                          <ModelClassIcon classId={preset.classId} className="mt-0.5 h-5 w-5 text-[var(--ink)]" />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{preset.label}</span>
+                            <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">{preset.description}</span>
+                            <span className="mt-3 block font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
+                              {stats.providerCount} labs / {stats.releaseCount} releases
+                            </span>
+                          </span>
+                        </span>
+
+                        <span
+                          className={`mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border ${
+                            isSelected
+                              ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]'
+                              : 'border-[var(--edge)] text-transparent'
+                          }`}
+                        >
+                          <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={onSelectAll}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+                  >
+                    <Layers3 className="h-4 w-4" strokeWidth={1.8} />
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClearAll}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+                  >
+                    <X className="h-4 w-4" strokeWidth={1.8} />
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onReset}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+                  >
+                    <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
+                    Reset
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <div className="relative">
       <button
         type="button"
         aria-expanded={isOpen}
-        aria-label="Explore model classes"
+        aria-label="Choose timeline categories"
         onClick={onToggle}
         className="inline-flex h-11 max-w-full items-center justify-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface)] px-4 text-sm font-medium text-[var(--ink)] shadow-[var(--soft-shadow)] transition duration-300 hover:-translate-y-[1px] hover:border-[var(--edge-strong)] hover:bg-[var(--surface-strong)] active:translate-y-0 active:scale-[0.98]"
       >
@@ -902,133 +1072,7 @@ function ModelClassExplorer({
         />
       </button>
 
-      {isOpen ? (
-        <>
-          <button
-            type="button"
-            aria-label="Close model class explorer"
-            onClick={onClose}
-            className="fixed inset-0 z-30 cursor-default bg-[#05070b]/70 backdrop-blur-sm md:bg-transparent md:backdrop-blur-none"
-          />
-
-          <motion.div
-            initial={{opacity: 0, y: 16, scale: 0.98}}
-            animate={{opacity: 1, y: 0, scale: 1}}
-            transition={{duration: 0.24, ease: [0.22, 1, 0.36, 1]}}
-            className="fixed inset-x-3 bottom-3 z-40 max-h-[82dvh] overflow-hidden rounded-[1.4rem] border border-[var(--edge-strong)] bg-[rgba(10,13,19,0.98)] shadow-[0_34px_90px_-42px_rgba(0,0,0,0.9)] backdrop-blur-xl md:absolute md:inset-x-auto md:bottom-auto md:right-0 md:top-[calc(100%+0.75rem)] md:w-[520px]"
-          >
-            <div className="flex items-start justify-between gap-4 border-b border-[var(--edge)] px-4 py-4">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Model class</p>
-                <p className="mt-1 truncate text-base font-semibold tracking-tight text-[var(--ink)]">{activeClass.label}</p>
-                <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                  {selectedCount} of {modelPresets.length} groups active
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Close model class explorer"
-                onClick={onClose}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--edge)] text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface-strong)] active:scale-[0.96]"
-              >
-                <X className="h-4 w-4" strokeWidth={1.8} />
-              </button>
-            </div>
-
-            <div className="max-h-[calc(82dvh-4.5rem)] overflow-y-auto px-4 py-4">
-              <div className="grid grid-cols-2 gap-2">
-                {modelClasses.map((modelClass) => {
-                  const isActive = modelClass.id === activeClassId;
-
-                  return (
-                    <button
-                      key={modelClass.id}
-                      type="button"
-                      onClick={() => onClassSelect(modelClass.id)}
-                      className={`min-h-20 rounded-[0.9rem] border p-3 text-left transition duration-300 active:scale-[0.98] ${
-                        isActive
-                          ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] text-[var(--ink)]'
-                          : 'border-[var(--edge)] bg-transparent text-[var(--ink-soft)] hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2">
-                        <ModelClassIcon classId={modelClass.id} className="h-4 w-4 shrink-0" />
-                        <span className="text-sm font-semibold tracking-tight">{modelClass.label}</span>
-                      </span>
-                      <span className="mt-2 block text-xs leading-5 text-[var(--muted)]">{modelClass.description}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 space-y-2">
-                {classPresets.map((preset) => {
-                  const isSelected = selectedPresetIds.includes(preset.id);
-                  const stats = presetStats[preset.id];
-
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => onPresetToggle(preset.id)}
-                      className={`grid w-full grid-cols-[1fr_auto] gap-4 rounded-[0.95rem] border p-4 text-left transition duration-300 active:scale-[0.99] ${
-                        isSelected
-                          ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
-                          : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
-                      }`}
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{preset.label}</span>
-                        <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">{preset.description}</span>
-                        <span className="mt-3 block font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                          {stats.providerCount} labs / {stats.releaseCount} releases
-                        </span>
-                      </span>
-
-                      <span
-                        className={`mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border ${
-                          isSelected
-                            ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]'
-                            : 'border-[var(--edge)] text-transparent'
-                        }`}
-                      >
-                        <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={onSelectAll}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
-                >
-                  <Layers3 className="h-4 w-4" strokeWidth={1.8} />
-                  Select all
-                </button>
-                <button
-                  type="button"
-                  onClick={onClearAll}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
-                >
-                  <X className="h-4 w-4" strokeWidth={1.8} />
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  onClick={onReset}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
-                >
-                  <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
-                  Reset
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </>
-      ) : null}
+      {pickerOverlay}
     </div>
   );
 }
@@ -1403,7 +1447,7 @@ function DesktopTimelineExperience({
                     ? 'Turn on one or more model groups to compose the timeline.'
                   : boardView.isComposite
                     ? `${boardView.label} puts selected model groups onto one shared timeline for full-field comparison.`
-                  : `${boardView.label} is shown on the same absolute timeline, so newer model classes can be scanned without stacking every lab into the default board.`}
+                  : `${boardView.label} is shown on the same absolute timeline, so newer model groups can be scanned without stacking every lab into the default board.`}
               </p>
             </div>
 
@@ -1478,6 +1522,16 @@ function DesktopTimelineExperience({
           </div>
 
           <div className="relative">
+            {processedLabs.length === 0 ? (
+              <div className="absolute bottom-0 left-[320px] right-0 top-0 z-20 flex items-center justify-center px-6">
+                <TimelineEmptyState
+                  boardView={boardView}
+                  hiddenModelCount={hiddenModelCount}
+                  onShowHiddenLabs={onShowHiddenLabs}
+                />
+              </div>
+            ) : null}
+
             <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-[320px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.98)_0%,rgba(11,14,20,0.95)_78%,rgba(11,14,20,0)_100%)]">
               <div className="px-5 pb-14 pt-24">
                 <div className="flex flex-col gap-11">
@@ -1502,7 +1556,7 @@ function DesktopTimelineExperience({
 
             <div
               ref={scrollContainerRef}
-              className={`relative overflow-x-auto overflow-y-hidden pb-8 [scrollbar-gutter:stable] ${
+              className={`relative min-h-[28rem] overflow-x-auto overflow-y-hidden pb-8 [scrollbar-gutter:stable] ${
                 isPanning ? 'cursor-grabbing' : 'cursor-grab'
               }`}
               onPointerDown={handlePointerDown}
@@ -1516,7 +1570,7 @@ function DesktopTimelineExperience({
               >
                 <div style={{paddingLeft: `${LABEL_RAIL_WIDTH}px`}}>
                   <div
-                    className={`relative pb-14 ${isPanning ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+                    className={`relative min-h-[28rem] pb-14 ${isPanning ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
                     style={{width: `${timelineWidth}px`}}
                   >
                     <div className="pointer-events-none absolute inset-0">
@@ -1556,13 +1610,7 @@ function DesktopTimelineExperience({
                       </div>
                     </div>
 
-                    {processedLabs.length === 0 ? (
-                      <TimelineEmptyState
-                        boardView={boardView}
-                        hiddenModelCount={hiddenModelCount}
-                        onShowHiddenLabs={onShowHiddenLabs}
-                      />
-                    ) : (
+                    {processedLabs.length > 0 ? (
                     <div className="relative flex flex-col gap-11 pb-14 pt-24">
                       {processedLabs.map((lab, labIndex) => (
                         <div key={lab.id} className="relative h-[4.5rem]">
@@ -1674,7 +1722,7 @@ function DesktopTimelineExperience({
                         </div>
                       ))}
                     </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1785,7 +1833,7 @@ function MobileTimelineExperience({
             </h1>
             <p className="text-sm leading-7 text-[var(--ink-soft)]">
               {boardView.isDefault
-                ? 'The default board stays focused on frontier labs, with open-source, image, and 3D generation timelines kept in separate views.'
+                ? 'The default board stays focused on frontier labs, with open-source, image, video, and 3D generation timelines kept in separate views.'
                 : boardView.isEmpty
                   ? 'Turn on one or more model groups to compose the mobile timeline.'
                 : boardView.isComposite
@@ -1867,6 +1915,16 @@ function MobileTimelineExperience({
           </div>
 
           <div className="relative">
+            {processedLabs.length === 0 ? (
+              <div className="absolute bottom-0 left-[196px] right-0 top-0 z-20 flex items-center justify-center px-3">
+                <TimelineEmptyState
+                  boardView={boardView}
+                  hiddenModelCount={hiddenModelCount}
+                  onShowHiddenLabs={onShowHiddenLabs}
+                />
+              </div>
+            ) : null}
+
             <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-[196px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.99)_0%,rgba(11,14,20,0.96)_78%,rgba(11,14,20,0)_100%)]">
               <div className="px-3 pb-10 pt-20">
                 <div className="flex flex-col gap-8">
@@ -1892,7 +1950,7 @@ function MobileTimelineExperience({
 
             <div
               ref={scrollContainerRef}
-              className="relative overflow-x-auto overflow-y-hidden pb-6 [scrollbar-gutter:stable]"
+              className="relative min-h-[24rem] overflow-x-auto overflow-y-hidden pb-6 [scrollbar-gutter:stable]"
             >
               <div
                 className="relative transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
@@ -1900,7 +1958,7 @@ function MobileTimelineExperience({
               >
                 <div style={{paddingLeft: `${MOBILE_LABEL_RAIL_WIDTH}px`}}>
                   <div
-                    className="relative pb-10 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                    className="relative min-h-[24rem] pb-10 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
                     style={{width: `${timelineWidth}px`}}
                   >
                     <div className="pointer-events-none absolute inset-0">
@@ -1940,13 +1998,7 @@ function MobileTimelineExperience({
                       </div>
                     </div>
 
-                    {processedLabs.length === 0 ? (
-                      <TimelineEmptyState
-                        boardView={boardView}
-                        hiddenModelCount={hiddenModelCount}
-                        onShowHiddenLabs={onShowHiddenLabs}
-                      />
-                    ) : (
+                    {processedLabs.length > 0 ? (
                     <div className="relative flex flex-col gap-8 pb-10 pt-20">
                       {processedLabs.map((lab, labIndex) => (
                         <div key={`${lab.id}-mobile-row`} className="relative h-[5rem]">
@@ -2050,7 +2102,7 @@ function MobileTimelineExperience({
                         </div>
                       ))}
                     </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -2102,8 +2154,10 @@ function MobileTimelineExperience({
 
 export default function App() {
   const [selectedPresetIds, setSelectedPresetIds] = useState<PresetId[]>(DEFAULT_SELECTED_PRESET_IDS);
-  const [activeClassId, setActiveClassId] = useState<ModelClassId>(getPresetById(DEFAULT_PRESET_ID).classId);
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(() =>
+    typeof window === 'undefined' ? true : window.matchMedia('(min-width: 768px)').matches,
+  );
   const [zoom, setZoom] = useState(DEFAULT_DESKTOP_ZOOM);
   const [mobileZoom, setMobileZoom] = useState(DEFAULT_MOBILE_ZOOM);
   const [isPanning, setIsPanning] = useState(false);
@@ -2167,6 +2221,16 @@ export default function App() {
   useEffect(() => {
     const timeout = window.setTimeout(() => setIsReady(true), 120);
     return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 768px)');
+    const updateDesktopViewport = () => setIsDesktopViewport(mediaQuery.matches);
+
+    updateDesktopViewport();
+    mediaQuery.addEventListener('change', updateDesktopViewport);
+
+    return () => mediaQuery.removeEventListener('change', updateDesktopViewport);
   }, []);
 
   useEffect(() => {
@@ -2263,7 +2327,6 @@ export default function App() {
   };
 
   const resetPreset = () => {
-    setActiveClassId(getPresetById(DEFAULT_PRESET_ID).classId);
     setSelectedPresetIds(DEFAULT_SELECTED_PRESET_IDS);
     setHiddenLabIds([]);
     setLabOrderIds(labs.map((lab) => lab.id));
@@ -2300,10 +2363,8 @@ export default function App() {
   };
 
   const explorerProps = {
-    activeClassId,
     boardView,
     isOpen: isExplorerOpen,
-    onClassSelect: setActiveClassId,
     onClearAll: clearAllPresets,
     onClose: () => setIsExplorerOpen(false),
     onPresetToggle: togglePreset,
@@ -2530,7 +2591,7 @@ export default function App() {
           maxZoom={MOBILE_MAX_ZOOM}
           maxDays={maxDays}
           maxSummaryQuietDays={maxSummaryQuietDays}
-          modelExplorer={<ModelClassExplorer {...explorerProps} />}
+          modelExplorer={<ModelClassExplorer {...explorerProps} isOverlayEnabled={!isDesktopViewport} />}
           monthTicks={monthTicks}
           onLabDragEnd={() => setDraggedLabId(null)}
           onLabDragStart={setDraggedLabId}
@@ -2561,7 +2622,7 @@ export default function App() {
           minZoom={desktopMinZoom}
           maxZoom={DESKTOP_MAX_ZOOM}
           maxSummaryQuietDays={maxSummaryQuietDays}
-          modelExplorer={<ModelClassExplorer {...explorerProps} />}
+          modelExplorer={<ModelClassExplorer {...explorerProps} isOverlayEnabled={isDesktopViewport} />}
           monthTicks={monthTicks}
           onLabDragEnd={() => setDraggedLabId(null)}
           onLabDragStart={setDraggedLabId}
