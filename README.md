@@ -2,16 +2,16 @@
 
 ![AI Model Release Timeline screenshot](./timelineScreenshot_4_1_2026.png)
 
-A shareable web app that maps major AI model releases across language, image, video, and 3D generation onto one chronological timeline.
+A shareable web app that maps major AI foundation model releases and coding harnesses (agentic coding tools) across providers onto one chronological timeline.
 
 Live site: https://kvick-games.github.io/AI_Model_Timeline_Website/
 
 ## Overview
 
-The app presents model launches on a single horizontal timeline so you can compare release cadence across labs at a glance. It includes:
+The app presents model launches on a single horizontal timeline so you can compare release cadence across companies and product lines at a glance. It includes:
 
-- lab-by-lab rows with release markers
-- category filters for frontier LLMs, open-source LLMs, image generation, video generation, and 3D generation
+- company rows that expand into compact product-line lanes when multiple selected lines are active
+- product-line filters for frontier LLMs, open-source LLMs, coding harnesses, image generation, video generation, and 3D generation
 - month and year guides across the full timeline
 - zoom controls for dense sections of the chart
 - gap labels showing the number of days between releases

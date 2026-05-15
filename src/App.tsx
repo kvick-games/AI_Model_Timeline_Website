@@ -1,4 +1,4 @@
-import React, {startTransition, useEffect, useMemo, useRef, useState} from 'react';
+import React, {startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {createPortal} from 'react-dom';
 import {
   ArrowDown,
@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   Clapperboard,
+  Code2,
   Globe2,
   GripVertical,
   Image as ImageIcon,
@@ -18,14 +19,15 @@ import {
 } from 'lucide-react';
 import {motion} from 'motion/react';
 
-type ModelClassId = 'frontier-llms' | 'open-source-llms' | 'image-generation' | 'video-generation' | '3d-generation';
+type ModelClassId = 'frontier-llms' | 'open-source-llms' | 'image-generation' | 'video-generation' | '3d-generation' | 'coding-harnesses';
 type PresetId =
   | 'frontier-llms'
   | 'chinese-open-source'
   | 'mistral'
   | 'image-generation'
   | 'video-generation'
-  | '3d-generation';
+  | '3d-generation'
+  | 'coding-harnesses';
 
 type PresetConfig = {
   id: PresetId;
@@ -49,13 +51,30 @@ type ReleaseRecord = {
   date: string;
 };
 
-type LabRecord = {
+type ProductLineId = string;
+type ProductMarkerShape = 'circle' | 'square' | 'diamond';
+
+type ProductLineConfig = {
+  id: ProductLineId;
+  label: string;
+  shortLabel: string;
+  classId: ModelClassId;
+  markerShape: ProductMarkerShape;
+};
+
+type ProductLineRecord = ProductLineConfig & {
+  defaultClasses?: ModelClassId[];
+  defaultPresets?: PresetId[];
+  releases: ReleaseRecord[];
+};
+
+type CompanyRecord = {
   id: string;
   name: string;
   accent: string;
   defaultClasses: ModelClassId[];
   defaultPresets: PresetId[];
-  releases: ReleaseRecord[];
+  productLines: ProductLineRecord[];
 };
 
 type ProcessedRelease = ReleaseRecord & {
@@ -66,10 +85,19 @@ type ProcessedRelease = ReleaseRecord & {
   presets: PresetId[];
 };
 
-type ProcessedLab = Omit<LabRecord, 'releases'> & {
+type ProcessedProductLine = Omit<ProductLineRecord, 'releases'> & {
   averageGap: number | null;
   latestRelease: ProcessedRelease | null;
   releases: ProcessedRelease[];
+  startDay: number;
+  totalSpan: number;
+};
+
+type ProcessedCompany = Omit<CompanyRecord, 'productLines'> & {
+  averageGap: number | null;
+  latestProductLine: ProcessedProductLine | null;
+  latestRelease: ProcessedRelease | null;
+  productLines: ProcessedProductLine[];
   startDay: number;
   totalSpan: number;
 };
@@ -84,6 +112,12 @@ const START_DATE = new Date('2022-11-30T00:00:00Z');
 const TIMELINE_PIXELS_PER_DAY = 2.24;
 const LABEL_RAIL_WIDTH = 320;
 const MOBILE_LABEL_RAIL_WIDTH = 196;
+const PAGE_BACKGROUND_HEX = '#05070b';
+const DESKTOP_COMPANY_MIN_HEIGHT = 72;
+const MOBILE_COMPANY_MIN_HEIGHT = 80;
+const DESKTOP_PRODUCT_LINE_HEIGHT = 56;
+const MOBILE_PRODUCT_LINE_HEIGHT = 60;
+const PRODUCT_LINE_GAP = 8;
 const DEFAULT_DESKTOP_ZOOM = 1;
 const DEFAULT_MOBILE_ZOOM = 1.05;
 const DESKTOP_MAX_ZOOM = 4;
@@ -133,16 +167,108 @@ const modelPresets: PresetConfig[] = [
     label: '3D Generation',
     description: '3D asset and reconstruction models from specialized labs.',
   },
+  {
+    id: 'coding-harnesses',
+    classId: 'coding-harnesses',
+    label: 'Coding Harnesses',
+    description: 'Agentic coding tools, IDEs, and harnesses built on foundation models.',
+  },
 ];
 
-const labs: LabRecord[] = [
+const presetGroups: { label: string; presetIds: PresetId[] }[] = [
   {
-    id: 'openai-gpt',
-    name: 'OpenAI (GPT)',
+    label: 'Foundation Models',
+    presetIds: ['frontier-llms', 'chinese-open-source', 'mistral'],
+  },
+  {
+    label: 'Coding Harnesses',
+    presetIds: ['coding-harnesses'],
+  },
+  {
+    label: 'Creative Generation',
+    presetIds: ['image-generation', 'video-generation', '3d-generation'],
+  },
+];
+
+function getDefaultMarkerShape(classId: ModelClassId): ProductMarkerShape {
+  if (classId === 'coding-harnesses') {
+    return 'square';
+  }
+
+  if (classId === 'video-generation') {
+    return 'diamond';
+  }
+
+  return 'circle';
+}
+
+function defineProductLine({
+  classId,
+  defaultClasses,
+  defaultPresets,
+  id,
+  label,
+  markerShape,
+  releases,
+  shortLabel,
+}: {
+  classId: ModelClassId;
+  defaultClasses?: ModelClassId[];
+  defaultPresets: PresetId[];
+  id: ProductLineId;
+  label: string;
+  markerShape?: ProductMarkerShape;
+  releases: ReleaseRecord[];
+  shortLabel?: string;
+}): ProductLineRecord {
+  return {
+    id,
+    label,
+    shortLabel: shortLabel ?? label,
+    classId,
+    markerShape: markerShape ?? getDefaultMarkerShape(classId),
+    defaultClasses: defaultClasses ?? [classId],
+    defaultPresets,
+    releases,
+  };
+}
+
+function defineCompany({
+  accent,
+  id,
+  name,
+  productLines,
+}: {
+  accent: string;
+  id: string;
+  name: string;
+  productLines: ProductLineRecord[];
+}): CompanyRecord {
+  const firstLine = productLines[0];
+
+  return {
+    id,
+    name,
+    accent,
+    defaultClasses: firstLine?.defaultClasses ?? ['frontier-llms'],
+    defaultPresets: firstLine?.defaultPresets ?? [DEFAULT_PRESET_ID],
+    productLines,
+  };
+}
+
+const companies: CompanyRecord[] = [
+  defineCompany({
+    id: 'openai',
+    name: 'OpenAI',
     accent: '#139a74',
-    defaultClasses: ['frontier-llms'],
-    defaultPresets: ['frontier-llms'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'openai-gpt',
+        label: 'GPT models',
+        shortLabel: 'GPT',
+        classId: 'frontier-llms',
+        defaultPresets: ['frontier-llms'],
+        releases: [
       {name: 'GPT-3.5', date: '2022-11-30'},
       {name: 'GPT-4', date: '2023-03-14'},
       {name: 'GPT-4 Turbo', date: '2023-11-06'},
@@ -155,15 +281,61 @@ const labs: LabRecord[] = [
       {name: 'GPT-5.3', date: '2026-02-05'},
       {name: 'GPT-5.4', date: '2026-03-05'},
       {name: 'GPT-5.5', date: '2026-04-23'},
+        ],
+      }),
+      defineProductLine({
+        id: 'openai-image',
+        label: 'Image models',
+        shortLabel: 'Image',
+        classId: 'image-generation',
+        defaultPresets: ['image-generation'],
+        releases: [
+          {name: 'DALL-E 2', date: '2022-09-28'},
+          {name: 'DALL-E 3', date: '2023-09-20'},
+          {name: 'GPT-4o Image', date: '2025-03-25'},
+          {name: 'GPT Image 2', date: '2026-04-21'},
+        ],
+      }),
+      defineProductLine({
+        id: 'openai-sora',
+        label: 'Sora video',
+        shortLabel: 'Sora',
+        classId: 'video-generation',
+        defaultPresets: ['video-generation'],
+        releases: [
+          {name: 'Sora Preview', date: '2024-02-15'},
+          {name: 'Sora Turbo', date: '2024-12-09'},
+          {name: 'Sora 2', date: '2025-09-30'},
+        ],
+      }),
+      defineProductLine({
+        id: 'openai-codex',
+        label: 'Codex',
+        shortLabel: 'Codex',
+        classId: 'coding-harnesses',
+        defaultPresets: ['coding-harnesses'],
+        markerShape: 'square',
+        releases: [
+          {name: 'Codex Preview', date: '2025-05-16'},
+          {name: 'GPT-5-Codex', date: '2025-09-15'},
+          {name: 'Codex GA', date: '2025-10-06'},
+          {name: 'GPT-5.2-Codex', date: '2025-12-18'},
+        ],
+      }),
     ],
-  },
-  {
-    id: 'anthropic-claude',
-    name: 'Anthropic (Claude)',
+  }),
+  defineCompany({
+    id: 'anthropic',
+    name: 'Anthropic',
     accent: '#d38b14',
-    defaultClasses: ['frontier-llms'],
-    defaultPresets: ['frontier-llms'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'anthropic-claude',
+        label: 'Claude models',
+        shortLabel: 'Claude',
+        classId: 'frontier-llms',
+        defaultPresets: ['frontier-llms'],
+        releases: [
       {name: 'Claude 1', date: '2023-03-14'},
       {name: 'Claude 2', date: '2023-07-11'},
       {name: 'Claude 3', date: '2024-03-04'},
@@ -175,15 +347,34 @@ const labs: LabRecord[] = [
       {name: 'Claude 4.6 Sonnet', date: '2026-02-17'},
       {name: 'Claude 4.6 Opus', date: '2026-02-05'},
       {name: 'Claude 4.7 Opus', date: '2026-04-16'},
+        ],
+      }),
+      defineProductLine({
+        id: 'anthropic-claude-code',
+        label: 'Claude Code',
+        shortLabel: 'Code',
+        classId: 'coding-harnesses',
+        defaultPresets: ['coding-harnesses'],
+        markerShape: 'square',
+        releases: [
+          {name: 'Claude Code Preview', date: '2025-02-24'},
+          {name: 'Claude Code GA', date: '2025-05-22'},
+        ],
+      }),
     ],
-  },
-  {
-    id: 'google-gemini',
-    name: 'Google (Gemini)',
+  }),
+  defineCompany({
+    id: 'google',
+    name: 'Google',
     accent: '#2d6ed8',
-    defaultClasses: ['frontier-llms'],
-    defaultPresets: ['frontier-llms'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'google-gemini',
+        label: 'Gemini models',
+        shortLabel: 'Gemini',
+        classId: 'frontier-llms',
+        defaultPresets: ['frontier-llms'],
+        releases: [
       {name: 'Gemini 1.0', date: '2023-12-06'},
       {name: 'Gemini 1.5', date: '2024-02-15'},
       {name: 'Gemini 2.0', date: '2025-02-05'},
@@ -192,15 +383,47 @@ const labs: LabRecord[] = [
       {name: 'Gemini 3.1 Pro (Preview)', date: '2026-02-19'},
       {name: 'Gemini 3.1 Flash-Image', date: '2026-02-26'},
       {name: 'Gemini 3.1 Flash-Lite', date: '2026-03-03'},
+        ],
+      }),
+      defineProductLine({
+        id: 'google-veo',
+        label: 'Veo video',
+        shortLabel: 'Veo',
+        classId: 'video-generation',
+        defaultPresets: ['video-generation'],
+        releases: [
+          {name: 'Veo', date: '2024-05-14'},
+          {name: 'Veo 2', date: '2024-12-16'},
+          {name: 'Veo 3', date: '2025-05-20'},
+          {name: 'Veo 3.1', date: '2025-10-15'},
+        ],
+      }),
+      defineProductLine({
+        id: 'google-coding-tools',
+        label: 'Gemini coding tools',
+        shortLabel: 'Tools',
+        classId: 'coding-harnesses',
+        defaultPresets: ['coding-harnesses'],
+        markerShape: 'square',
+        releases: [
+          {name: 'Gemini CLI', date: '2025-06-25'},
+          {name: 'Antigravity IDE', date: '2025-11-20'},
+        ],
+      }),
     ],
-  },
-  {
-    id: 'xai-grok',
-    name: 'xAI (Grok)',
+  }),
+  defineCompany({
+    id: 'xai',
+    name: 'xAI',
     accent: '#777f90',
-    defaultClasses: ['frontier-llms'],
-    defaultPresets: ['frontier-llms'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'xai-grok',
+        label: 'Grok models',
+        shortLabel: 'Grok',
+        classId: 'frontier-llms',
+        defaultPresets: ['frontier-llms'],
+        releases: [
       {name: 'Grok 1', date: '2023-11-04'},
       {name: 'Grok 1.5', date: '2024-03-28'},
       {name: 'Grok 2', date: '2024-08-13'},
@@ -209,70 +432,136 @@ const labs: LabRecord[] = [
       {name: 'Grok 4.1', date: '2025-11-17'},
       {name: 'Grok 4.20', date: '2026-02-17'},
       {name: 'Grok 4.3 (Beta)', date: '2026-04-17'},
-      {name: 'Grok Build (Beta)', date: '2026-05-14'},
+        ],
+      }),
+      defineProductLine({
+        id: 'xai-grok-build',
+        label: 'Grok Build',
+        shortLabel: 'Build',
+        classId: 'coding-harnesses',
+        defaultPresets: ['coding-harnesses'],
+        markerShape: 'square',
+        releases: [
+          {name: 'Grok Build (Beta)', date: '2026-05-14'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
+    id: 'cursor',
+    name: 'Cursor',
+    accent: '#7c9cf0',
+    productLines: [
+      defineProductLine({
+        id: 'cursor-editor',
+        label: 'Cursor editor',
+        shortLabel: 'Cursor',
+        classId: 'coding-harnesses',
+        defaultPresets: ['coding-harnesses'],
+        releases: [
+          {name: 'Cursor', date: '2023-07-28'},
+          {name: 'Copilot++ Beta', date: '2023-11-10'},
+          {name: 'Cursor Tab', date: '2025-01-13'},
+          {name: 'Cursor 1.0', date: '2025-06-04'},
+          {name: 'Cursor Agent CLI', date: '2025-08-07'},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
     id: 'deepseek',
     name: 'DeepSeek',
     accent: '#4d8bd6',
-    defaultClasses: ['open-source-llms'],
-    defaultPresets: ['chinese-open-source'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'deepseek-models',
+        label: 'DeepSeek models',
+        shortLabel: 'DeepSeek',
+        classId: 'open-source-llms',
+        defaultPresets: ['chinese-open-source'],
+        releases: [
       {name: 'DeepSeek-V2', date: '2024-05-06'},
       {name: 'DeepSeek-V2.5', date: '2024-09-05'},
       {name: 'DeepSeek-V3', date: '2024-12-26'},
       {name: 'DeepSeek-R1', date: '2025-01-20'},
       {name: 'DeepSeek-R1-0528', date: '2025-05-28'},
       {name: 'DeepSeek-V3.1', date: '2025-08-21'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'qwen',
-    name: 'Alibaba (Qwen)',
+    name: 'Alibaba',
     accent: '#8c79d6',
-    defaultClasses: ['open-source-llms'],
-    defaultPresets: ['chinese-open-source'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'qwen-models',
+        label: 'Qwen models',
+        shortLabel: 'Qwen',
+        classId: 'open-source-llms',
+        defaultPresets: ['chinese-open-source'],
+        releases: [
       {name: 'Qwen2', date: '2024-06-07'},
       {name: 'Qwen2.5', date: '2024-09-19'},
       {name: 'Qwen2.5-VL', date: '2025-01-28'},
       {name: 'Qwen3', date: '2025-04-29'},
       {name: 'Qwen3-Coder', date: '2025-07-29'},
       {name: 'Qwen3.6-35B-A3B', date: '2026-04-17'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'moonshot-kimi',
-    name: 'Moonshot AI (Kimi)',
+    name: 'Moonshot AI',
     accent: '#56a3a6',
-    defaultClasses: ['open-source-llms'],
-    defaultPresets: ['chinese-open-source'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'kimi-models',
+        label: 'Kimi models',
+        shortLabel: 'Kimi',
+        classId: 'open-source-llms',
+        defaultPresets: ['chinese-open-source'],
+        releases: [
       {name: 'Kimi Chat', date: '2023-10-09'},
       {name: 'Kimi k1.5', date: '2025-01-20'},
       {name: 'Kimi K2', date: '2025-07-11'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'zhipu-glm',
-    name: 'Zhipu AI (GLM)',
+    name: 'Zhipu AI',
     accent: '#c78f38',
-    defaultClasses: ['open-source-llms'],
-    defaultPresets: ['chinese-open-source'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'glm-models',
+        label: 'GLM models',
+        shortLabel: 'GLM',
+        classId: 'open-source-llms',
+        defaultPresets: ['chinese-open-source'],
+        releases: [
       {name: 'GLM-4', date: '2024-01-16'},
       {name: 'GLM-4-9B', date: '2024-06-05'},
       {name: 'GLM-4.5', date: '2025-07-28'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'mistral-ai',
     name: 'Mistral AI',
     accent: '#ff9f1c',
-    defaultClasses: ['open-source-llms'],
-    defaultPresets: ['mistral'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'mistral-models',
+        label: 'Mistral models',
+        shortLabel: 'Mistral',
+        classId: 'open-source-llms',
+        defaultPresets: ['mistral'],
+        releases: [
       {name: 'Mistral 7B', date: '2023-09-27'},
       {name: 'Mixtral 8x7B', date: '2023-12-11'},
       {name: 'Mistral Large', date: '2024-02-26'},
@@ -281,193 +570,227 @@ const labs: LabRecord[] = [
       {name: 'Mistral Large 2', date: '2024-07-24'},
       {name: 'Mistral Small 3', date: '2025-01-30'},
       {name: 'Mistral Medium 3', date: '2025-05-07'},
+        ],
+      }),
     ],
-  },
-  {
-    id: 'openai-image',
-    name: 'OpenAI (Image)',
-    accent: '#1da17d',
-    defaultClasses: ['image-generation'],
-    defaultPresets: ['image-generation'],
-    releases: [
-      {name: 'DALL-E 2', date: '2022-09-28'},
-      {name: 'DALL-E 3', date: '2023-09-20'},
-      {name: 'GPT-4o Image', date: '2025-03-25'},
-      {name: 'GPT Image 2', date: '2026-04-21'},
-    ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'midjourney',
     name: 'Midjourney',
     accent: '#c0537a',
-    defaultClasses: ['image-generation'],
-    defaultPresets: ['image-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'midjourney-image',
+        label: 'Image models',
+        shortLabel: 'Image',
+        classId: 'image-generation',
+        defaultPresets: ['image-generation'],
+        releases: [
       {name: 'Midjourney V5', date: '2023-03-15'},
       {name: 'Midjourney V6', date: '2023-12-20'},
       {name: 'Midjourney V6.1', date: '2024-07-30'},
       {name: 'Midjourney V7', date: '2025-04-03'},
       {name: 'Niji 7', date: '2026-01-09'},
+        ],
+      }),
     ],
-  },
-  {
-    id: 'stability-image',
-    name: 'Stability AI (Image)',
+  }),
+  defineCompany({
+    id: 'stability-ai',
+    name: 'Stability AI',
     accent: '#6b8e4e',
-    defaultClasses: ['image-generation'],
-    defaultPresets: ['image-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'stability-image',
+        label: 'Image models',
+        shortLabel: 'Image',
+        classId: 'image-generation',
+        defaultPresets: ['image-generation'],
+        releases: [
       {name: 'Stable Diffusion 2.0', date: '2022-11-24'},
       {name: 'SDXL 1.0', date: '2023-07-26'},
       {name: 'Stable Diffusion 3 Medium', date: '2024-06-12'},
       {name: 'Stable Diffusion 3.5', date: '2024-10-22'},
+        ],
+      }),
+      defineProductLine({
+        id: 'stability-video',
+        label: 'Video models',
+        shortLabel: 'Video',
+        classId: 'video-generation',
+        defaultPresets: ['video-generation'],
+        releases: [
+          {name: 'Stable Video Diffusion', date: '2023-11-21'},
+          {name: 'Stable Video 4D', date: '2024-07-24'},
+        ],
+      }),
+      defineProductLine({
+        id: 'stability-3d',
+        label: '3D models',
+        shortLabel: '3D',
+        classId: '3d-generation',
+        defaultPresets: ['3d-generation'],
+        releases: [
+          {name: 'Stable Zero123', date: '2023-12-13'},
+          {name: 'TripoSR', date: '2024-03-04'},
+          {name: 'Stable Video 3D', date: '2024-03-18'},
+          {name: 'Stable Fast 3D', date: '2024-08-01'},
+          {name: 'Stable Point Aware 3D', date: '2025-03-18'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'black-forest-labs',
     name: 'Black Forest Labs',
     accent: '#7b6bd6',
-    defaultClasses: ['image-generation'],
-    defaultPresets: ['image-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'flux-image',
+        label: 'FLUX models',
+        shortLabel: 'FLUX',
+        classId: 'image-generation',
+        defaultPresets: ['image-generation'],
+        releases: [
       {name: 'FLUX.1', date: '2024-08-01'},
       {name: 'FLUX.1 Tools', date: '2024-11-21'},
       {name: 'FLUX.1 Kontext', date: '2025-05-29'},
+        ],
+      }),
     ],
-  },
-  {
-    id: 'stability-video',
-    name: 'Stability AI (Video)',
-    accent: '#7f9d57',
-    defaultClasses: ['video-generation'],
-    defaultPresets: ['video-generation'],
-    releases: [
-      {name: 'Stable Video Diffusion', date: '2023-11-21'},
-      {name: 'Stable Video 4D', date: '2024-07-24'},
-    ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'runway-video',
     name: 'Runway',
     accent: '#d7d0c3',
-    defaultClasses: ['video-generation'],
-    defaultPresets: ['video-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'runway-gen',
+        label: 'Gen video',
+        shortLabel: 'Gen',
+        classId: 'video-generation',
+        defaultPresets: ['video-generation'],
+        releases: [
       {name: 'Gen-2', date: '2023-03-20'},
       {name: 'Gen-3 Alpha', date: '2024-06-17'},
       {name: 'Gen-4', date: '2025-03-31'},
       {name: 'Gen-4.5', date: '2025-12-01'},
+        ],
+      }),
     ],
-  },
-  {
-    id: 'openai-video',
-    name: 'OpenAI (Sora)',
-    accent: '#15a77e',
-    defaultClasses: ['video-generation'],
-    defaultPresets: ['video-generation'],
-    releases: [
-      {name: 'Sora Preview', date: '2024-02-15'},
-      {name: 'Sora Turbo', date: '2024-12-09'},
-      {name: 'Sora 2', date: '2025-09-30'},
-    ],
-  },
-  {
-    id: 'google-veo',
-    name: 'Google (Veo)',
-    accent: '#3d7ce3',
-    defaultClasses: ['video-generation'],
-    defaultPresets: ['video-generation'],
-    releases: [
-      {name: 'Veo', date: '2024-05-14'},
-      {name: 'Veo 2', date: '2024-12-16'},
-      {name: 'Veo 3', date: '2025-05-20'},
-      {name: 'Veo 3.1', date: '2025-10-15'},
-    ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'luma-ai',
     name: 'Luma AI',
     accent: '#58a9c7',
-    defaultClasses: ['video-generation'],
-    defaultPresets: ['video-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'luma-video',
+        label: 'Video models',
+        shortLabel: 'Video',
+        classId: 'video-generation',
+        defaultPresets: ['video-generation'],
+        releases: [
       {name: 'Dream Machine', date: '2024-06-12'},
       {name: 'Ray2', date: '2025-01-15'},
       {name: 'Ray3', date: '2025-09-18'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'pika-labs',
     name: 'Pika',
     accent: '#e39b4d',
-    defaultClasses: ['video-generation'],
-    defaultPresets: ['video-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'pika-video',
+        label: 'Video models',
+        shortLabel: 'Video',
+        classId: 'video-generation',
+        defaultPresets: ['video-generation'],
+        releases: [
       {name: 'Pika 1.0', date: '2023-11-28'},
       {name: 'Pika 1.5', date: '2024-10-01'},
       {name: 'Pika 2.0', date: '2024-12-13'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'kuaishou-kling',
-    name: 'Kuaishou (Kling)',
+    name: 'Kuaishou',
     accent: '#c75c4f',
-    defaultClasses: ['video-generation'],
-    defaultPresets: ['video-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'kling-video',
+        label: 'Kling video',
+        shortLabel: 'Kling',
+        classId: 'video-generation',
+        defaultPresets: ['video-generation'],
+        releases: [
       {name: 'Kling', date: '2024-06-06'},
       {name: 'Kling 2.0', date: '2025-04-15'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'bytedance-seedance',
-    name: 'ByteDance (Seedance)',
+    name: 'ByteDance',
     accent: '#5f75d6',
-    defaultClasses: ['video-generation'],
-    defaultPresets: ['video-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'seedance-video',
+        label: 'Seedance video',
+        shortLabel: 'Seedance',
+        classId: 'video-generation',
+        defaultPresets: ['video-generation'],
+        releases: [
       {name: 'Seedance 1.0', date: '2025-06-11'},
       {name: 'Seedance 2.0', date: '2026-02-12'},
+        ],
+      }),
     ],
-  },
-  {
-    id: 'stability-3d',
-    name: 'Stability AI (3D)',
-    accent: '#9b8a52',
-    defaultClasses: ['3d-generation'],
-    defaultPresets: ['3d-generation'],
-    releases: [
-      {name: 'Stable Zero123', date: '2023-12-13'},
-      {name: 'TripoSR', date: '2024-03-04'},
-      {name: 'Stable Video 3D', date: '2024-03-18'},
-      {name: 'Stable Fast 3D', date: '2024-08-01'},
-      {name: 'Stable Point Aware 3D', date: '2025-03-18'},
-    ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'tencent-hunyuan-3d',
-    name: 'Tencent (Hunyuan3D)',
+    name: 'Tencent',
     accent: '#327ec7',
-    defaultClasses: ['3d-generation'],
-    defaultPresets: ['3d-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'hunyuan-3d',
+        label: 'Hunyuan3D',
+        shortLabel: 'Hunyuan3D',
+        classId: '3d-generation',
+        defaultPresets: ['3d-generation'],
+        releases: [
       {name: 'Hunyuan3D 1.0', date: '2024-11-05'},
       {name: 'Hunyuan3D 2.0', date: '2025-01-21'},
       {name: 'Hunyuan3D 2.1', date: '2025-06-18'},
+        ],
+      }),
     ],
-  },
-  {
+  }),
+  defineCompany({
     id: 'tripo-ai',
     name: 'Tripo AI',
     accent: '#d15f45',
-    defaultClasses: ['3d-generation'],
-    defaultPresets: ['3d-generation'],
-    releases: [
+    productLines: [
+      defineProductLine({
+        id: 'tripo-3d',
+        label: '3D models',
+        shortLabel: '3D',
+        classId: '3d-generation',
+        defaultPresets: ['3d-generation'],
+        releases: [
       {name: 'Tripo AI', date: '2023-09-12'},
       {name: 'TripoSR', date: '2024-03-04'},
       {name: 'Tripo 2.0', date: '2025-01-21'},
+        ],
+      }),
     ],
-  },
+  }),
 ];
 
 function parseUtcDate(input: string) {
@@ -499,6 +822,33 @@ function mixHexColor(hexColor: string, targetChannel: number, amount: number) {
   return `rgb(${mixChannel(red)} ${mixChannel(green)} ${mixChannel(blue)})`;
 }
 
+function mixHexColors(sourceHexColor: string, targetHexColor: string, amount: number) {
+  const normalize = (hexColor: string) => {
+    const normalized = hexColor.replace('#', '');
+
+    return normalized.length === 3 ? normalized.split('').map((value) => `${value}${value}`).join('') : normalized;
+  };
+  const source = normalize(sourceHexColor);
+  const target = normalize(targetHexColor);
+  const safeAmount = Math.max(0, Math.min(1, amount));
+
+  if (!/^[0-9a-fA-F]{6}$/.test(source) || !/^[0-9a-fA-F]{6}$/.test(target)) {
+    return sourceHexColor;
+  }
+
+  const sourceChannels = [source.slice(0, 2), source.slice(2, 4), source.slice(4, 6)].map((value) =>
+    Number.parseInt(value, 16),
+  );
+  const targetChannels = [target.slice(0, 2), target.slice(2, 4), target.slice(4, 6)].map((value) =>
+    Number.parseInt(value, 16),
+  );
+  const [red, green, blue] = sourceChannels.map((channel, index) =>
+    Math.round(channel + (targetChannels[index] - channel) * safeAmount),
+  );
+
+  return `rgb(${red} ${green} ${blue})`;
+}
+
 function toRgbaFromHex(hexColor: string, alpha: number) {
   const normalized = hexColor.replace('#', '');
   const expanded = normalized.length === 3 ? normalized.split('').map((value) => `${value}${value}`).join('') : normalized;
@@ -514,12 +864,28 @@ function toRgbaFromHex(hexColor: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-function getReleaseClasses(lab: LabRecord, release: ReleaseRecord): ModelClassId[] {
-  return release.classes ?? lab.defaultClasses;
+function getProductLineClasses(company: CompanyRecord, productLine: ProductLineRecord): ModelClassId[] {
+  return productLine.defaultClasses ?? company.defaultClasses ?? [productLine.classId];
 }
 
-function getReleasePresets(lab: LabRecord, release: ReleaseRecord): PresetId[] {
-  return release.presets ?? lab.defaultPresets;
+function getProductLinePresets(company: CompanyRecord, productLine: ProductLineRecord): PresetId[] {
+  return productLine.defaultPresets ?? company.defaultPresets;
+}
+
+function getReleaseClasses(
+  company: CompanyRecord,
+  productLine: ProductLineRecord,
+  release: ReleaseRecord,
+): ModelClassId[] {
+  return release.classes ?? getProductLineClasses(company, productLine);
+}
+
+function getReleasePresets(
+  company: CompanyRecord,
+  productLine: ProductLineRecord,
+  release: ReleaseRecord,
+): PresetId[] {
+  return release.presets ?? getProductLinePresets(company, productLine);
 }
 
 function getBoardView(selectedPresetIds: PresetId[]): BoardView {
@@ -527,11 +893,11 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
 
   if (selectedPresets.length === 0) {
     return {
-      description: 'No model groups are currently selected.',
+      description: 'No product lines are currently selected.',
       isComposite: true,
       isDefault: false,
       isEmpty: true,
-      label: 'No groups selected',
+      label: 'No lines selected',
     };
   }
 
@@ -549,11 +915,11 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
 
   if (selectedPresets.length === modelPresets.length) {
     return {
-      description: 'Every tracked LLM, image, video, and 3D model release is visible.',
+      description: 'Every tracked model family and coding harness line is visible.',
       isComposite: true,
       isDefault: false,
       isEmpty: false,
-      label: 'All groups selected',
+      label: 'All lines selected',
     };
   }
 
@@ -562,41 +928,49 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
     isComposite: true,
     isDefault: false,
     isEmpty: false,
-    label: `${selectedPresets.length} groups selected`,
+    label: `${selectedPresets.length} lines selected`,
   };
 }
 
-function getVisibleLabs(data: LabRecord[], selectedPresetIds: PresetId[]) {
+function getVisibleCompanies(data: CompanyRecord[], selectedPresetIds: PresetId[]) {
   if (selectedPresetIds.length === 0) {
     return [];
   }
 
   return data
-    .map<LabRecord>((lab) => ({
-      ...lab,
-      releases: lab.releases.filter((release) => {
-        const releasePresets = getReleasePresets(lab, release);
-        return selectedPresetIds.some((presetId) => releasePresets.includes(presetId));
-      }),
+    .map<CompanyRecord>((company) => ({
+      ...company,
+      productLines: company.productLines
+        .map<ProductLineRecord>((productLine) => ({
+          ...productLine,
+          releases: productLine.releases.filter((release) => {
+            const releasePresets = getReleasePresets(company, productLine, release);
+            return selectedPresetIds.some((presetId) => releasePresets.includes(presetId));
+          }),
+        }))
+        .filter((productLine) => productLine.releases.length > 0),
     }))
-    .filter((lab) => lab.releases.length > 0);
+    .filter((company) => company.productLines.length > 0);
 }
 
-function buildPresetStats(data: LabRecord[]) {
+function buildPresetStats(data: CompanyRecord[]) {
   return modelPresets.reduce<Record<PresetId, {providerCount: number; releaseCount: number}>>((stats, preset) => {
-    const visibleLabs = getVisibleLabs(data, [preset.id]);
+    const visibleCompanies = getVisibleCompanies(data, [preset.id]);
 
     stats[preset.id] = {
-      providerCount: visibleLabs.length,
-      releaseCount: visibleLabs.reduce((sum, lab) => sum + lab.releases.length, 0),
+      providerCount: visibleCompanies.length,
+      releaseCount: visibleCompanies.reduce(
+        (sum, company) => sum + company.productLines.reduce((lineSum, productLine) => lineSum + productLine.releases.length, 0),
+        0,
+      ),
     };
 
     return stats;
   }, {} as Record<PresetId, {providerCount: number; releaseCount: number}>);
 }
 
-function getPrimaryLabClass(lab: Pick<LabRecord, 'defaultClasses'>): ModelClassId {
-  return lab.defaultClasses[0] ?? 'frontier-llms';
+function getPrimaryCompanyClass(company: Pick<CompanyRecord, 'defaultClasses' | 'productLines'>): ModelClassId {
+  return company.productLines[0]?.classId ?? company.defaultClasses[0] ?? 'frontier-llms';
 }
 
 function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
@@ -611,143 +985,174 @@ function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
   return nextItems;
 }
 
-function getCanonicalLabOrderIds(labOrderIds: string[]) {
-  const knownIds = new Set(labs.map((lab) => lab.id));
-  const orderedIds = labOrderIds.filter((labId) => knownIds.has(labId));
+function getCanonicalCompanyOrderIds(companyOrderIds: string[]) {
+  const knownIds = new Set(companies.map((company) => company.id));
+  const orderedIds = companyOrderIds.filter((companyId) => knownIds.has(companyId));
   const orderedIdSet = new Set(orderedIds);
-  const newLabIds = labs.map((lab) => lab.id).filter((labId) => !orderedIdSet.has(labId));
+  const newCompanyIds = companies.map((company) => company.id).filter((companyId) => !orderedIdSet.has(companyId));
 
-  return [...orderedIds, ...newLabIds];
+  return [...orderedIds, ...newCompanyIds];
 }
 
-function orderLabs(data: LabRecord[], labOrderIds: string[], hiddenLabIds: string[]) {
-  const labById = new Map(data.map((lab) => [lab.id, lab]));
-  const hiddenLabIdSet = new Set(hiddenLabIds);
-  const orderedLabs = getCanonicalLabOrderIds(labOrderIds)
-    .map((labId) => labById.get(labId))
-    .filter((lab): lab is LabRecord => Boolean(lab));
-  const orderedLabIdSet = new Set(orderedLabs.map((lab) => lab.id));
-  const newLabs = data.filter((lab) => !orderedLabIdSet.has(lab.id));
+function orderCompanies(data: CompanyRecord[], companyOrderIds: string[], hiddenCompanyIds: string[]) {
+  const companyById = new Map(data.map((company) => [company.id, company]));
+  const hiddenCompanyIdSet = new Set(hiddenCompanyIds);
+  const orderedCompanies = getCanonicalCompanyOrderIds(companyOrderIds)
+    .map((companyId) => companyById.get(companyId))
+    .filter((company): company is CompanyRecord => Boolean(company));
+  const orderedCompanyIdSet = new Set(orderedCompanies.map((company) => company.id));
+  const newCompanies = data.filter((company) => !orderedCompanyIdSet.has(company.id));
 
-  return [...orderedLabs, ...newLabs].filter((lab) => !hiddenLabIdSet.has(lab.id));
+  return [...orderedCompanies, ...newCompanies].filter((company) => !hiddenCompanyIdSet.has(company.id));
 }
 
-function reorderVisibleLabIds(
-  labOrderIds: string[],
-  visibleLabIds: string[],
-  sourceLabId: string,
-  targetLabId: string,
+function reorderVisibleCompanyIds(
+  companyOrderIds: string[],
+  visibleCompanyIds: string[],
+  sourceCompanyId: string,
+  targetCompanyId: string,
 ) {
-  if (sourceLabId === targetLabId) {
-    return labOrderIds;
+  if (sourceCompanyId === targetCompanyId) {
+    return companyOrderIds;
   }
 
-  const visibleLabIdSet = new Set(visibleLabIds);
-  const orderedLabIds = getCanonicalLabOrderIds(labOrderIds);
-  const orderedVisibleLabIds = orderedLabIds.filter((labId) => visibleLabIdSet.has(labId));
-  const sourceIndex = orderedVisibleLabIds.indexOf(sourceLabId);
-  const targetIndex = orderedVisibleLabIds.indexOf(targetLabId);
+  const visibleCompanyIdSet = new Set(visibleCompanyIds);
+  const orderedCompanyIds = getCanonicalCompanyOrderIds(companyOrderIds);
+  const orderedVisibleCompanyIds = orderedCompanyIds.filter((companyId) => visibleCompanyIdSet.has(companyId));
+  const sourceIndex = orderedVisibleCompanyIds.indexOf(sourceCompanyId);
+  const targetIndex = orderedVisibleCompanyIds.indexOf(targetCompanyId);
 
   if (sourceIndex < 0 || targetIndex < 0) {
-    return orderedLabIds;
+    return orderedCompanyIds;
   }
 
-  const nextVisibleLabIds = moveArrayItem(orderedVisibleLabIds, sourceIndex, targetIndex);
+  const nextVisibleCompanyIds = moveArrayItem(orderedVisibleCompanyIds, sourceIndex, targetIndex);
   let visibleIndex = 0;
 
-  return orderedLabIds.map((labId) => {
-    if (!visibleLabIdSet.has(labId)) {
-      return labId;
+  return orderedCompanyIds.map((companyId) => {
+    if (!visibleCompanyIdSet.has(companyId)) {
+      return companyId;
     }
 
-    const nextLabId = nextVisibleLabIds[visibleIndex];
+    const nextCompanyId = nextVisibleCompanyIds[visibleIndex];
     visibleIndex += 1;
-    return nextLabId ?? labId;
+    return nextCompanyId ?? companyId;
   });
 }
 
-function moveVisibleLabId(
-  labOrderIds: string[],
-  visibleLabIds: string[],
-  labId: string,
+function moveVisibleCompanyId(
+  companyOrderIds: string[],
+  visibleCompanyIds: string[],
+  companyId: string,
   direction: 'up' | 'down',
 ) {
-  const visibleLabIdSet = new Set(visibleLabIds);
-  const orderedVisibleLabIds = getCanonicalLabOrderIds(labOrderIds).filter((currentLabId) =>
-    visibleLabIdSet.has(currentLabId),
+  const visibleCompanyIdSet = new Set(visibleCompanyIds);
+  const orderedVisibleCompanyIds = getCanonicalCompanyOrderIds(companyOrderIds).filter((currentCompanyId) =>
+    visibleCompanyIdSet.has(currentCompanyId),
   );
-  const sourceIndex = orderedVisibleLabIds.indexOf(labId);
+  const sourceIndex = orderedVisibleCompanyIds.indexOf(companyId);
   const targetIndex = direction === 'up' ? sourceIndex - 1 : sourceIndex + 1;
 
-  if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= orderedVisibleLabIds.length) {
-    return labOrderIds;
+  if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= orderedVisibleCompanyIds.length) {
+    return companyOrderIds;
   }
 
-  return reorderVisibleLabIds(labOrderIds, visibleLabIds, labId, orderedVisibleLabIds[targetIndex]);
+  return reorderVisibleCompanyIds(companyOrderIds, visibleCompanyIds, companyId, orderedVisibleCompanyIds[targetIndex]);
 }
 
-function buildTimelineData(data: LabRecord[]) {
+function buildTimelineData(data: CompanyRecord[]) {
   const invalidEntries: string[] = [];
 
-  const processedLabs = data.map<ProcessedLab>((lab) => {
-    const sortedReleases = lab.releases.map((release) => ({
-      ...release,
-      classes: getReleaseClasses(lab, release),
-      presets: getReleasePresets(lab, release),
-    })).sort((left, right) => {
-      const leftDate = parseUtcDate(left.date).getTime();
-      const rightDate = parseUtcDate(right.date).getTime();
-      return leftDate - rightDate || left.name.localeCompare(right.name);
-    });
-
-    const processedReleases = sortedReleases.reduce<ProcessedRelease[]>((collection, release, index) => {
-      const releaseDate = parseUtcDate(release.date);
-
-      if (Number.isNaN(releaseDate.getTime())) {
-        invalidEntries.push(`${lab.name}: ${release.name}`);
-        return collection;
-      }
-
-      const previousRelease = collection[index - 1];
-      const globalDay = Math.round((releaseDate.getTime() - START_DATE.getTime()) / DAY_MS);
-      const gap = previousRelease ? globalDay - previousRelease.globalDay : 0;
-
-      collection.push({
+  const processedCompanies = data.map<ProcessedCompany>((company) => {
+    const processedProductLines = company.productLines.map<ProcessedProductLine>((productLine) => {
+      const sortedReleases = productLine.releases.map((release) => ({
         ...release,
-        dateLabel: formatUtcDate(releaseDate, {month: 'short', day: 'numeric', year: 'numeric'}),
-        globalDay,
-        gap,
+        classes: getReleaseClasses(company, productLine, release),
+        presets: getReleasePresets(company, productLine, release),
+      })).sort((left, right) => {
+        const leftDate = parseUtcDate(left.date).getTime();
+        const rightDate = parseUtcDate(right.date).getTime();
+        return leftDate - rightDate || left.name.localeCompare(right.name);
       });
 
-      return collection;
-    }, []);
+      const processedReleases = sortedReleases.reduce<ProcessedRelease[]>((collection, release) => {
+        const releaseDate = parseUtcDate(release.date);
 
-    const latestRelease = processedReleases[processedReleases.length - 1] ?? null;
-    const totalGap = processedReleases.reduce((sum, release) => sum + release.gap, 0);
-    const averageGap = processedReleases.length > 1 ? Math.round(totalGap / (processedReleases.length - 1)) : null;
-    const firstRelease = processedReleases[0];
+        if (Number.isNaN(releaseDate.getTime())) {
+          invalidEntries.push(`${company.name} / ${productLine.label}: ${release.name}`);
+          return collection;
+        }
+
+        const previousRelease = collection[collection.length - 1];
+        const globalDay = Math.round((releaseDate.getTime() - START_DATE.getTime()) / DAY_MS);
+        const gap = previousRelease ? globalDay - previousRelease.globalDay : 0;
+
+        collection.push({
+          ...release,
+          dateLabel: formatUtcDate(releaseDate, {month: 'short', day: 'numeric', year: 'numeric'}),
+          globalDay,
+          gap,
+        });
+
+        return collection;
+      }, []);
+
+      const latestRelease = processedReleases[processedReleases.length - 1] ?? null;
+      const totalGap = processedReleases.reduce((sum, release) => sum + release.gap, 0);
+      const averageGap = processedReleases.length > 1 ? Math.round(totalGap / (processedReleases.length - 1)) : null;
+      const firstRelease = processedReleases[0];
+
+      return {
+        ...productLine,
+        averageGap,
+        latestRelease,
+        releases: processedReleases,
+        startDay: firstRelease?.globalDay ?? 0,
+        totalSpan: latestRelease && firstRelease ? latestRelease.globalDay - firstRelease.globalDay : 0,
+      };
+    });
+
+    const latestProductLine = [...processedProductLines]
+      .filter((productLine) => productLine.latestRelease)
+      .sort((left, right) => (right.latestRelease?.globalDay ?? 0) - (left.latestRelease?.globalDay ?? 0))[0] ?? null;
+    const latestRelease = latestProductLine?.latestRelease ?? null;
+    const firstRelease = [...processedProductLines]
+      .flatMap((productLine) => productLine.releases)
+      .sort((left, right) => left.globalDay - right.globalDay)[0] ?? null;
+    const totalGap = processedProductLines.reduce(
+      (sum, productLine) => sum + productLine.releases.reduce((lineSum, release) => lineSum + release.gap, 0),
+      0,
+    );
+    const totalGapSegments = processedProductLines.reduce(
+      (sum, productLine) => sum + Math.max(productLine.releases.length - 1, 0),
+      0,
+    );
 
     return {
-      ...lab,
-      averageGap,
+      ...company,
+      averageGap: totalGapSegments > 0 ? Math.round(totalGap / totalGapSegments) : null,
+      latestProductLine,
       latestRelease,
-      releases: processedReleases,
+      productLines: processedProductLines,
       startDay: firstRelease?.globalDay ?? 0,
       totalSpan: latestRelease && firstRelease ? latestRelease.globalDay - firstRelease.globalDay : 0,
     };
   });
 
-  const latestGlobalDay = processedLabs.reduce((max, lab) => {
-    const currentLatestDay = lab.latestRelease?.globalDay ?? 0;
+  const latestGlobalDay = processedCompanies.reduce((max, company) => {
+    const currentLatestDay = company.latestRelease?.globalDay ?? 0;
     return Math.max(max, currentLatestDay);
   }, 0);
 
-  const totalReleases = processedLabs.reduce((sum, lab) => sum + lab.releases.length, 0);
+  const totalReleases = processedCompanies.reduce(
+    (sum, company) => sum + company.productLines.reduce((lineSum, productLine) => lineSum + productLine.releases.length, 0),
+    0,
+  );
 
   return {
     invalidEntries,
     latestGlobalDay,
-    processedLabs,
+    processedCompanies,
     totalReleases,
   };
 }
@@ -776,8 +1181,8 @@ function buildTicks(maxDays: number) {
   return {monthTicks, yearTicks};
 }
 
-function getQuietDays(lab: ProcessedLab, currentGlobalDay: number) {
-  return lab.latestRelease ? Math.max(0, Math.floor(currentGlobalDay - lab.latestRelease.globalDay)) : 0;
+function getQuietDays(item: {latestRelease: ProcessedRelease | null}, currentGlobalDay: number) {
+  return item.latestRelease ? Math.max(0, Math.floor(currentGlobalDay - item.latestRelease.globalDay)) : 0;
 }
 
 function getRecencyFillWidth(quietDays: number, maxQuietDays: number) {
@@ -786,6 +1191,39 @@ function getRecencyFillWidth(quietDays: number, maxQuietDays: number) {
 
 function formatQuietDaysLabel(quietDays: number) {
   return `${quietDays} ${quietDays === 1 ? 'Day' : 'Days'} since last update`;
+}
+
+function getProductLineHeight(compact = false) {
+  return compact ? MOBILE_PRODUCT_LINE_HEIGHT : DESKTOP_PRODUCT_LINE_HEIGHT;
+}
+
+function getProductLineStackMetrics(lineCount: number, compact = false) {
+  const safeLineCount = Math.max(lineCount, 1);
+  const minHeight = compact ? MOBILE_COMPANY_MIN_HEIGHT : DESKTOP_COMPANY_MIN_HEIGHT;
+  const lineHeight = getProductLineHeight(compact);
+  const linesHeight = safeLineCount * lineHeight + Math.max(safeLineCount - 1, 0) * PRODUCT_LINE_GAP;
+  const groupHeight = Math.max(minHeight, linesHeight + (safeLineCount > 1 ? 16 : 0));
+
+  return {
+    groupHeight,
+    lineHeight,
+    topOffset: Math.max(0, (groupHeight - linesHeight) / 2),
+  };
+}
+
+function getCompanyGroupHeight(company: Pick<ProcessedCompany, 'productLines'>, compact = false) {
+  return getProductLineStackMetrics(company.productLines.length, compact).groupHeight;
+}
+
+function getProductLineCenterY(lineCount: number, productLineIndex: number, compact = false) {
+  const {lineHeight, topOffset} = getProductLineStackMetrics(lineCount, compact);
+  return topOffset + productLineIndex * (lineHeight + PRODUCT_LINE_GAP) + lineHeight / 2;
+}
+
+function getTimelineMinHeight(companiesToRender: ProcessedCompany[], compact = false) {
+  const rowsHeight = companiesToRender.reduce((sum, company) => sum + getCompanyGroupHeight(company, compact), 0);
+  const gapsHeight = Math.max(companiesToRender.length - 1, 0) * (compact ? 32 : 44);
+  return Math.max(compact ? 384 : 448, rowsHeight + gapsHeight + (compact ? 160 : 184));
 }
 
 function clampNumber(value: number, min: number, max: number) {
@@ -921,6 +1359,10 @@ function ModelClassIcon({classId, className}: {classId: ModelClassId; className?
     return <Box className={iconClassName} strokeWidth={1.8} />;
   }
 
+  if (classId === 'coding-harnesses') {
+    return <Code2 className={iconClassName} strokeWidth={1.8} />;
+  }
+
   return <Layers3 className={iconClassName} strokeWidth={1.8} />;
 }
 
@@ -965,9 +1407,9 @@ function ModelClassExplorer({
               <div className="flex items-start justify-between gap-4 border-b border-[var(--edge)] px-4 py-4">
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Timeline categories</p>
-                  <p className="mt-1 truncate text-base font-semibold tracking-tight text-[var(--ink)]">Add model groups</p>
+                  <p className="mt-1 truncate text-base font-semibold tracking-tight text-[var(--ink)]">Add product lines</p>
                   <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                    {selectedCount} of {modelPresets.length} groups active
+                    {selectedCount} of {modelPresets.length} lines active
                   </p>
                 </div>
                 <button
@@ -981,45 +1423,60 @@ function ModelClassExplorer({
               </div>
 
               <div className="overflow-y-auto px-4 py-4">
-                <div className="space-y-2">
-                  {modelPresets.map((preset) => {
-                    const isSelected = selectedPresetIds.includes(preset.id);
-                    const stats = presetStats[preset.id];
+                <div className="space-y-4">
+                  {presetGroups.map((group) => (
+                    <div key={group.label}>
+                      <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
+                        {group.label}
+                      </p>
+                      <div className="space-y-2">
+                        {group.presetIds.map((presetId) => {
+                          const preset = modelPresets.find((candidate) => candidate.id === presetId);
 
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => onPresetToggle(preset.id)}
-                        className={`grid w-full grid-cols-[1fr_auto] gap-4 rounded-[0.95rem] border p-4 text-left transition duration-300 active:scale-[0.99] ${
-                          isSelected
-                            ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
-                            : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
-                        }`}
-                      >
-                        <span className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] gap-3">
-                          <ModelClassIcon classId={preset.classId} className="mt-0.5 h-5 w-5 text-[var(--ink)]" />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{preset.label}</span>
-                            <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">{preset.description}</span>
-                            <span className="mt-3 block font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                              {stats.providerCount} labs / {stats.releaseCount} releases
-                            </span>
-                          </span>
-                        </span>
+                          if (!preset) {
+                            return null;
+                          }
 
-                        <span
-                          className={`mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border ${
-                            isSelected
-                              ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]'
-                              : 'border-[var(--edge)] text-transparent'
-                          }`}
-                        >
-                          <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                        </span>
-                      </button>
-                    );
-                  })}
+                          const isSelected = selectedPresetIds.includes(preset.id);
+                          const stats = presetStats[preset.id];
+
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => onPresetToggle(preset.id)}
+                              className={`grid w-full grid-cols-[1fr_auto] gap-4 rounded-[0.95rem] border p-4 text-left transition duration-300 active:scale-[0.99] ${
+                                isSelected
+                                  ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
+                                  : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                              }`}
+                            >
+                              <span className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] gap-3">
+                                <ModelClassIcon classId={preset.classId} className="mt-0.5 h-5 w-5 text-[var(--ink)]" />
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{preset.label}</span>
+                                  <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">{preset.description}</span>
+                                  <span className="mt-3 block font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
+                                    {stats.providerCount} companies / {stats.releaseCount} releases
+                                  </span>
+                                </span>
+                              </span>
+
+                              <span
+                                className={`mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border ${
+                                  isSelected
+                                    ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]'
+                                    : 'border-[var(--edge)] text-transparent'
+                                }`}
+                              >
+                                <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -1098,20 +1555,26 @@ function SurfaceButton({
   );
 }
 
-function LabTypeIconBadge({className = '', lab}: {className?: string; lab: Pick<LabRecord, 'defaultClasses'>}) {
+function CompanyTypeIconBadge({
+  className = '',
+  company,
+}: {
+  className?: string;
+  company: Pick<ProcessedCompany, 'defaultClasses' | 'productLines'>;
+}) {
   return (
     <span className={`inline-flex shrink-0 items-center justify-center text-[var(--ink)] ${className}`}>
-      <ModelClassIcon classId={getPrimaryLabClass(lab)} className="h-[1rem] w-[1rem]" />
+      <ModelClassIcon classId={getPrimaryCompanyClass(company)} className="h-[1rem] w-[1rem]" />
     </span>
   );
 }
 
-function LabRailItem({
+function CompanyRailItem({
   compact = false,
-  draggedLabId,
+  draggedCompanyId,
   isFirst,
   isLast,
-  lab,
+  company,
   onDragEnd,
   onDragStart,
   onHide,
@@ -1119,18 +1582,20 @@ function LabRailItem({
   onReorder,
 }: {
   compact?: boolean;
-  draggedLabId: string | null;
+  draggedCompanyId: string | null;
   isFirst: boolean;
   isLast: boolean;
-  lab: ProcessedLab;
+  company: ProcessedCompany;
   onDragEnd: () => void;
-  onDragStart: (labId: string) => void;
-  onHide: (labId: string) => void;
-  onMove: LabMoveHandler;
-  onReorder: LabReorderHandler;
+  onDragStart: (companyId: string) => void;
+  onHide: (companyId: string) => void;
+  onMove: CompanyMoveHandler;
+  onReorder: CompanyReorderHandler;
 }) {
-  const isDragging = draggedLabId === lab.id;
-  const canDrop = Boolean(draggedLabId && draggedLabId !== lab.id);
+  const isDragging = draggedCompanyId === company.id;
+  const canDrop = Boolean(draggedCompanyId && draggedCompanyId !== company.id);
+  const groupHeight = getCompanyGroupHeight(company, compact);
+  const lineSummary = company.productLines.map((productLine) => productLine.shortLabel).join(' / ');
   const actionClassName =
     'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-transparent text-[var(--muted)] transition duration-200 hover:border-[var(--edge)] hover:bg-[var(--surface-strong)] hover:text-[var(--ink)] disabled:pointer-events-none disabled:opacity-30';
 
@@ -1142,7 +1607,8 @@ function LabRailItem({
   return (
     <motion.div
       layout
-      className={`group/rail pointer-events-auto flex ${compact ? 'min-h-[5rem]' : 'h-[4.5rem]'} items-center`}
+      className="group/rail pointer-events-auto flex items-center"
+      style={{height: `${groupHeight}px`}}
     >
       <div
         draggable
@@ -1157,15 +1623,15 @@ function LabRailItem({
         }}
         onDragStart={(event) => {
           event.dataTransfer.effectAllowed = 'move';
-          event.dataTransfer.setData('text/plain', lab.id);
-          onDragStart(lab.id);
+          event.dataTransfer.setData('text/plain', company.id);
+          onDragStart(company.id);
         }}
         onDrop={(event) => {
           event.preventDefault();
-          const sourceLabId = event.dataTransfer.getData('text/plain') || draggedLabId;
+          const sourceCompanyId = event.dataTransfer.getData('text/plain') || draggedCompanyId;
 
-          if (sourceLabId) {
-            onReorder(sourceLabId, lab.id);
+          if (sourceCompanyId) {
+            onReorder(sourceCompanyId, company.id);
           }
 
           onDragEnd();
@@ -1180,14 +1646,19 @@ function LabRailItem({
       >
         <div className={`flex items-center ${compact ? 'gap-2' : 'gap-3'}`}>
           <GripVertical className="h-4 w-4 shrink-0 text-[var(--muted)]" strokeWidth={1.8} />
-          <LabTypeIconBadge className={compact ? 'h-7 w-7' : 'h-8 w-8'} lab={lab} />
-          <p
-            className={`min-w-0 flex-1 truncate font-semibold tracking-tight text-[var(--ink)] ${
-              compact ? 'text-[12px] leading-[1.2]' : 'text-sm'
-            }`}
-          >
-            {lab.name}
-          </p>
+          <CompanyTypeIconBadge className={compact ? 'h-7 w-7' : 'h-8 w-8'} company={company} />
+          <div className="min-w-0 flex-1">
+            <p
+              className={`truncate font-semibold tracking-tight text-[var(--ink)] ${
+                compact ? 'text-[12px] leading-[1.2]' : 'text-sm'
+              }`}
+            >
+              {company.name}
+            </p>
+            <p className={`mt-1 truncate font-mono uppercase tracking-[0.14em] text-[var(--muted)] ${compact ? 'text-[8px]' : 'text-[9px]'}`}>
+              {lineSummary}
+            </p>
+          </div>
 
           <div
             className={`shrink-0 items-center gap-0.5 transition duration-200 ${
@@ -1200,20 +1671,20 @@ function LabRailItem({
               <>
                 <button
                   type="button"
-                  aria-label={`Move ${lab.name} up`}
+                  aria-label={`Move ${company.name} up`}
                   className={actionClassName}
                   disabled={isFirst}
-                  onClick={(event) => handleButtonClick(event, () => onMove(lab.id, 'up'))}
+                  onClick={(event) => handleButtonClick(event, () => onMove(company.id, 'up'))}
                   onPointerDown={(event) => event.stopPropagation()}
                 >
                   <ArrowUp className="h-3.5 w-3.5" strokeWidth={1.8} />
                 </button>
                 <button
                   type="button"
-                  aria-label={`Move ${lab.name} down`}
+                  aria-label={`Move ${company.name} down`}
                   className={actionClassName}
                   disabled={isLast}
-                  onClick={(event) => handleButtonClick(event, () => onMove(lab.id, 'down'))}
+                  onClick={(event) => handleButtonClick(event, () => onMove(company.id, 'down'))}
                   onPointerDown={(event) => event.stopPropagation()}
                 >
                   <ArrowDown className="h-3.5 w-3.5" strokeWidth={1.8} />
@@ -1222,15 +1693,424 @@ function LabRailItem({
             ) : null}
             <button
               type="button"
-              aria-label={`Hide ${lab.name}`}
+              aria-label={`Hide ${company.name}`}
               className={`${actionClassName} hover:border-[rgba(255,255,255,0.16)] hover:text-[var(--ink)]`}
-              onClick={(event) => handleButtonClick(event, () => onHide(lab.id))}
+              onClick={(event) => handleButtonClick(event, () => onHide(company.id))}
               onPointerDown={(event) => event.stopPropagation()}
             >
               <X className="h-3.5 w-3.5" strokeWidth={1.9} />
             </button>
           </div>
         </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function getMarkerShapeClass(markerShape: ProductMarkerShape) {
+  if (markerShape === 'square') {
+    return 'rounded-[5px]';
+  }
+
+  if (markerShape === 'diamond') {
+    return 'rotate-45 rounded-[4px]';
+  }
+
+  return 'rounded-full';
+}
+
+function getProductLineBranchGeometry({
+  compact,
+  maxDays,
+  primaryLine,
+  productLine,
+  productLineIndex,
+  productLineCount,
+}: {
+  compact: boolean;
+  maxDays: number;
+  primaryLine: ProcessedProductLine;
+  productLine: ProcessedProductLine;
+  productLineIndex: number;
+  productLineCount: number;
+}) {
+  if (primaryLine.releases.length === 0 || productLine.releases.length === 0) {
+    return null;
+  }
+
+  const primaryStartDay = primaryLine.releases[0]?.globalDay ?? 0;
+  const targetRelease =
+    productLine.releases.find((release) => release.globalDay >= primaryStartDay) ?? productLine.releases[0];
+  const sourceRelease =
+    [...primaryLine.releases].reverse().find((release) => release.globalDay <= targetRelease.globalDay) ??
+    primaryLine.releases[0];
+
+  let endX = clampNumber((targetRelease.globalDay / maxDays) * 100, 0, 100);
+  let startX = clampNumber((sourceRelease.globalDay / maxDays) * 100, 0, 100);
+  const minimumBranchSpan = compact ? 7.25 : 10.5;
+
+  if (endX < startX + minimumBranchSpan) {
+    startX = clampNumber(endX - minimumBranchSpan, 0, 100);
+  }
+
+  const sourceY = getProductLineCenterY(productLineCount, 0, compact);
+  const targetY = getProductLineCenterY(productLineCount, productLineIndex, compact);
+  const xSpan = Math.max(endX - startX, minimumBranchSpan);
+  const controlOffset = clampNumber(xSpan * 0.5, compact ? 3.25 : 4.25, compact ? 7 : 10.5);
+
+  return {
+    endX,
+    path: `M ${startX.toFixed(3)} ${sourceY.toFixed(3)} C ${(startX + controlOffset).toFixed(3)} ${sourceY.toFixed(3)}, ${(endX - controlOffset).toFixed(3)} ${targetY.toFixed(3)}, ${endX.toFixed(3)} ${targetY.toFixed(3)}`,
+  };
+}
+
+function ProductLineBranchConnectors({
+  compact = false,
+  company,
+  maxDays,
+}: {
+  compact?: boolean;
+  company: ProcessedCompany;
+  maxDays: number;
+}) {
+  if (company.productLines.length < 2) {
+    return null;
+  }
+
+  const primaryLine = company.productLines[0];
+  const groupHeight = getCompanyGroupHeight(company, compact);
+  const branchStroke = mixHexColors(company.accent, PAGE_BACKGROUND_HEX, compact ? 0.5 : 0.46);
+  const branchPaths = company.productLines.slice(1).map((productLine, offsetIndex) => ({
+    geometry: getProductLineBranchGeometry({
+      compact,
+      maxDays,
+      primaryLine,
+      productLine,
+      productLineCount: company.productLines.length,
+      productLineIndex: offsetIndex + 1,
+    }),
+    id: productLine.id,
+  }));
+
+  return (
+    <svg
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible"
+      preserveAspectRatio="none"
+      viewBox={`0 0 100 ${groupHeight}`}
+    >
+      {branchPaths.map((branch, index) =>
+        branch.geometry ? (
+          <motion.path
+            key={`${company.id}-${branch.id}-branch`}
+            animate={{opacity: compact ? 0.68 : 0.76}}
+            d={branch.geometry.path}
+            fill="none"
+            initial={{opacity: 0}}
+            stroke={branchStroke}
+            strokeLinecap="round"
+            strokeWidth={compact ? 1.9 : 2.25}
+            transition={{
+              delay: company.id === 'xai' ? 0.16 + index * 0.06 : 0.1 + index * 0.05,
+              duration: compact ? 0.42 : 0.48,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null,
+      )}
+    </svg>
+  );
+}
+
+function ProductLineTimelineLane({
+  compact = false,
+  company,
+  companyIndex,
+  currentGlobalDay,
+  maxDays,
+  productLine,
+  productLineIndex,
+}: {
+  compact?: boolean;
+  company: ProcessedCompany;
+  companyIndex: number;
+  currentGlobalDay: number;
+  maxDays: number;
+  productLine: ProcessedProductLine;
+  productLineIndex: number;
+}) {
+  const lineHeight = getProductLineHeight(compact);
+  const isHarnessLine = productLine.classId === 'coding-harnesses';
+  const harnessLineColor = mixHexColors(company.accent, PAGE_BACKGROUND_HEX, 0.34);
+  const markerShapeClass = getMarkerShapeClass(productLine.markerShape);
+  const markerSizeClass = compact ? 'h-3.5 w-3.5' : 'h-4 w-4';
+  const releaseLabelClass = compact
+    ? 'absolute left-3 top-0 origin-bottom-left -translate-y-1 -rotate-[22deg] whitespace-nowrap rounded-[0.7rem] border px-1.5 py-0.5 text-[10px] font-bold tracking-[0.01em] shadow-[var(--soft-shadow)] backdrop-blur-sm'
+    : 'absolute left-4 top-0 origin-bottom-left -translate-y-2 -rotate-[28deg] whitespace-nowrap rounded-[0.8rem] border bg-[var(--surface-strong)] px-2 py-1 text-[12px] font-bold tracking-[0.015em] shadow-[var(--soft-shadow)] backdrop-blur-sm transition duration-300 group-hover:-translate-y-3 group-hover:bg-[var(--surface)]';
+  const primaryLine = company.productLines[0];
+  const branchGeometry =
+    productLineIndex > 0 && primaryLine
+      ? getProductLineBranchGeometry({
+          compact,
+          maxDays,
+          primaryLine,
+          productLine,
+          productLineCount: company.productLines.length,
+          productLineIndex,
+        })
+      : null;
+  const trackStartPercent = branchGeometry?.endX ?? 0;
+
+  return (
+    <div className="relative z-10 shrink-0" style={{height: `${lineHeight}px`}}>
+      <div
+        className="absolute right-0 top-1/2 h-px -translate-y-1/2 bg-[var(--track-line)]"
+        style={{left: `${trackStartPercent}%`}}
+      />
+      <div className="pointer-events-none absolute left-2 top-1/2 z-10 -translate-y-1/2">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border bg-[rgba(10,13,19,0.88)] px-2 py-1 font-mono uppercase tracking-[0.13em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)] backdrop-blur-sm ${
+            compact ? 'text-[8px]' : 'text-[9px]'
+          }`}
+          style={{borderColor: toRgbaFromHex(company.accent, 0.28)}}
+        >
+          <ModelClassIcon classId={productLine.classId} className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+          {productLine.shortLabel}
+        </span>
+      </div>
+
+      {productLine.releases.map((release, releaseIndex) => {
+        const previousRelease = productLine.releases[releaseIndex - 1];
+        const leftPercent = (release.globalDay / maxDays) * 100;
+        const previousPercent = previousRelease ? (previousRelease.globalDay / maxDays) * 100 : leftPercent;
+        const widthPercent = previousRelease ? leftPercent - previousPercent : 0;
+        const delay = companyIndex * 0.1 + productLineIndex * 0.05 + releaseIndex * 0.07;
+        const isLatestInLine =
+          productLine.latestRelease?.name === release.name && productLine.latestRelease?.date === release.date;
+        const labelTextColor = isLatestInLine
+          ? mixHexColor(company.accent, 255, 0.12)
+          : mixHexColor(company.accent, 255, 0.24);
+        const labelBorderColor = toRgbaFromHex(company.accent, isLatestInLine ? 0.52 : 0.34);
+        const labelBackground = isLatestInLine ? toRgbaFromHex(company.accent, 0.12) : undefined;
+
+        return (
+          <React.Fragment key={`${company.id}-${productLine.id}-${release.name}-${release.date}`}>
+            {previousRelease ? (
+              <motion.div
+                initial={{opacity: 0, scaleX: 0}}
+                animate={{opacity: isHarnessLine ? 0.72 : 0.58, scaleX: 1}}
+                transition={{delay, duration: compact ? 0.65 : 0.72, ease: [0.22, 1, 0.36, 1]}}
+                className={`absolute top-1/2 -translate-y-1/2 origin-left ${isHarnessLine ? 'h-px' : 'h-[2px]'}`}
+                style={{
+                  backgroundColor: isHarnessLine ? harnessLineColor : company.accent,
+                  left: `${previousPercent}%`,
+                  width: `${widthPercent}%`,
+                }}
+              >
+                <div
+                  className={`absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2 py-1 font-mono uppercase tracking-[0.1em] text-[var(--muted)] shadow-[var(--soft-shadow)] ${
+                    compact ? 'text-[9px]' : 'text-[10px]'
+                  }`}
+                >
+                  {release.gap}d
+                </div>
+              </motion.div>
+            ) : null}
+
+            <motion.div
+              initial={{opacity: 0, scale: 0.78, y: compact ? 8 : 10}}
+              animate={{opacity: 1, scale: 1, y: 0}}
+              transition={{delay: delay + 0.08, duration: compact ? 0.42 : 0.48, type: 'spring', stiffness: 120, damping: 18}}
+              className="absolute top-1/2 z-20 -translate-x-1/2 -translate-y-1/2"
+              style={{left: `${leftPercent}%`}}
+            >
+              <div className="group relative cursor-default">
+                <div
+                  className={`${markerSizeClass} border-[3px] border-[var(--surface-strong)] transition duration-300 group-hover:scale-[1.22] ${markerShapeClass}`}
+                  style={{
+                    backgroundColor: company.accent,
+                    boxShadow: isLatestInLine
+                      ? `0 0 0 ${compact ? 4 : 5}px color-mix(in srgb, ${company.accent} 20%, transparent), 0 0 18px color-mix(in srgb, ${company.accent} 40%, transparent)`
+                      : `0 0 0 4px color-mix(in srgb, ${company.accent} 11%, transparent)`,
+                    filter: isLatestInLine ? 'saturate(1.35) brightness(1.08)' : undefined,
+                  }}
+                />
+
+                <div
+                  className={releaseLabelClass}
+                  style={{
+                    backgroundColor: labelBackground,
+                    borderColor: labelBorderColor,
+                    color: labelTextColor,
+                    textShadow: isLatestInLine ? '0 1px 12px rgba(0, 0, 0, 0.5)' : '0 1px 10px rgba(0, 0, 0, 0.38)',
+                    filter: isLatestInLine ? 'saturate(1.18)' : undefined,
+                  }}
+                >
+                  {release.name}
+                </div>
+
+                {!compact ? (
+                  <div className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 opacity-0 transition duration-300 group-hover:opacity-100">
+                    <div className="rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--ink)] shadow-[0_18px_38px_-24px_rgba(0,0,0,0.5)]">
+                      {productLine.shortLabel} / {release.dateLabel}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </motion.div>
+          </React.Fragment>
+        );
+      })}
+
+      {productLine.latestRelease && currentGlobalDay > productLine.latestRelease.globalDay ? (
+        <>
+          <motion.div
+            initial={{opacity: 0, scaleX: 0}}
+            animate={{opacity: isHarnessLine ? 0.48 : 0.42, scaleX: 1}}
+            transition={{
+              delay: companyIndex * 0.14 + productLineIndex * 0.06 + productLine.releases.length * 0.07,
+              duration: compact ? 0.75 : 0.8,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+            className={`absolute top-1/2 origin-left -translate-y-1/2 ${
+              isHarnessLine ? 'h-px' : 'border-t-2 border-dashed'
+            }`}
+            style={{
+              backgroundColor: isHarnessLine ? harnessLineColor : undefined,
+              borderColor: isHarnessLine ? undefined : company.accent,
+              left: `${(productLine.latestRelease.globalDay / maxDays) * 100}%`,
+              width: `${((currentGlobalDay - productLine.latestRelease.globalDay) / maxDays) * 100}%`,
+            }}
+          />
+
+          <div
+            className="absolute top-1/2 z-0 -translate-y-1/2 pl-3"
+            style={{left: `${(currentGlobalDay / maxDays) * 100}%`}}
+          >
+            <div
+              className={`rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 font-mono uppercase tracking-[0.14em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)] ${
+                compact ? 'text-[9px]' : 'text-[10px]'
+              }`}
+            >
+              +{getQuietDays(productLine, currentGlobalDay)}d
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function CompanyTimelineGroup({
+  compact = false,
+  company,
+  companyIndex,
+  currentGlobalDay,
+  maxDays,
+}: {
+  compact?: boolean;
+  company: ProcessedCompany;
+  companyIndex: number;
+  currentGlobalDay: number;
+  maxDays: number;
+}) {
+  return (
+    <div className="relative flex flex-col justify-center" style={{height: `${getCompanyGroupHeight(company, compact)}px`, gap: `${PRODUCT_LINE_GAP}px`}}>
+      <ProductLineBranchConnectors compact={compact} company={company} maxDays={maxDays} />
+      {company.productLines.map((productLine, productLineIndex) => (
+        <React.Fragment key={`${company.id}-${productLine.id}`}>
+          <ProductLineTimelineLane
+            compact={compact}
+            company={company}
+            companyIndex={companyIndex}
+            currentGlobalDay={currentGlobalDay}
+            maxDays={maxDays}
+            productLine={productLine}
+            productLineIndex={productLineIndex}
+          />
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+function CompanySummaryCard({
+  compact = false,
+  company,
+  currentGlobalDay,
+  index,
+  maxSummaryQuietDays,
+}: {
+  compact?: boolean;
+  company: ProcessedCompany;
+  currentGlobalDay: number;
+  index: number;
+  maxSummaryQuietDays: number;
+}) {
+  const quietDays = getQuietDays(company, currentGlobalDay);
+  const fillWidth = getRecencyFillWidth(quietDays, maxSummaryQuietDays);
+  const hasMultipleLines = company.productLines.length > 1;
+
+  return (
+    <motion.div
+      key={`${company.id}-${compact ? 'mobile' : 'desktop'}-summary`}
+      initial={{opacity: 0, y: compact ? 16 : 18}}
+      animate={{opacity: 1, y: 0}}
+      transition={{delay: (compact ? 0.16 : 0.2) + index * 0.06, duration: compact ? 0.46 : 0.55, ease: [0.22, 1, 0.36, 1]}}
+      className={`rounded-[1.6rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--soft-shadow)] ${
+        compact ? 'p-4' : 'p-4'
+      }`}
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          <CompanyTypeIconBadge className="h-7 w-7" company={company} />
+          <p className="truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{company.name}</p>
+        </div>
+
+        {hasMultipleLines ? (
+          <div className="mt-3 space-y-2">
+            {company.productLines.map((productLine) => {
+              const lineQuietDays = getQuietDays(productLine, currentGlobalDay);
+
+              return (
+                <div key={`${company.id}-${productLine.id}-summary-line`} className="min-w-0 rounded-[0.85rem] border border-[var(--edge)] bg-[rgba(255,255,255,0.02)] px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="inline-flex min-w-0 items-center gap-2 text-xs font-semibold tracking-tight text-[var(--ink)]">
+                      <ModelClassIcon classId={productLine.classId} className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{productLine.shortLabel}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                      {lineQuietDays}d
+                    </span>
+                  </div>
+                  <p className="mt-1 truncate text-sm text-[var(--ink-soft)]">{productLine.latestRelease?.name ?? 'No releases'}</p>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <>
+            <p className="mt-3 text-base font-semibold tracking-tight text-[var(--ink)]">
+              {formatQuietDaysLabel(quietDays)}
+            </p>
+            <div className="mt-2 min-w-0">
+              <p className="truncate text-sm text-[var(--ink-soft)]">
+                {company.latestRelease?.name ?? 'No releases'}
+              </p>
+              <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+                {company.latestRelease?.dateLabel ?? 'Date unavailable'}
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="mt-4 h-1.5 rounded-full bg-[var(--edge)]">
+        <div
+          className="h-full origin-left rounded-full"
+          style={{backgroundColor: company.accent, width: `${fillWidth}%`}}
+        />
       </div>
     </motion.div>
   );
@@ -1258,14 +2138,14 @@ function StateScreen({
 
 function TimelineEmptyState({
   boardView,
-  hiddenModelCount,
-  onShowHiddenLabs,
+  hiddenCompanyCount,
+  onShowHiddenCompanies,
 }: {
   boardView: BoardView;
-  hiddenModelCount: number;
-  onShowHiddenLabs: () => void;
+  hiddenCompanyCount: number;
+  onShowHiddenCompanies: () => void;
 }) {
-  const hasHiddenModels = hiddenModelCount > 0;
+  const hasHiddenCompanies = hiddenCompanyCount > 0;
 
   return (
     <div className="flex min-h-[18rem] items-center justify-center px-6 py-14">
@@ -1274,21 +2154,21 @@ function TimelineEmptyState({
           <Layers3 className="h-5 w-5" strokeWidth={1.8} />
         </div>
         <p className="mt-5 text-lg font-semibold tracking-tight text-[var(--ink)]">
-          {hasHiddenModels ? 'All visible models are hidden' : `${boardView.label} has no releases yet`}
+          {hasHiddenCompanies ? 'All visible companies are hidden' : `${boardView.label} has no releases yet`}
         </p>
         <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
-          {hasHiddenModels
-            ? 'Show hidden rows or turn on another model group to repopulate the timeline.'
-            : 'Add releases tagged to the selected groups and the same timeline, summary cards, and recency markers will render here.'}
+          {hasHiddenCompanies
+            ? 'Show hidden companies or turn on another product line to repopulate the timeline.'
+            : 'Add releases tagged to the selected product lines and the same timeline, summary cards, and recency markers will render here.'}
         </p>
-        {hasHiddenModels ? (
+        {hasHiddenCompanies ? (
           <button
             type="button"
-            onClick={onShowHiddenLabs}
+            onClick={onShowHiddenCompanies}
             className="mt-5 inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
           >
             <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
-            Show hidden rows
+            Show hidden companies
           </button>
         ) : null}
       </div>
@@ -1335,36 +2215,36 @@ function TimelineSkeleton() {
 
 type ZoomHandler = (updater: (zoomLevel: number) => number) => void;
 type TimelinePointerHandler = (event: React.PointerEvent<HTMLDivElement>) => void;
-type LabMoveDirection = 'up' | 'down';
-type LabMoveHandler = (labId: string, direction: LabMoveDirection) => void;
-type LabReorderHandler = (sourceLabId: string, targetLabId: string) => void;
+type CompanyMoveDirection = 'up' | 'down';
+type CompanyMoveHandler = (companyId: string, direction: CompanyMoveDirection) => void;
+type CompanyReorderHandler = (sourceCompanyId: string, targetCompanyId: string) => void;
 
 type DesktopTimelineExperienceProps = {
   boardView: BoardView;
   currentGlobalDay: number;
-  draggedLabId: string | null;
+  draggedCompanyId: string | null;
   handlePointerDown: TimelinePointerHandler;
   handlePointerMove: TimelinePointerHandler;
-  hiddenModelCount: number;
+  hiddenCompanyCount: number;
   handleZoomChange: ZoomHandler;
   isPanning: boolean;
-  latestLab: ProcessedLab | null;
+  latestCompany: ProcessedCompany | null;
   maxDays: number;
   minZoom: number;
   maxZoom: number;
   maxSummaryQuietDays: number;
   modelExplorer: React.ReactNode;
   monthTicks: Tick[];
-  onLabDragEnd: () => void;
-  onLabDragStart: (labId: string) => void;
-  onLabHide: (labId: string) => void;
-  onLabMove: LabMoveHandler;
-  onLabReorder: LabReorderHandler;
-  onShowHiddenLabs: () => void;
-  processedLabs: ProcessedLab[];
+  onCompanyDragEnd: () => void;
+  onCompanyDragStart: (companyId: string) => void;
+  onCompanyHide: (companyId: string) => void;
+  onCompanyMove: CompanyMoveHandler;
+  onCompanyReorder: CompanyReorderHandler;
+  onShowHiddenCompanies: () => void;
+  processedCompanies: ProcessedCompany[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   stopPanning: TimelinePointerHandler;
-  summaryLabs: ProcessedLab[];
+  summaryCompanies: ProcessedCompany[];
   timelineWidth: number;
   yearTicks: Tick[];
   zoom: number;
@@ -1373,23 +2253,23 @@ type DesktopTimelineExperienceProps = {
 type MobileTimelineExperienceProps = {
   boardView: BoardView;
   currentGlobalDay: number;
-  draggedLabId: string | null;
+  draggedCompanyId: string | null;
   handleZoomChange: ZoomHandler;
-  latestLab: ProcessedLab | null;
-  hiddenModelCount: number;
+  latestCompany: ProcessedCompany | null;
+  hiddenCompanyCount: number;
   minZoom: number;
   maxZoom: number;
   maxDays: number;
   maxSummaryQuietDays: number;
   modelExplorer: React.ReactNode;
   monthTicks: Tick[];
-  onLabDragEnd: () => void;
-  onLabDragStart: (labId: string) => void;
-  onLabHide: (labId: string) => void;
-  onLabMove: LabMoveHandler;
-  onLabReorder: LabReorderHandler;
-  onShowHiddenLabs: () => void;
-  processedLabs: ProcessedLab[];
+  onCompanyDragEnd: () => void;
+  onCompanyDragStart: (companyId: string) => void;
+  onCompanyHide: (companyId: string) => void;
+  onCompanyMove: CompanyMoveHandler;
+  onCompanyReorder: CompanyReorderHandler;
+  onShowHiddenCompanies: () => void;
+  processedCompanies: ProcessedCompany[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   timelineWidth: number;
   yearTicks: Tick[];
@@ -1399,33 +2279,35 @@ type MobileTimelineExperienceProps = {
 function DesktopTimelineExperience({
   boardView,
   currentGlobalDay,
-  draggedLabId,
+  draggedCompanyId,
   handlePointerDown,
   handlePointerMove,
-  hiddenModelCount,
+  hiddenCompanyCount,
   handleZoomChange,
   isPanning,
-  latestLab,
+  latestCompany,
   maxDays,
   minZoom,
   maxZoom,
   maxSummaryQuietDays,
   modelExplorer,
   monthTicks,
-  onLabDragEnd,
-  onLabDragStart,
-  onLabHide,
-  onLabMove,
-  onLabReorder,
-  onShowHiddenLabs,
-  processedLabs,
+  onCompanyDragEnd,
+  onCompanyDragStart,
+  onCompanyHide,
+  onCompanyMove,
+  onCompanyReorder,
+  onShowHiddenCompanies,
+  processedCompanies,
   scrollContainerRef,
   stopPanning,
-  summaryLabs,
+  summaryCompanies,
   timelineWidth,
   yearTicks,
   zoom,
 }: DesktopTimelineExperienceProps) {
+  const timelineMinHeight = getTimelineMinHeight(processedCompanies);
+
   return (
     <>
       <section className="mx-auto max-w-[1480px] px-5 pb-6 pt-8 md:px-8 md:pt-10">
@@ -1444,10 +2326,10 @@ function DesktopTimelineExperience({
                 {boardView.isDefault
                   ? 'Compare the cadence of OpenAI, Anthropic, Google, and xAI on one horizontal field. Every node marks a release, every segment shows the gap, and the live marker makes it obvious who has gone quiet.'
                   : boardView.isEmpty
-                    ? 'Turn on one or more model groups to compose the timeline.'
+                    ? 'Turn on one or more product lines to compose the timeline.'
                   : boardView.isComposite
-                    ? `${boardView.label} puts selected model groups onto one shared timeline for full-field comparison.`
-                  : `${boardView.label} is shown on the same absolute timeline, so newer model groups can be scanned without stacking every lab into the default board.`}
+                    ? `${boardView.label} puts selected product lines onto one shared timeline for full-field comparison.`
+                  : `${boardView.label} is shown on the same absolute timeline, so newer product lines can be scanned without flattening every company into separate rows.`}
               </p>
             </div>
 
@@ -1455,7 +2337,7 @@ function DesktopTimelineExperience({
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Reading notes</p>
               <p className="mt-4 max-w-[42ch] text-sm leading-7 text-[var(--ink-soft)]">
                 Zoom into dense stretches, drag the field to travel, and read the dashed extensions as time since each
-                lab&apos;s latest release. Dates stay absolute, so concurrency and dry spells remain legible.
+                product line&apos;s latest release. Dates stay absolute, so concurrency and dry spells remain legible.
               </p>
             </div>
           </div>
@@ -1511,10 +2393,10 @@ function DesktopTimelineExperience({
                   <span className="hidden sm:inline">Reset</span>
                 </SurfaceButton>
 
-                {hiddenModelCount > 0 ? (
-                  <SurfaceButton label="Show hidden model rows" onClick={onShowHiddenLabs}>
+                {hiddenCompanyCount > 0 ? (
+                  <SurfaceButton label="Show hidden companies" onClick={onShowHiddenCompanies}>
                     <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
-                    <span className="hidden sm:inline">Rows</span>
+                    <span className="hidden sm:inline">Companies</span>
                   </SurfaceButton>
                 ) : null}
               </div>
@@ -1522,31 +2404,31 @@ function DesktopTimelineExperience({
           </div>
 
           <div className="relative">
-            {processedLabs.length === 0 ? (
+            {processedCompanies.length === 0 ? (
               <div className="absolute bottom-0 left-[320px] right-0 top-0 z-20 flex items-center justify-center px-6">
                 <TimelineEmptyState
                   boardView={boardView}
-                  hiddenModelCount={hiddenModelCount}
-                  onShowHiddenLabs={onShowHiddenLabs}
+                  hiddenCompanyCount={hiddenCompanyCount}
+                  onShowHiddenCompanies={onShowHiddenCompanies}
                 />
               </div>
             ) : null}
 
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-[320px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.98)_0%,rgba(11,14,20,0.95)_78%,rgba(11,14,20,0)_100%)]">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-30 w-[320px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.98)_0%,rgba(11,14,20,0.95)_78%,rgba(11,14,20,0)_100%)]">
               <div className="px-5 pb-14 pt-24">
                 <div className="flex flex-col gap-11">
-                  {processedLabs.map((lab, labIndex) => (
-                    <React.Fragment key={lab.id}>
-                      <LabRailItem
-                        draggedLabId={draggedLabId}
-                        isFirst={labIndex === 0}
-                        isLast={labIndex === processedLabs.length - 1}
-                        lab={lab}
-                        onDragEnd={onLabDragEnd}
-                        onDragStart={onLabDragStart}
-                        onHide={onLabHide}
-                        onMove={onLabMove}
-                        onReorder={onLabReorder}
+                  {processedCompanies.map((company, companyIndex) => (
+                    <React.Fragment key={company.id}>
+                      <CompanyRailItem
+                        draggedCompanyId={draggedCompanyId}
+                        isFirst={companyIndex === 0}
+                        isLast={companyIndex === processedCompanies.length - 1}
+                        company={company}
+                        onDragEnd={onCompanyDragEnd}
+                        onDragStart={onCompanyDragStart}
+                        onHide={onCompanyHide}
+                        onMove={onCompanyMove}
+                        onReorder={onCompanyReorder}
                       />
                     </React.Fragment>
                   ))}
@@ -1556,9 +2438,10 @@ function DesktopTimelineExperience({
 
             <div
               ref={scrollContainerRef}
-              className={`relative min-h-[28rem] overflow-x-auto overflow-y-hidden pb-8 [scrollbar-gutter:stable] ${
+              className={`relative overflow-x-auto overflow-y-hidden pb-8 [scrollbar-gutter:stable] ${
                 isPanning ? 'cursor-grabbing' : 'cursor-grab'
               }`}
+              style={{minHeight: `${timelineMinHeight}px`}}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={stopPanning}
@@ -1570,8 +2453,8 @@ function DesktopTimelineExperience({
               >
                 <div style={{paddingLeft: `${LABEL_RAIL_WIDTH}px`}}>
                   <div
-                    className={`relative min-h-[28rem] pb-14 ${isPanning ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
-                    style={{width: `${timelineWidth}px`}}
+                    className={`relative pb-14 ${isPanning ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+                    style={{width: `${timelineWidth}px`, minHeight: `${timelineMinHeight}px`}}
                   >
                     <div className="pointer-events-none absolute inset-0">
                       {monthTicks.map((tick) => (
@@ -1610,118 +2493,19 @@ function DesktopTimelineExperience({
                       </div>
                     </div>
 
-                    {processedLabs.length > 0 ? (
-                    <div className="relative flex flex-col gap-11 pb-14 pt-24">
-                      {processedLabs.map((lab, labIndex) => (
-                        <div key={lab.id} className="relative h-[4.5rem]">
-                          <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--track-line)]" />
-
-                          {lab.releases.map((release, releaseIndex) => {
-                            const previousRelease = lab.releases[releaseIndex - 1];
-                            const leftPercent = (release.globalDay / maxDays) * 100;
-                            const previousPercent = previousRelease ? (previousRelease.globalDay / maxDays) * 100 : leftPercent;
-                            const widthPercent = previousRelease ? leftPercent - previousPercent : 0;
-                            const delay = labIndex * 0.12 + releaseIndex * 0.08;
-                            const isLatestInLab =
-                              lab.latestRelease?.name === release.name && lab.latestRelease?.date === release.date;
-                            const labelTextColor = isLatestInLab ? mixHexColor(lab.accent, 255, 0.12) : mixHexColor(lab.accent, 255, 0.24);
-                            const labelBorderColor = toRgbaFromHex(lab.accent, isLatestInLab ? 0.52 : 0.34);
-                            const labelBackground = isLatestInLab ? toRgbaFromHex(lab.accent, 0.12) : undefined;
-
-                            return (
-                              <React.Fragment key={`${lab.id}-${release.name}`}>
-                                {previousRelease ? (
-                                  <motion.div
-                                    initial={{opacity: 0, scaleX: 0}}
-                                    animate={{opacity: 0.58, scaleX: 1}}
-                                    transition={{delay, duration: 0.72, ease: [0.22, 1, 0.36, 1]}}
-                                    className="absolute top-1/2 h-[2px] -translate-y-1/2 origin-left"
-                                    style={{
-                                      backgroundColor: lab.accent,
-                                      left: `${previousPercent}%`,
-                                      width: `${widthPercent}%`,
-                                    }}
-                                  >
-                                    <div className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2 py-1 text-[10px] font-mono text-[var(--muted)] shadow-[var(--soft-shadow)]">
-                                      {release.gap}d
-                                    </div>
-                                  </motion.div>
-                                ) : null}
-
-                                <motion.div
-                                  initial={{opacity: 0, scale: 0.75, y: 10}}
-                                  animate={{opacity: 1, scale: 1, y: 0}}
-                                  transition={{delay: delay + 0.1, duration: 0.48, type: 'spring', stiffness: 120, damping: 18}}
-                                  className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
-                                  style={{left: `${leftPercent}%`}}
-                                >
-                                  <div className="group relative cursor-default">
-                                    <div
-                                      className="h-4 w-4 rounded-full border-[3px] border-[var(--surface-strong)] transition duration-300 group-hover:scale-[1.22]"
-                                      style={{
-                                        backgroundColor: lab.accent,
-                                        boxShadow: isLatestInLab
-                                          ? `0 0 0 5px color-mix(in srgb, ${lab.accent} 20%, transparent), 0 0 18px color-mix(in srgb, ${lab.accent} 42%, transparent)`
-                                          : `0 0 0 4px color-mix(in srgb, ${lab.accent} 12%, transparent)`,
-                                        filter: isLatestInLab ? 'saturate(1.35) brightness(1.08)' : undefined,
-                                      }}
-                                    />
-
-                                    <div
-                                      className="absolute left-4 top-0 origin-bottom-left -translate-y-2 -rotate-[28deg] whitespace-nowrap rounded-[0.8rem] border bg-[var(--surface-strong)] px-2 py-1 text-[12px] font-bold tracking-[0.015em] shadow-[var(--soft-shadow)] backdrop-blur-sm transition duration-300 group-hover:-translate-y-3 group-hover:bg-[var(--surface)]"
-                                      style={{
-                                        backgroundColor: labelBackground,
-                                        borderColor: labelBorderColor,
-                                        color: labelTextColor,
-                                        textShadow: isLatestInLab ? '0 1px 12px rgba(0, 0, 0, 0.5)' : '0 1px 10px rgba(0, 0, 0, 0.38)',
-                                        filter: isLatestInLab ? 'saturate(1.18)' : undefined,
-                                      }}
-                                    >
-                                      {release.name}
-                                    </div>
-
-                                    <div className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 opacity-0 transition duration-300 group-hover:opacity-100">
-                                      <div className="rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--ink)] shadow-[0_18px_38px_-24px_rgba(0,0,0,0.5)]">
-                                        {release.dateLabel}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </motion.div>
-                              </React.Fragment>
-                            );
-                          })}
-
-                          {lab.latestRelease && currentGlobalDay > lab.latestRelease.globalDay ? (
-                            <>
-                              <motion.div
-                                initial={{opacity: 0, scaleX: 0}}
-                                animate={{opacity: 0.42, scaleX: 1}}
-                                transition={{
-                                  delay: labIndex * 0.16 + lab.releases.length * 0.09,
-                                  duration: 0.8,
-                                  ease: [0.22, 1, 0.36, 1],
-                                }}
-                                className="absolute top-1/2 border-t-2 border-dashed -translate-y-1/2 origin-left"
-                                style={{
-                                  borderColor: lab.accent,
-                                  left: `${(lab.latestRelease.globalDay / maxDays) * 100}%`,
-                                  width: `${((currentGlobalDay - lab.latestRelease.globalDay) / maxDays) * 100}%`,
-                                }}
-                              />
-
-                              <div
-                                className="absolute top-1/2 z-0 -translate-y-1/2 pl-3"
-                                style={{left: `${(currentGlobalDay / maxDays) * 100}%`}}
-                              >
-                                <div className="rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)]">
-                                  +{getQuietDays(lab, currentGlobalDay)}d
-                                </div>
-                              </div>
-                            </>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
+                    {processedCompanies.length > 0 ? (
+                      <div className="relative flex flex-col pb-14 pt-24" style={{gap: '44px'}}>
+                        {processedCompanies.map((company, companyIndex) => (
+                          <React.Fragment key={`${company.id}-timeline-group`}>
+                            <CompanyTimelineGroup
+                              company={company}
+                              companyIndex={companyIndex}
+                              currentGlobalDay={currentGlobalDay}
+                              maxDays={maxDays}
+                            />
+                          </React.Fragment>
+                        ))}
+                      </div>
                     ) : null}
                   </div>
                 </div>
@@ -1740,52 +2524,23 @@ function DesktopTimelineExperience({
         >
           <div className="grid gap-4 text-sm text-[var(--muted)] md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <p className="max-w-[68ch] leading-relaxed">
-              Latest lab on the board: <span className="font-semibold text-[var(--ink)]">{latestLab?.name ?? 'n/a'}</span>
-              {' '}with <span className="font-semibold text-[var(--ink)]">{latestLab?.latestRelease?.name ?? 'n/a'}</span>.
+              Latest company on the board: <span className="font-semibold text-[var(--ink)]">{latestCompany?.name ?? 'n/a'}</span>
+              {' '}with <span className="font-semibold text-[var(--ink)]">{latestCompany?.latestRelease?.name ?? 'n/a'}</span>.
             </p>
             <p className="font-mono uppercase tracking-[0.14em]">All dates rendered in UTC</p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {summaryLabs.map((lab, index) => {
-              const quietDays = getQuietDays(lab, currentGlobalDay);
-              const fillWidth = getRecencyFillWidth(quietDays, maxSummaryQuietDays);
-
-              return (
-                <motion.div
-                  key={lab.id}
-                  initial={{opacity: 0, y: 18}}
-                  animate={{opacity: 1, y: 0}}
-                  transition={{delay: 0.2 + index * 0.06, duration: 0.55, ease: [0.22, 1, 0.36, 1]}}
-                  className="rounded-[1.6rem] border border-[var(--edge)] bg-[var(--surface)] p-4 shadow-[var(--soft-shadow)]"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-3">
-                      <LabTypeIconBadge className="h-7 w-7" lab={lab} />
-                      <p className="truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{lab.name}</p>
-                    </div>
-                    <p className="mt-3 text-base font-semibold tracking-tight text-[var(--ink)]">
-                      {formatQuietDaysLabel(quietDays)}
-                    </p>
-                    <div className="mt-2 min-w-0">
-                      <p className="truncate text-sm text-[var(--ink-soft)]">
-                        {lab.latestRelease?.name ?? 'No releases'}
-                      </p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-                        {lab.latestRelease?.dateLabel ?? 'Date unavailable'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 h-1.5 rounded-full bg-[var(--edge)]">
-                    <div
-                      className="h-full rounded-full origin-left"
-                      style={{backgroundColor: lab.accent, width: `${fillWidth}%`}}
-                    />
-                  </div>
-                </motion.div>
-              );
-            })}
+            {summaryCompanies.map((company, index) => (
+              <React.Fragment key={`${company.id}-summary-card`}>
+                <CompanySummaryCard
+                  company={company}
+                  currentGlobalDay={currentGlobalDay}
+                  index={index}
+                  maxSummaryQuietDays={maxSummaryQuietDays}
+                />
+              </React.Fragment>
+            ))}
           </div>
         </motion.div>
       </section>
@@ -1796,28 +2551,30 @@ function DesktopTimelineExperience({
 function MobileTimelineExperience({
   boardView,
   currentGlobalDay,
-  draggedLabId,
+  draggedCompanyId,
   handleZoomChange,
-  latestLab,
-  hiddenModelCount,
+  latestCompany,
+  hiddenCompanyCount,
   minZoom,
   maxZoom,
   maxDays,
   maxSummaryQuietDays,
   modelExplorer,
   monthTicks,
-  onLabDragEnd,
-  onLabDragStart,
-  onLabHide,
-  onLabMove,
-  onLabReorder,
-  onShowHiddenLabs,
-  processedLabs,
+  onCompanyDragEnd,
+  onCompanyDragStart,
+  onCompanyHide,
+  onCompanyMove,
+  onCompanyReorder,
+  onShowHiddenCompanies,
+  processedCompanies,
   scrollContainerRef,
   timelineWidth,
   yearTicks,
   zoom,
 }: MobileTimelineExperienceProps) {
+  const timelineMinHeight = getTimelineMinHeight(processedCompanies, true);
+
   return (
     <>
       <section className="mx-auto max-w-[640px] px-4 pb-5 pt-6">
@@ -1833,11 +2590,11 @@ function MobileTimelineExperience({
             </h1>
             <p className="text-sm leading-7 text-[var(--ink-soft)]">
               {boardView.isDefault
-                ? 'The default board stays focused on frontier labs, with open-source, image, video, and 3D generation timelines kept in separate views.'
+                ? 'The default board stays focused on frontier company lines, with open-source, image, video, 3D, and coding lines kept in separate views.'
                 : boardView.isEmpty
-                  ? 'Turn on one or more model groups to compose the mobile timeline.'
+                  ? 'Turn on one or more product lines to compose the mobile timeline.'
                 : boardView.isComposite
-                  ? `${boardView.label} shows selected groups together. Use zoom when the field gets dense.`
+                  ? `${boardView.label} shows selected product lines together. Use zoom when the field gets dense.`
                 : `${boardView.label} is isolated into its own board, keeping the release field readable on mobile.`}
             </p>
           </div>
@@ -1846,17 +2603,17 @@ function MobileTimelineExperience({
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Latest on the board</p>
               <p className="mt-3 text-sm leading-relaxed text-[var(--ink)]">
-                <span className="font-semibold">{latestLab?.name ?? 'n/a'}</span>
-                {' '}with <span className="font-semibold">{latestLab?.latestRelease?.name ?? 'n/a'}</span>.
+                <span className="font-semibold">{latestCompany?.name ?? 'n/a'}</span>
+                {' '}with <span className="font-semibold">{latestCompany?.latestRelease?.name ?? 'n/a'}</span>.
               </p>
               <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">{boardView.label}</p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {modelExplorer}
-              {hiddenModelCount > 0 ? (
-                <SurfaceButton label="Show hidden model rows" onClick={onShowHiddenLabs}>
+              {hiddenCompanyCount > 0 ? (
+                <SurfaceButton label="Show hidden companies" onClick={onShowHiddenCompanies}>
                   <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
-                  <span>Rows</span>
+                  <span>Companies</span>
                 </SurfaceButton>
               ) : null}
             </div>
@@ -1915,32 +2672,32 @@ function MobileTimelineExperience({
           </div>
 
           <div className="relative">
-            {processedLabs.length === 0 ? (
+            {processedCompanies.length === 0 ? (
               <div className="absolute bottom-0 left-[196px] right-0 top-0 z-20 flex items-center justify-center px-3">
                 <TimelineEmptyState
                   boardView={boardView}
-                  hiddenModelCount={hiddenModelCount}
-                  onShowHiddenLabs={onShowHiddenLabs}
+                  hiddenCompanyCount={hiddenCompanyCount}
+                  onShowHiddenCompanies={onShowHiddenCompanies}
                 />
               </div>
             ) : null}
 
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-[196px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.99)_0%,rgba(11,14,20,0.96)_78%,rgba(11,14,20,0)_100%)]">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-30 w-[196px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.99)_0%,rgba(11,14,20,0.96)_78%,rgba(11,14,20,0)_100%)]">
               <div className="px-3 pb-10 pt-20">
                 <div className="flex flex-col gap-8">
-                  {processedLabs.map((lab, labIndex) => (
-                    <React.Fragment key={`${lab.id}-mobile-rail`}>
-                      <LabRailItem
+                  {processedCompanies.map((company, companyIndex) => (
+                    <React.Fragment key={`${company.id}-mobile-rail`}>
+                      <CompanyRailItem
                         compact
-                        draggedLabId={draggedLabId}
-                        isFirst={labIndex === 0}
-                        isLast={labIndex === processedLabs.length - 1}
-                        lab={lab}
-                        onDragEnd={onLabDragEnd}
-                        onDragStart={onLabDragStart}
-                        onHide={onLabHide}
-                        onMove={onLabMove}
-                        onReorder={onLabReorder}
+                        draggedCompanyId={draggedCompanyId}
+                        isFirst={companyIndex === 0}
+                        isLast={companyIndex === processedCompanies.length - 1}
+                        company={company}
+                        onDragEnd={onCompanyDragEnd}
+                        onDragStart={onCompanyDragStart}
+                        onHide={onCompanyHide}
+                        onMove={onCompanyMove}
+                        onReorder={onCompanyReorder}
                       />
                     </React.Fragment>
                   ))}
@@ -1950,7 +2707,8 @@ function MobileTimelineExperience({
 
             <div
               ref={scrollContainerRef}
-              className="relative min-h-[24rem] overflow-x-auto overflow-y-hidden pb-6 [scrollbar-gutter:stable]"
+              className="relative overflow-x-auto overflow-y-hidden pb-6 [scrollbar-gutter:stable]"
+              style={{minHeight: `${timelineMinHeight}px`}}
             >
               <div
                 className="relative transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
@@ -1958,8 +2716,8 @@ function MobileTimelineExperience({
               >
                 <div style={{paddingLeft: `${MOBILE_LABEL_RAIL_WIDTH}px`}}>
                   <div
-                    className="relative min-h-[24rem] pb-10 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-                    style={{width: `${timelineWidth}px`}}
+                    className="relative pb-10 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                    style={{width: `${timelineWidth}px`, minHeight: `${timelineMinHeight}px`}}
                   >
                     <div className="pointer-events-none absolute inset-0">
                       {monthTicks.map((tick) => (
@@ -1998,110 +2756,20 @@ function MobileTimelineExperience({
                       </div>
                     </div>
 
-                    {processedLabs.length > 0 ? (
-                    <div className="relative flex flex-col gap-8 pb-10 pt-20">
-                      {processedLabs.map((lab, labIndex) => (
-                        <div key={`${lab.id}-mobile-row`} className="relative h-[5rem]">
-                          <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--track-line)]" />
-
-                          {lab.releases.map((release, releaseIndex) => {
-                            const previousRelease = lab.releases[releaseIndex - 1];
-                            const leftPercent = (release.globalDay / maxDays) * 100;
-                            const previousPercent = previousRelease ? (previousRelease.globalDay / maxDays) * 100 : leftPercent;
-                            const widthPercent = previousRelease ? leftPercent - previousPercent : 0;
-                            const delay = labIndex * 0.1 + releaseIndex * 0.07;
-                            const isLatestInLab =
-                              lab.latestRelease?.name === release.name && lab.latestRelease?.date === release.date;
-                            const labelTextColor = isLatestInLab ? mixHexColor(lab.accent, 255, 0.12) : mixHexColor(lab.accent, 255, 0.24);
-                            const labelBorderColor = toRgbaFromHex(lab.accent, isLatestInLab ? 0.5 : 0.3);
-                            const labelBackground = isLatestInLab ? toRgbaFromHex(lab.accent, 0.1) : undefined;
-
-                            return (
-                              <React.Fragment key={`${lab.id}-mobile-${release.name}`}>
-                                {previousRelease ? (
-                                  <motion.div
-                                    initial={{opacity: 0, scaleX: 0}}
-                                    animate={{opacity: 0.56, scaleX: 1}}
-                                    transition={{delay, duration: 0.65, ease: [0.22, 1, 0.36, 1]}}
-                                    className="absolute top-1/2 h-[2px] -translate-y-1/2 origin-left"
-                                    style={{
-                                      backgroundColor: lab.accent,
-                                      left: `${previousPercent}%`,
-                                      width: `${widthPercent}%`,
-                                    }}
-                                  >
-                                    <div className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2 py-1 text-[9px] font-mono uppercase tracking-[0.1em] text-[var(--muted)] shadow-[var(--soft-shadow)]">
-                                      {release.gap}d
-                                    </div>
-                                  </motion.div>
-                                ) : null}
-
-                                <motion.div
-                                  initial={{opacity: 0, scale: 0.8, y: 8}}
-                                  animate={{opacity: 1, scale: 1, y: 0}}
-                                  transition={{delay: delay + 0.08, duration: 0.42, type: 'spring', stiffness: 120, damping: 18}}
-                                  className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
-                                  style={{left: `${leftPercent}%`}}
-                                >
-                                  <div className="relative">
-                                    <div
-                                      className="h-3.5 w-3.5 rounded-full border-[3px] border-[var(--surface-strong)]"
-                                      style={{
-                                        backgroundColor: lab.accent,
-                                        boxShadow: isLatestInLab
-                                          ? `0 0 0 4px color-mix(in srgb, ${lab.accent} 18%, transparent), 0 0 18px color-mix(in srgb, ${lab.accent} 34%, transparent)`
-                                          : `0 0 0 4px color-mix(in srgb, ${lab.accent} 10%, transparent)`,
-                                        filter: isLatestInLab ? 'saturate(1.3) brightness(1.08)' : undefined,
-                                      }}
-                                    />
-
-                                    <div
-                                      className="absolute left-3 top-0 origin-bottom-left -translate-y-1 -rotate-[22deg] whitespace-nowrap rounded-[0.7rem] border px-1.5 py-0.5 text-[10px] font-bold tracking-[0.01em] shadow-[var(--soft-shadow)] backdrop-blur-sm"
-                                      style={{
-                                        backgroundColor: labelBackground,
-                                        borderColor: labelBorderColor,
-                                        color: labelTextColor,
-                                      }}
-                                    >
-                                      {release.name}
-                                    </div>
-                                  </div>
-                                </motion.div>
-                              </React.Fragment>
-                            );
-                          })}
-
-                          {lab.latestRelease && currentGlobalDay > lab.latestRelease.globalDay ? (
-                            <>
-                              <motion.div
-                                initial={{opacity: 0, scaleX: 0}}
-                                animate={{opacity: 0.38, scaleX: 1}}
-                                transition={{
-                                  delay: labIndex * 0.12 + lab.releases.length * 0.08,
-                                  duration: 0.75,
-                                  ease: [0.22, 1, 0.36, 1],
-                                }}
-                                className="absolute top-1/2 border-t-2 border-dashed -translate-y-1/2 origin-left"
-                                style={{
-                                  borderColor: lab.accent,
-                                  left: `${(lab.latestRelease.globalDay / maxDays) * 100}%`,
-                                  width: `${((currentGlobalDay - lab.latestRelease.globalDay) / maxDays) * 100}%`,
-                                }}
-                              />
-
-                              <div
-                                className="absolute top-1/2 z-0 -translate-y-1/2 pl-2"
-                                style={{left: `${(currentGlobalDay / maxDays) * 100}%`}}
-                              >
-                                <div className="rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)]">
-                                  +{getQuietDays(lab, currentGlobalDay)}d
-                                </div>
-                              </div>
-                            </>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
+                    {processedCompanies.length > 0 ? (
+                      <div className="relative flex flex-col pb-10 pt-20" style={{gap: '32px'}}>
+                        {processedCompanies.map((company, companyIndex) => (
+                          <React.Fragment key={`${company.id}-mobile-timeline-group`}>
+                            <CompanyTimelineGroup
+                              compact
+                              company={company}
+                              companyIndex={companyIndex}
+                              currentGlobalDay={currentGlobalDay}
+                              maxDays={maxDays}
+                            />
+                          </React.Fragment>
+                        ))}
+                      </div>
                     ) : null}
                   </div>
                 </div>
@@ -2113,39 +2781,17 @@ function MobileTimelineExperience({
 
       <section className="mx-auto max-w-[760px] px-4 pb-16">
         <div className="grid gap-3 sm:grid-cols-2">
-          {processedLabs.map((lab, index) => {
-            const quietDays = getQuietDays(lab, currentGlobalDay);
-            const fillWidth = getRecencyFillWidth(quietDays, maxSummaryQuietDays);
-
-            return (
-              <motion.div
-                key={`${lab.id}-mobile-summary`}
-                initial={{opacity: 0, y: 16}}
-                animate={{opacity: 1, y: 0}}
-                transition={{delay: 0.16 + index * 0.06, duration: 0.46, ease: [0.22, 1, 0.36, 1]}}
-                className="rounded-[1.45rem] border border-[var(--edge)] bg-[var(--surface)] p-4 shadow-[var(--soft-shadow)]"
-              >
-                <div className="flex items-center gap-3">
-                  <LabTypeIconBadge className="h-7 w-7" lab={lab} />
-                  <p className="truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{lab.name}</p>
-                </div>
-                <p className="mt-3 text-base font-semibold tracking-tight text-[var(--ink)]">
-                  {formatQuietDaysLabel(quietDays)}
-                </p>
-                <p className="mt-2 truncate text-sm text-[var(--ink-soft)]">{lab.latestRelease?.name ?? 'No releases'}</p>
-                <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                  {lab.latestRelease?.dateLabel ?? 'Date unavailable'}
-                </p>
-
-                <div className="mt-4 h-1.5 rounded-full bg-[var(--edge)]">
-                  <div
-                    className="h-full rounded-full origin-left"
-                    style={{backgroundColor: lab.accent, width: `${fillWidth}%`}}
-                  />
-                </div>
-              </motion.div>
-            );
-          })}
+          {processedCompanies.map((company, index) => (
+            <React.Fragment key={`${company.id}-mobile-summary-card`}>
+              <CompanySummaryCard
+                compact
+                company={company}
+                currentGlobalDay={currentGlobalDay}
+                index={index}
+                maxSummaryQuietDays={maxSummaryQuietDays}
+              />
+            </React.Fragment>
+          ))}
         </div>
       </section>
     </>
@@ -2162,9 +2808,9 @@ export default function App() {
   const [mobileZoom, setMobileZoom] = useState(DEFAULT_MOBILE_ZOOM);
   const [isPanning, setIsPanning] = useState(false);
   const [isReady, setIsReady] = useState(false);
-  const [draggedLabId, setDraggedLabId] = useState<string | null>(null);
-  const [hiddenLabIds, setHiddenLabIds] = useState<string[]>([]);
-  const [labOrderIds, setLabOrderIds] = useState<string[]>(() => labs.map((lab) => lab.id));
+  const [draggedCompanyId, setDraggedCompanyId] = useState<string | null>(null);
+  const [hiddenCompanyIds, setHiddenCompanyIds] = useState<string[]>([]);
+  const [companyOrderIds, setCompanyOrderIds] = useState<string[]>(() => companies.map((company) => company.id));
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const mobileScrollContainerRef = useRef<HTMLDivElement>(null);
   const desktopPointerOffsetXRef = useRef<number | null>(null);
@@ -2176,21 +2822,25 @@ export default function App() {
     zoomReferenceProgress: 0,
     zoomReferenceY: 0,
   });
+  const zoomAnchorRatioRef = useRef<number | null>(null); // stable content ratio for drag-to-zoom anchoring
   const [viewportWidths, setViewportWidths] = useState({desktop: 0, mobile: 0});
 
   const boardView = useMemo(() => getBoardView(selectedPresetIds), [selectedPresetIds]);
-  const visibleLabs = useMemo(() => getVisibleLabs(labs, selectedPresetIds), [selectedPresetIds]);
-  const orderedVisibleLabs = useMemo(
-    () => orderLabs(visibleLabs, labOrderIds, hiddenLabIds),
-    [hiddenLabIds, labOrderIds, visibleLabs],
+  const visibleCompanies = useMemo(() => getVisibleCompanies(companies, selectedPresetIds), [selectedPresetIds]);
+  const orderedVisibleCompanies = useMemo(
+    () => orderCompanies(visibleCompanies, companyOrderIds, hiddenCompanyIds),
+    [companyOrderIds, hiddenCompanyIds, visibleCompanies],
   );
-  const displayedLabIds = useMemo(() => orderedVisibleLabs.map((lab) => lab.id), [orderedVisibleLabs]);
-  const hiddenModelCount = useMemo(() => {
-    const hiddenLabIdSet = new Set(hiddenLabIds);
-    return visibleLabs.filter((lab) => hiddenLabIdSet.has(lab.id)).length;
-  }, [hiddenLabIds, visibleLabs]);
-  const presetStats = useMemo(() => buildPresetStats(labs), []);
-  const timelineData = useMemo(() => buildTimelineData(orderedVisibleLabs), [orderedVisibleLabs]);
+  const displayedCompanyIds = useMemo(
+    () => orderedVisibleCompanies.map((company) => company.id),
+    [orderedVisibleCompanies],
+  );
+  const hiddenCompanyCount = useMemo(() => {
+    const hiddenCompanyIdSet = new Set(hiddenCompanyIds);
+    return visibleCompanies.filter((company) => hiddenCompanyIdSet.has(company.id)).length;
+  }, [hiddenCompanyIds, visibleCompanies]);
+  const presetStats = useMemo(() => buildPresetStats(companies), []);
+  const timelineData = useMemo(() => buildTimelineData(orderedVisibleCompanies), [orderedVisibleCompanies]);
   const today = new Date();
   const currentGlobalDay = (today.getTime() - START_DATE.getTime()) / DAY_MS;
   const maxDays = Math.max(Math.ceil(currentGlobalDay) + 36, timelineData.latestGlobalDay + 36, 720);
@@ -2199,24 +2849,46 @@ export default function App() {
   const mobileMinZoom = getFitZoom(viewportWidths.mobile, MOBILE_LABEL_RAIL_WIDTH, baseTimelineWidth);
   const timelineWidth = Math.max(Math.round(baseTimelineWidth * zoom), 1);
   const mobileTimelineWidth = Math.max(Math.round(baseTimelineWidth * mobileZoom), 1);
+
+  // Correct scroll position after zoom changes during drag-to-zoom (prevents flickering/jumping)
+  useLayoutEffect(() => {
+    if (!scrollContainerRef.current || zoomAnchorRatioRef.current === null || !activePointerIdRef.current) {
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    const pointerX = desktopPointerOffsetXRef.current ?? container.clientWidth / 2;
+
+    const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * zoom), 1);
+    const correctedScrollLeft = getScrollLeftForTimelineAnchor(
+      zoomAnchorRatioRef.current,
+      pointerX,
+      LABEL_RAIL_WIDTH,
+      nextTimelineWidth,
+    );
+
+    if (Math.abs(container.scrollLeft - correctedScrollLeft) > 1) {
+      container.scrollLeft = correctedScrollLeft;
+    }
+  }, [zoom, baseTimelineWidth]);
   const {monthTicks, yearTicks} = useMemo(() => buildTicks(maxDays), [maxDays]);
 
-  const latestLab = useMemo(() => {
-    return [...timelineData.processedLabs]
-      .filter((lab) => lab.latestRelease)
+  const latestCompany = useMemo(() => {
+    return [...timelineData.processedCompanies]
+      .filter((company) => company.latestRelease)
       .sort((left, right) => (right.latestRelease?.globalDay ?? 0) - (left.latestRelease?.globalDay ?? 0))[0] ?? null;
-  }, [timelineData.processedLabs]);
+  }, [timelineData.processedCompanies]);
 
-  const summaryLabs = useMemo(() => {
-    return timelineData.processedLabs;
-  }, [timelineData.processedLabs]);
+  const summaryCompanies = useMemo(() => {
+    return timelineData.processedCompanies;
+  }, [timelineData.processedCompanies]);
 
   const maxSummaryQuietDays = useMemo(() => {
-    return summaryLabs.reduce((max, lab) => {
-      const quietDays = lab.latestRelease ? Math.max(0, Math.floor(currentGlobalDay - lab.latestRelease.globalDay)) : 0;
+    return summaryCompanies.reduce((max, company) => {
+      const quietDays = getQuietDays(company, currentGlobalDay);
       return Math.max(max, quietDays);
     }, 0);
-  }, [currentGlobalDay, summaryLabs]);
+  }, [currentGlobalDay, summaryCompanies]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setIsReady(true), 120);
@@ -2328,8 +3000,8 @@ export default function App() {
 
   const resetPreset = () => {
     setSelectedPresetIds(DEFAULT_SELECTED_PRESET_IDS);
-    setHiddenLabIds([]);
-    setLabOrderIds(labs.map((lab) => lab.id));
+    setHiddenCompanyIds([]);
+    setCompanyOrderIds(companies.map((company) => company.id));
   };
 
   const selectAllPresets = () => {
@@ -2340,26 +3012,28 @@ export default function App() {
     setSelectedPresetIds([]);
   };
 
-  const hideLab = (labId: string) => {
-    setHiddenLabIds((currentIds) => {
-      if (currentIds.includes(labId)) {
+  const hideCompany = (companyId: string) => {
+    setHiddenCompanyIds((currentIds) => {
+      if (currentIds.includes(companyId)) {
         return currentIds;
       }
 
-      return [...currentIds, labId];
+      return [...currentIds, companyId];
     });
   };
 
-  const showHiddenLabs = () => {
-    setHiddenLabIds([]);
+  const showHiddenCompanies = () => {
+    setHiddenCompanyIds([]);
   };
 
-  const reorderLab = (sourceLabId: string, targetLabId: string) => {
-    setLabOrderIds((currentIds) => reorderVisibleLabIds(currentIds, displayedLabIds, sourceLabId, targetLabId));
+  const reorderCompany = (sourceCompanyId: string, targetCompanyId: string) => {
+    setCompanyOrderIds((currentIds) =>
+      reorderVisibleCompanyIds(currentIds, displayedCompanyIds, sourceCompanyId, targetCompanyId),
+    );
   };
 
-  const moveLab = (labId: string, direction: LabMoveDirection) => {
-    setLabOrderIds((currentIds) => moveVisibleLabId(currentIds, displayedLabIds, labId, direction));
+  const moveCompany = (companyId: string, direction: CompanyMoveDirection) => {
+    setCompanyOrderIds((currentIds) => moveVisibleCompanyId(currentIds, displayedCompanyIds, companyId, direction));
   };
 
   const explorerProps = {
@@ -2467,6 +3141,14 @@ export default function App() {
       zoomReferenceY: event.clientY,
     };
 
+    // Capture stable content anchor for vertical zoom gesture
+    zoomAnchorRatioRef.current = getTimelineAnchorRatio(
+      container.scrollLeft,
+      desktopPointerOffsetXRef.current,
+      LABEL_RAIL_WIDTH,
+      timelineWidth,
+    );
+
     container.setPointerCapture(event.pointerId);
     setIsPanning(true);
     event.preventDefault();
@@ -2506,14 +3188,16 @@ export default function App() {
         DESKTOP_MAX_ZOOM,
       ).toFixed(3),
     );
+
+    // Horizontal panning correction
     const targetScrollLeftBeforeZoom = container.scrollLeft - deltaX;
     container.scrollLeft = targetScrollLeftBeforeZoom;
-    const contentRatioBeforeZoom = getTimelineAnchorRatio(
-      container.scrollLeft,
-      pointerOffsetX,
-      LABEL_RAIL_WIDTH,
-      timelineWidth,
-    );
+
+    // Use stable anchor ratio captured at start of vertical zoom gesture (prevents flicker)
+    const anchorRatio =
+      zoomAnchorRatioRef.current ??
+      getTimelineAnchorRatio(container.scrollLeft, pointerOffsetX, LABEL_RAIL_WIDTH, timelineWidth);
+
     const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
 
     const applyScrollPosition = () => {
@@ -2522,7 +3206,7 @@ export default function App() {
       }
 
       const nextScrollLeft = getScrollLeftForTimelineAnchor(
-        contentRatioBeforeZoom,
+        anchorRatio,
         pointerOffsetX,
         LABEL_RAIL_WIDTH,
         nextTimelineWidth,
@@ -2553,13 +3237,14 @@ export default function App() {
 
     activePointerIdRef.current = null;
     setIsPanning(false);
+    zoomAnchorRatioRef.current = null; // clear stable zoom anchor when gesture ends
   };
 
-  if (labs.length === 0) {
+  if (companies.length === 0) {
     return (
       <StateScreen
         title="Timeline data is missing"
-        detail="The page has no lab data to render. Add at least one provider with release dates before rendering the timeline."
+        detail="The page has no company data to render. Add at least one provider with product lines and release dates before rendering the timeline."
       />
     );
   }
@@ -2583,23 +3268,23 @@ export default function App() {
         <MobileTimelineExperience
           boardView={boardView}
           currentGlobalDay={currentGlobalDay}
-          draggedLabId={draggedLabId}
+          draggedCompanyId={draggedCompanyId}
           handleZoomChange={handleMobileZoomChange}
-          hiddenModelCount={hiddenModelCount}
-          latestLab={latestLab}
+          hiddenCompanyCount={hiddenCompanyCount}
+          latestCompany={latestCompany}
           minZoom={mobileMinZoom}
           maxZoom={MOBILE_MAX_ZOOM}
           maxDays={maxDays}
           maxSummaryQuietDays={maxSummaryQuietDays}
           modelExplorer={<ModelClassExplorer {...explorerProps} isOverlayEnabled={!isDesktopViewport} />}
           monthTicks={monthTicks}
-          onLabDragEnd={() => setDraggedLabId(null)}
-          onLabDragStart={setDraggedLabId}
-          onLabHide={hideLab}
-          onLabMove={moveLab}
-          onLabReorder={reorderLab}
-          onShowHiddenLabs={showHiddenLabs}
-          processedLabs={timelineData.processedLabs}
+          onCompanyDragEnd={() => setDraggedCompanyId(null)}
+          onCompanyDragStart={setDraggedCompanyId}
+          onCompanyHide={hideCompany}
+          onCompanyMove={moveCompany}
+          onCompanyReorder={reorderCompany}
+          onShowHiddenCompanies={showHiddenCompanies}
+          processedCompanies={timelineData.processedCompanies}
           scrollContainerRef={mobileScrollContainerRef}
           timelineWidth={mobileTimelineWidth}
           yearTicks={yearTicks}
@@ -2611,29 +3296,29 @@ export default function App() {
         <DesktopTimelineExperience
           boardView={boardView}
           currentGlobalDay={currentGlobalDay}
-          draggedLabId={draggedLabId}
+          draggedCompanyId={draggedCompanyId}
           handlePointerDown={handlePointerDown}
           handlePointerMove={handlePointerMove}
           handleZoomChange={handleZoomChange}
-          hiddenModelCount={hiddenModelCount}
+          hiddenCompanyCount={hiddenCompanyCount}
           isPanning={isPanning}
-          latestLab={latestLab}
+          latestCompany={latestCompany}
           maxDays={maxDays}
           minZoom={desktopMinZoom}
           maxZoom={DESKTOP_MAX_ZOOM}
           maxSummaryQuietDays={maxSummaryQuietDays}
           modelExplorer={<ModelClassExplorer {...explorerProps} isOverlayEnabled={isDesktopViewport} />}
           monthTicks={monthTicks}
-          onLabDragEnd={() => setDraggedLabId(null)}
-          onLabDragStart={setDraggedLabId}
-          onLabHide={hideLab}
-          onLabMove={moveLab}
-          onLabReorder={reorderLab}
-          onShowHiddenLabs={showHiddenLabs}
-          processedLabs={timelineData.processedLabs}
+          onCompanyDragEnd={() => setDraggedCompanyId(null)}
+          onCompanyDragStart={setDraggedCompanyId}
+          onCompanyHide={hideCompany}
+          onCompanyMove={moveCompany}
+          onCompanyReorder={reorderCompany}
+          onShowHiddenCompanies={showHiddenCompanies}
+          processedCompanies={timelineData.processedCompanies}
           scrollContainerRef={scrollContainerRef}
           stopPanning={stopPanning}
-          summaryLabs={summaryLabs}
+          summaryCompanies={summaryCompanies}
           timelineWidth={timelineWidth}
           yearTicks={yearTicks}
           zoom={zoom}
