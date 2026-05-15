@@ -74,6 +74,35 @@ body::before {
   animation-delay: -1.4s;
 }
 
+@keyframes quiet-extension-flow {
+  0% {
+    background-position: 0 0;
+  }
+
+  100% {
+    background-position: 28px 0;
+  }
+}
+
+.quiet-extension-flow {
+  animation: quiet-extension-flow var(--quiet-flow-duration, 6.2s) linear infinite;
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--quiet-line-color) 0,
+    var(--quiet-line-color) 9px,
+    transparent 9px,
+    transparent 18px
+  );
+  background-size: 28px 100%;
+  will-change: background-position;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiet-extension-flow {
+    animation: none;
+  }
+}
+
 ::-webkit-scrollbar {
   height: 10px;
   width: 10px;

@@ -1,5 +1,5 @@
-import React, {startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {createPortal} from 'react-dom';
+import React, {startTransition, useEffect, useMemo, useRef, useState} from 'react';
+import {createPortal, flushSync} from 'react-dom';
 import {
   ArrowDown,
   ArrowUp,
@@ -1974,12 +1974,13 @@ function ProductLineTimelineLane({
               ease: [0.22, 1, 0.36, 1],
             }}
             className={`absolute top-1/2 origin-left -translate-y-1/2 ${
-              isHarnessLine ? 'h-px' : 'border-t-2 border-dashed'
+              isHarnessLine ? 'h-px' : 'quiet-extension-flow h-[2px]'
             }`}
             style={{
               backgroundColor: isHarnessLine ? harnessLineColor : undefined,
-              borderColor: isHarnessLine ? undefined : company.accent,
               left: `${(productLine.latestRelease.globalDay / maxDays) * 100}%`,
+              ['--quiet-flow-duration' as string]: `${compact ? 5.4 : 6.4}s`,
+              ['--quiet-line-color' as string]: company.accent,
               width: `${((currentGlobalDay - productLine.latestRelease.globalDay) / maxDays) * 100}%`,
             }}
           />
@@ -2438,7 +2439,7 @@ function DesktopTimelineExperience({
 
             <div
               ref={scrollContainerRef}
-              className={`relative overflow-x-auto overflow-y-hidden pb-8 [scrollbar-gutter:stable] ${
+              className={`relative overflow-x-auto overflow-y-hidden pb-8 [overflow-anchor:none] [scroll-behavior:auto] [scrollbar-gutter:stable] ${
                 isPanning ? 'cursor-grabbing' : 'cursor-grab'
               }`}
               style={{minHeight: `${timelineMinHeight}px`}}
@@ -2707,7 +2708,7 @@ function MobileTimelineExperience({
 
             <div
               ref={scrollContainerRef}
-              className="relative overflow-x-auto overflow-y-hidden pb-6 [scrollbar-gutter:stable]"
+              className="relative overflow-x-auto overflow-y-hidden pb-6 [overflow-anchor:none] [scroll-behavior:auto] [scrollbar-gutter:stable]"
               style={{minHeight: `${timelineMinHeight}px`}}
             >
               <div
@@ -2817,12 +2818,18 @@ export default function App() {
   const hasPositionedInitialView = useRef(false);
   const hasPositionedInitialMobileView = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const latestDragPointRef = useRef<{
+    clientX: number;
+    clientY: number;
+  } | null>(null);
   const panStateRef = useRef({
+    hasPassedZoomDeadzone: false,
     lastX: 0,
+    lastY: 0,
+    startY: 0,
     zoomReferenceProgress: 0,
-    zoomReferenceY: 0,
   });
-  const zoomAnchorRatioRef = useRef<number | null>(null); // stable content ratio for drag-to-zoom anchoring
   const [viewportWidths, setViewportWidths] = useState({desktop: 0, mobile: 0});
 
   const boardView = useMemo(() => getBoardView(selectedPresetIds), [selectedPresetIds]);
@@ -2850,27 +2857,6 @@ export default function App() {
   const timelineWidth = Math.max(Math.round(baseTimelineWidth * zoom), 1);
   const mobileTimelineWidth = Math.max(Math.round(baseTimelineWidth * mobileZoom), 1);
 
-  // Correct scroll position after zoom changes during drag-to-zoom (prevents flickering/jumping)
-  useLayoutEffect(() => {
-    if (!scrollContainerRef.current || zoomAnchorRatioRef.current === null || !activePointerIdRef.current) {
-      return;
-    }
-
-    const container = scrollContainerRef.current;
-    const pointerX = desktopPointerOffsetXRef.current ?? container.clientWidth / 2;
-
-    const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * zoom), 1);
-    const correctedScrollLeft = getScrollLeftForTimelineAnchor(
-      zoomAnchorRatioRef.current,
-      pointerX,
-      LABEL_RAIL_WIDTH,
-      nextTimelineWidth,
-    );
-
-    if (Math.abs(container.scrollLeft - correctedScrollLeft) > 1) {
-      container.scrollLeft = correctedScrollLeft;
-    }
-  }, [zoom, baseTimelineWidth]);
   const {monthTicks, yearTicks} = useMemo(() => buildTicks(maxDays), [maxDays]);
 
   const latestCompany = useMemo(() => {
@@ -3136,51 +3122,61 @@ export default function App() {
 
     activePointerIdRef.current = event.pointerId;
     panStateRef.current = {
+      hasPassedZoomDeadzone: false,
       lastX: event.clientX,
+      lastY: event.clientY,
+      startY: event.clientY,
       zoomReferenceProgress: getZoomProgress(zoom, desktopMinZoom, DESKTOP_MAX_ZOOM),
-      zoomReferenceY: event.clientY,
     };
 
-    // Capture stable content anchor for vertical zoom gesture
-    zoomAnchorRatioRef.current = getTimelineAnchorRatio(
-      container.scrollLeft,
-      desktopPointerOffsetXRef.current,
-      LABEL_RAIL_WIDTH,
-      timelineWidth,
-    );
-
     container.setPointerCapture(event.pointerId);
-    setIsPanning(true);
+    flushSync(() => setIsPanning(true));
     event.preventDefault();
   };
 
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+  const applyDragCameraUpdate = () => {
+    dragFrameRef.current = null;
+
     if (!scrollContainerRef.current) {
+      return;
+    }
+
+    const latestDragPoint = latestDragPointRef.current;
+
+    if (!latestDragPoint || activePointerIdRef.current === null) {
       return;
     }
 
     const container = scrollContainerRef.current;
     const containerRect = container.getBoundingClientRect();
-    const pointerOffsetX = event.clientX - containerRect.left;
+    const pointerOffsetX = latestDragPoint.clientX - containerRect.left;
     desktopPointerOffsetXRef.current = pointerOffsetX;
 
-    if (event.pointerId !== activePointerIdRef.current) {
-      return;
+    const deltaX = latestDragPoint.clientX - panStateRef.current.lastX;
+    let zoomDeltaY = latestDragPoint.clientY - panStateRef.current.lastY;
+
+    if (!panStateRef.current.hasPassedZoomDeadzone) {
+      const totalZoomDeltaY = latestDragPoint.clientY - panStateRef.current.startY;
+
+      if (Math.abs(totalZoomDeltaY) <= DRAG_ZOOM_DEADZONE_PX) {
+        zoomDeltaY = 0;
+      } else {
+        zoomDeltaY = Math.sign(totalZoomDeltaY) * (Math.abs(totalZoomDeltaY) - DRAG_ZOOM_DEADZONE_PX);
+        panStateRef.current.hasPassedZoomDeadzone = true;
+      }
     }
 
-    const deltaX = event.clientX - panStateRef.current.lastX;
-    const deltaY = event.clientY - panStateRef.current.zoomReferenceY;
-    const deadzoneAdjustedDeltaY =
-      Math.abs(deltaY) <= DRAG_ZOOM_DEADZONE_PX
-        ? 0
-        : Math.sign(deltaY) * (Math.abs(deltaY) - DRAG_ZOOM_DEADZONE_PX);
+    if (!panStateRef.current.hasPassedZoomDeadzone) {
+      zoomDeltaY = 0;
+    }
+
     const currentGestureZoom = Number(
       getZoomFromProgress(panStateRef.current.zoomReferenceProgress, desktopMinZoom, DESKTOP_MAX_ZOOM).toFixed(3),
     );
     const nextZoom = Number(
       clampNumber(
         getZoomFromProgress(
-          panStateRef.current.zoomReferenceProgress - deadzoneAdjustedDeltaY * DRAG_ZOOM_PROGRESS_PER_PIXEL,
+          panStateRef.current.zoomReferenceProgress - zoomDeltaY * DRAG_ZOOM_PROGRESS_PER_PIXEL,
           desktopMinZoom,
           DESKTOP_MAX_ZOOM,
         ),
@@ -3189,40 +3185,50 @@ export default function App() {
       ).toFixed(3),
     );
 
-    // Horizontal panning correction
+    // Horizontal panning correction.
     const targetScrollLeftBeforeZoom = container.scrollLeft - deltaX;
     container.scrollLeft = targetScrollLeftBeforeZoom;
 
-    // Use stable anchor ratio captured at start of vertical zoom gesture (prevents flicker)
-    const anchorRatio =
-      zoomAnchorRatioRef.current ??
-      getTimelineAnchorRatio(container.scrollLeft, pointerOffsetX, LABEL_RAIL_WIDTH, timelineWidth);
-
+    const currentTimelineWidth = Math.max(Math.round(baseTimelineWidth * currentGestureZoom), 1);
+    const anchorRatio = getTimelineAnchorRatio(
+      container.scrollLeft,
+      pointerOffsetX,
+      LABEL_RAIL_WIDTH,
+      currentTimelineWidth,
+    );
     const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
 
-    const applyScrollPosition = () => {
-      if (!scrollContainerRef.current) {
-        return;
-      }
+    if (nextZoom !== currentGestureZoom) {
+      flushSync(() => setZoom(nextZoom));
 
-      const nextScrollLeft = getScrollLeftForTimelineAnchor(
+      container.scrollLeft = getScrollLeftForTimelineAnchor(
         anchorRatio,
         pointerOffsetX,
         LABEL_RAIL_WIDTH,
         nextTimelineWidth,
       );
-      scrollContainerRef.current.scrollLeft = nextScrollLeft;
-    };
-
-    if (nextZoom !== currentGestureZoom) {
-      setZoom(nextZoom);
-      requestAnimationFrame(applyScrollPosition);
 
       panStateRef.current.zoomReferenceProgress = getZoomProgress(nextZoom, desktopMinZoom, DESKTOP_MAX_ZOOM);
-      panStateRef.current.zoomReferenceY = event.clientY;
     }
 
-    panStateRef.current.lastX = event.clientX;
+    panStateRef.current.lastX = latestDragPoint.clientX;
+    panStateRef.current.lastY = latestDragPoint.clientY;
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerId !== activePointerIdRef.current) {
+      return;
+    }
+
+    latestDragPointRef.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+
+    if (dragFrameRef.current === null) {
+      dragFrameRef.current = window.requestAnimationFrame(applyDragCameraUpdate);
+    }
+
     event.preventDefault();
   };
 
@@ -3236,8 +3242,14 @@ export default function App() {
     }
 
     activePointerIdRef.current = null;
+    latestDragPointRef.current = null;
+
+    if (dragFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+
     setIsPanning(false);
-    zoomAnchorRatioRef.current = null; // clear stable zoom anchor when gesture ends
   };
 
   if (companies.length === 0) {
