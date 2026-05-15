@@ -2137,143 +2137,293 @@ function StateScreen({
   );
 }
 
+const AURORA_VERTEX_SHADER = `
+attribute vec2 aPosition;
+varying vec2 vUv;
+
+void main() {
+  vUv = aPosition * 0.5 + 0.5;
+  gl_Position = vec4(aPosition, 0.0, 1.0);
+}
+`;
+
+const AURORA_FRAGMENT_SHADER = `
+precision mediump float;
+
+uniform vec2 uResolution;
+uniform float uTime;
+uniform float uScroll;
+uniform sampler2D uNoiseMap;
+uniform sampler2D uFlowMap;
+
+varying vec2 vUv;
+
+float sampleNoise(vec2 uv) {
+  return texture2D(uNoiseMap, fract(uv)).r;
+}
+
+vec2 sampleFlow(vec2 uv) {
+  return texture2D(uFlowMap, fract(uv)).rg * 2.0 - 1.0;
+}
+
+float auroraBand(vec2 p, float y, float width, float skew, float phase) {
+  float wave = sin(p.x * 1.7 + uTime * 0.1 + phase) * 0.007;
+  wave += sin(p.x * 53.1 - uTime * 5.038 + phase * 0.7) * 0.535;
+  float d = (p.y - y - p.x * skew - wave) / width;
+  return exp(-d * d);
+}
+
+void main() {
+  vec2 uv = vUv;
+  vec2 aspect = vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
+  vec2 p = (uv * 2.0 - 1.0) * aspect * 0.76;
+  vec2 scrollUv = uv + vec2(0.0, -uScroll * 0.04);
+  float t = uTime * 50.1;
+
+  float noiseX = sampleNoise(scrollUv * vec2(1.78, 2.34) + vec2(t * 0.006, -t * 0.003));
+  float noiseY = sampleNoise(scrollUv * vec2(2.72, 3.22) + vec2(-t * 0.004, t * 0.0055));
+  vec2 noiseOffset = (vec2(noiseX, noiseY) - 0.5) * 0.01;
+
+  vec2 flow = sampleFlow(scrollUv * 0.72 + noiseOffset + vec2(t * 0.00042, -t * 0.00028));
+  vec2 warpedUv = scrollUv + noiseOffset + flow * 0.045;
+  vec2 q = (warpedUv * 2.0 - 1.0) * aspect * 0.76;
+
+  float cloud = sampleNoise(warpedUv * vec2(3.5, 2.86) + vec2(-t * 0.003, t * 0.002));
+  float detail = sampleNoise(warpedUv * vec2(5.46, 4.16) + vec2(t * 0.005, t * 0.003));
+  float slowMist = sampleNoise(scrollUv * vec2(1.1, 1.5) + vec2(t * 0.0015, -t * 0.001));
+  float veil = smoothstep(0.26, 0.88, cloud * 0.68 + detail * 0.22 + slowMist * 0.34);
+
+  float bandA = auroraBand(q, 0.25, 1.48, -0.13, 0.0);
+  float bandB = auroraBand(q, -0.03, 0.42, 0.09, 1.7);
+  float bandC = auroraBand(q, -0.38, 0.44, -0.07, 3.4);
+
+  vec3 base = vec3(0.014, 0.02, 0.032);
+  vec3 teal = vec3(0.055, 0.42, 0.35);
+  vec3 blue = vec3(0.06, 0.18, 0.39);
+  vec3 green = vec3(0.12, 0.36, 0.25);
+  vec3 aurora = teal * bandA * 0.58 + blue * bandB * 0.0 + green * bandC * 0.0;
+
+  float fieldFade = 0.28 + 0.72 * (1.0 - smoothstep(0.55, 2.05, length(p * vec2(0.56, 0.82))));
+  float panelShade = (1.0 - smoothstep(0.02, 0.72, uv.y)) * 0.1;
+  vec3 haze = vec3(0.025, 0.05, 0.058) * (slowMist * 0.18 + cloud * 0.08);
+  vec3 color = base + aurora * veil * fieldFade + haze * (0.74 + fieldFade * 0.26);
+  color *= 0.7 + fieldFade * 0.3;
+  color -= panelShade;
+
+  float grain = sampleNoise(scrollUv * uResolution.xy / 140.0 + vec2(t * 0.004, -t * 0.003));
+  color += (grain - 0.5) * 0.01;
+
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
 function AuroraBackdrop() {
-  const displacementRef = useRef<SVGFEDisplacementMapElement | null>(null);
-  const flowImageRef = useRef<SVGFEImageElement | null>(null);
-  const noiseDisplacementRef = useRef<SVGFEDisplacementMapElement | null>(null);
-  const noiseImageXRef = useRef<SVGFEImageElement | null>(null);
-  const noiseImageYRef = useRef<SVGFEImageElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
-    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const canvas = canvasRef.current;
+    const gl = canvas?.getContext('webgl', {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      failIfMajorPerformanceCaveat: false,
+      powerPreference: 'low-power',
+      premultipliedAlpha: false,
+      stencil: false,
+    });
 
-    if (reducedMotionQuery.matches) {
+    if (!canvas || !gl) {
       return;
     }
 
+    const compileShader = (type: number, source: string) => {
+      const shader = gl.createShader(type);
+
+      if (!shader) {
+        return null;
+      }
+
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.warn(gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+      }
+
+      return shader;
+    };
+
+    const vertexShader = compileShader(gl.VERTEX_SHADER, AURORA_VERTEX_SHADER);
+    const fragmentShader = compileShader(gl.FRAGMENT_SHADER, AURORA_FRAGMENT_SHADER);
+
+    if (!vertexShader || !fragmentShader) {
+      return;
+    }
+
+    const program = gl.createProgram();
+
+    if (!program) {
+      gl.deleteShader(vertexShader);
+      gl.deleteShader(fragmentShader);
+      return;
+    }
+
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.warn(gl.getProgramInfoLog(program));
+      gl.deleteProgram(program);
+      gl.deleteShader(vertexShader);
+      gl.deleteShader(fragmentShader);
+      return;
+    }
+
+    const quadBuffer = gl.createBuffer();
+
+    if (!quadBuffer) {
+      gl.deleteProgram(program);
+      gl.deleteShader(vertexShader);
+      gl.deleteShader(fragmentShader);
+      return;
+    }
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+      gl.STATIC_DRAW,
+    );
+
+    gl.useProgram(program);
+
+    const positionLocation = gl.getAttribLocation(program, 'aPosition');
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+    const resolutionLocation = gl.getUniformLocation(program, 'uResolution');
+    const timeLocation = gl.getUniformLocation(program, 'uTime');
+    const scrollLocation = gl.getUniformLocation(program, 'uScroll');
+    const noiseMapLocation = gl.getUniformLocation(program, 'uNoiseMap');
+    const flowMapLocation = gl.getUniformLocation(program, 'uFlowMap');
+
+    const createTexture = (unit: number, src: string) => {
+      const texture = gl.createTexture();
+
+      if (!texture) {
+        return Promise.resolve(null);
+      }
+
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([6, 10, 16, 255]));
+
+      return new Promise<WebGLTexture | null>((resolve) => {
+        const image = new Image();
+
+        image.onload = () => {
+          gl.activeTexture(gl.TEXTURE0 + unit);
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+          resolve(texture);
+        };
+
+        image.onerror = () => resolve(texture);
+        image.src = src;
+      });
+    };
+
     let animationFrame = 0;
+    let disposed = false;
     const startedAt = performance.now();
-    const filterFrameMs = 1000 / 24;
-    let lastFilterFrame = startedAt - filterFrameMs;
+    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const getScrollProgress = () => window.scrollY / Math.max(window.innerHeight, 1);
 
-    const animateFlowMap = (now: number) => {
-      animationFrame = window.requestAnimationFrame(animateFlowMap);
+    const resize = () => {
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.3);
+      const width = Math.max(1, Math.floor(window.innerWidth * pixelRatio));
+      const height = Math.max(1, Math.floor(window.innerHeight * pixelRatio));
 
-      if (now - lastFilterFrame < filterFrameMs) {
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        gl.viewport(0, 0, width, height);
+      }
+
+      gl.uniform2f(resolutionLocation, width, height);
+    };
+
+    const drawFrame = (now: number) => {
+      resize();
+      gl.uniform1f(timeLocation, (now - startedAt) / 1000);
+      gl.uniform1f(scrollLocation, getScrollProgress());
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    };
+
+    const updateScrollTarget = () => {
+      if (reducedMotionQuery.matches) {
+        drawFrame(performance.now());
+      }
+    };
+
+    const render = (now: number) => {
+      if (disposed) {
         return;
       }
 
-      lastFilterFrame = now;
-
-      const elapsed = (now - startedAt) / 1000;
-      const flowX = -18 + Math.sin(elapsed * 0.14) * 3.8 + Math.sin(elapsed * 0.047) * 1.5;
-      const flowY = -18 + Math.cos(elapsed * 0.11) * 3.6 + Math.sin(elapsed * 0.061) * 1.6;
-      const flowScale = 13 + Math.sin(elapsed * 0.18) * 4.5 + Math.cos(elapsed * 0.073) * 2.2;
-      const noiseX = -22 + Math.sin(elapsed * 0.055) * 4.4 + Math.sin(elapsed * 0.023) * 1.2;
-      const noiseY = -22 + Math.cos(elapsed * 0.049) * 4.2;
-      const noiseAltX = -18 + Math.cos(elapsed * 0.043) * 4.8;
-      const noiseAltY = -24 + Math.sin(elapsed * 0.058) * 4;
-      const noiseScale = 5.5 + Math.sin(elapsed * 0.12) * 1.5 + Math.cos(elapsed * 0.037) * 0.8;
-
-      flowImageRef.current?.setAttribute('x', `${flowX.toFixed(2)}%`);
-      flowImageRef.current?.setAttribute('y', `${flowY.toFixed(2)}%`);
-      displacementRef.current?.setAttribute('scale', flowScale.toFixed(2));
-      noiseImageXRef.current?.setAttribute('x', `${noiseX.toFixed(2)}%`);
-      noiseImageXRef.current?.setAttribute('y', `${noiseY.toFixed(2)}%`);
-      noiseImageYRef.current?.setAttribute('x', `${noiseAltX.toFixed(2)}%`);
-      noiseImageYRef.current?.setAttribute('y', `${noiseAltY.toFixed(2)}%`);
-      noiseDisplacementRef.current?.setAttribute('scale', noiseScale.toFixed(2));
+      animationFrame = window.requestAnimationFrame(render);
+      if (document.hidden) {
+        return;
+      }
+      drawFrame(now);
     };
 
-    animationFrame = window.requestAnimationFrame(animateFlowMap);
+    const start = async () => {
+      await Promise.all([
+        createTexture(0, '/textures/aurora-noise-mask.png'),
+        createTexture(1, '/textures/aurora-flow-vector-map.png'),
+      ]);
 
-    return () => window.cancelAnimationFrame(animationFrame);
+      if (disposed) {
+        return;
+      }
+
+      gl.useProgram(program);
+      gl.uniform1i(noiseMapLocation, 0);
+      gl.uniform1i(flowMapLocation, 1);
+      drawFrame(startedAt + 8000);
+
+      if (!reducedMotionQuery.matches) {
+        animationFrame = window.requestAnimationFrame(render);
+      }
+    };
+
+    window.addEventListener('resize', resize);
+    window.addEventListener('scroll', updateScrollTarget, {passive: true});
+    void start();
+
+    return () => {
+      disposed = true;
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('scroll', updateScrollTarget);
+      gl.deleteBuffer(quadBuffer);
+      gl.deleteProgram(program);
+      gl.deleteShader(vertexShader);
+      gl.deleteShader(fragmentShader);
+    };
   }, []);
 
   return (
     <div className="aurora-backdrop" aria-hidden="true">
-      <svg className="aurora-filter-defs" focusable="false" width="0" height="0">
-        <filter
-          id="aurora-flow-displacement"
-          x="-18%"
-          y="-18%"
-          width="136%"
-          height="136%"
-          colorInterpolationFilters="sRGB"
-        >
-          <feImage
-            ref={flowImageRef}
-            href="/textures/aurora-flow-vector-map.png"
-            x="-18%"
-            y="-18%"
-            width="136%"
-            height="136%"
-            preserveAspectRatio="none"
-            result="flowMap"
-          />
-          <feDisplacementMap
-            ref={displacementRef}
-            in="SourceGraphic"
-            in2="flowMap"
-            scale="13"
-            xChannelSelector="R"
-            yChannelSelector="G"
-          />
-        </filter>
-        <filter
-          id="aurora-noise-uv-displacement"
-          x="-24%"
-          y="-24%"
-          width="148%"
-          height="148%"
-          colorInterpolationFilters="sRGB"
-        >
-          <feImage
-            ref={noiseImageXRef}
-            href="/textures/aurora-noise-mask.png"
-            x="-22%"
-            y="-22%"
-            width="148%"
-            height="148%"
-            preserveAspectRatio="none"
-            result="noiseX"
-          />
-          <feColorMatrix
-            in="noiseX"
-            type="matrix"
-            values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.7 0"
-            result="noiseRed"
-          />
-          <feImage
-            ref={noiseImageYRef}
-            href="/textures/aurora-noise-mask.png"
-            x="-18%"
-            y="-24%"
-            width="148%"
-            height="148%"
-            preserveAspectRatio="none"
-            result="noiseY"
-          />
-          <feColorMatrix
-            in="noiseY"
-            type="matrix"
-            values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 0.7 0"
-            result="noiseGreen"
-          />
-          <feBlend in="noiseRed" in2="noiseGreen" mode="screen" result="uvNoise" />
-          <feDisplacementMap
-            ref={noiseDisplacementRef}
-            in="SourceGraphic"
-            in2="uvNoise"
-            scale="6"
-            xChannelSelector="R"
-            yChannelSelector="G"
-          />
-        </filter>
-      </svg>
-      <span className="aurora-flow-texture" />
-      <span className="aurora-wisp-texture" />
-      <span className="aurora-noise-texture" />
+      <canvas ref={canvasRef} className="aurora-canvas" />
     </div>
   );
 }
