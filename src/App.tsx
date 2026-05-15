@@ -2137,6 +2137,147 @@ function StateScreen({
   );
 }
 
+function AuroraBackdrop() {
+  const displacementRef = useRef<SVGFEDisplacementMapElement | null>(null);
+  const flowImageRef = useRef<SVGFEImageElement | null>(null);
+  const noiseDisplacementRef = useRef<SVGFEDisplacementMapElement | null>(null);
+  const noiseImageXRef = useRef<SVGFEImageElement | null>(null);
+  const noiseImageYRef = useRef<SVGFEImageElement | null>(null);
+
+  useEffect(() => {
+    const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    if (reducedMotionQuery.matches) {
+      return;
+    }
+
+    let animationFrame = 0;
+    const startedAt = performance.now();
+    const filterFrameMs = 1000 / 24;
+    let lastFilterFrame = startedAt - filterFrameMs;
+
+    const animateFlowMap = (now: number) => {
+      animationFrame = window.requestAnimationFrame(animateFlowMap);
+
+      if (now - lastFilterFrame < filterFrameMs) {
+        return;
+      }
+
+      lastFilterFrame = now;
+
+      const elapsed = (now - startedAt) / 1000;
+      const flowX = -18 + Math.sin(elapsed * 0.14) * 3.8 + Math.sin(elapsed * 0.047) * 1.5;
+      const flowY = -18 + Math.cos(elapsed * 0.11) * 3.6 + Math.sin(elapsed * 0.061) * 1.6;
+      const flowScale = 13 + Math.sin(elapsed * 0.18) * 4.5 + Math.cos(elapsed * 0.073) * 2.2;
+      const noiseX = -22 + Math.sin(elapsed * 0.055) * 4.4 + Math.sin(elapsed * 0.023) * 1.2;
+      const noiseY = -22 + Math.cos(elapsed * 0.049) * 4.2;
+      const noiseAltX = -18 + Math.cos(elapsed * 0.043) * 4.8;
+      const noiseAltY = -24 + Math.sin(elapsed * 0.058) * 4;
+      const noiseScale = 5.5 + Math.sin(elapsed * 0.12) * 1.5 + Math.cos(elapsed * 0.037) * 0.8;
+
+      flowImageRef.current?.setAttribute('x', `${flowX.toFixed(2)}%`);
+      flowImageRef.current?.setAttribute('y', `${flowY.toFixed(2)}%`);
+      displacementRef.current?.setAttribute('scale', flowScale.toFixed(2));
+      noiseImageXRef.current?.setAttribute('x', `${noiseX.toFixed(2)}%`);
+      noiseImageXRef.current?.setAttribute('y', `${noiseY.toFixed(2)}%`);
+      noiseImageYRef.current?.setAttribute('x', `${noiseAltX.toFixed(2)}%`);
+      noiseImageYRef.current?.setAttribute('y', `${noiseAltY.toFixed(2)}%`);
+      noiseDisplacementRef.current?.setAttribute('scale', noiseScale.toFixed(2));
+    };
+
+    animationFrame = window.requestAnimationFrame(animateFlowMap);
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, []);
+
+  return (
+    <div className="aurora-backdrop" aria-hidden="true">
+      <svg className="aurora-filter-defs" focusable="false" width="0" height="0">
+        <filter
+          id="aurora-flow-displacement"
+          x="-18%"
+          y="-18%"
+          width="136%"
+          height="136%"
+          colorInterpolationFilters="sRGB"
+        >
+          <feImage
+            ref={flowImageRef}
+            href="/textures/aurora-flow-vector-map.png"
+            x="-18%"
+            y="-18%"
+            width="136%"
+            height="136%"
+            preserveAspectRatio="none"
+            result="flowMap"
+          />
+          <feDisplacementMap
+            ref={displacementRef}
+            in="SourceGraphic"
+            in2="flowMap"
+            scale="13"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+        <filter
+          id="aurora-noise-uv-displacement"
+          x="-24%"
+          y="-24%"
+          width="148%"
+          height="148%"
+          colorInterpolationFilters="sRGB"
+        >
+          <feImage
+            ref={noiseImageXRef}
+            href="/textures/aurora-noise-mask.png"
+            x="-22%"
+            y="-22%"
+            width="148%"
+            height="148%"
+            preserveAspectRatio="none"
+            result="noiseX"
+          />
+          <feColorMatrix
+            in="noiseX"
+            type="matrix"
+            values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.7 0"
+            result="noiseRed"
+          />
+          <feImage
+            ref={noiseImageYRef}
+            href="/textures/aurora-noise-mask.png"
+            x="-18%"
+            y="-24%"
+            width="148%"
+            height="148%"
+            preserveAspectRatio="none"
+            result="noiseY"
+          />
+          <feColorMatrix
+            in="noiseY"
+            type="matrix"
+            values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 0.7 0"
+            result="noiseGreen"
+          />
+          <feBlend in="noiseRed" in2="noiseGreen" mode="screen" result="uvNoise" />
+          <feDisplacementMap
+            ref={noiseDisplacementRef}
+            in="SourceGraphic"
+            in2="uvNoise"
+            scale="6"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </svg>
+      <span className="aurora-flow-texture" />
+      <span className="aurora-wisp-texture" />
+      <span className="aurora-noise-texture" />
+    </div>
+  );
+}
+
 function TimelineEmptyState({
   boardView,
   hiddenCompanyCount,
@@ -3275,8 +3416,10 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[var(--page-bg)] text-[var(--ink)] selection:bg-emerald-500/25 selection:text-[var(--ink)]">
-      <div className="md:hidden">
+    <div className="relative isolate min-h-[100dvh] overflow-hidden bg-[var(--page-bg)] text-[var(--ink)] selection:bg-emerald-500/25 selection:text-[var(--ink)]">
+      <AuroraBackdrop />
+
+      <div className="relative z-10 md:hidden">
         <MobileTimelineExperience
           boardView={boardView}
           currentGlobalDay={currentGlobalDay}
@@ -3304,7 +3447,7 @@ export default function App() {
         />
       </div>
 
-      <div className="hidden md:block">
+      <div className="relative z-10 hidden md:block">
         <DesktopTimelineExperience
           boardView={boardView}
           currentGlobalDay={currentGlobalDay}

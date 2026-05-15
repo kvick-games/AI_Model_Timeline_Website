@@ -49,6 +49,186 @@ body::before {
   mask-image: radial-gradient(circle at center, black 30%, transparent 85%);
 }
 
+@keyframes aurora-cloud-drift {
+  0% {
+    opacity: 0.48;
+    transform: translate3d(-4.5%, -2%, 0) skewY(-8deg) scale(1.06, 1.02);
+  }
+
+  50% {
+    opacity: 0.62;
+    transform: translate3d(2.5%, 1.5%, 0) skewY(-5deg) scale(1.11, 1.04);
+  }
+
+  100% {
+    opacity: 0.52;
+    transform: translate3d(5.5%, -0.8%, 0) skewY(-9deg) scale(1.07, 1.03);
+  }
+}
+
+@keyframes aurora-mist-breathe {
+  0% {
+    opacity: 0.18;
+    transform: translate3d(2%, -1%, 0) scale(1.04);
+  }
+
+  50% {
+    opacity: 0.3;
+    transform: translate3d(-2.5%, 1.8%, 0) scale(1.08);
+  }
+
+  100% {
+    opacity: 0.22;
+    transform: translate3d(-5%, -1.2%, 0) scale(1.05);
+  }
+}
+
+@keyframes aurora-texture-flow {
+  0% {
+    transform: translate3d(-3%, -2%, 0) scale(1.06) rotate(-1deg);
+  }
+
+  100% {
+    transform: translate3d(4%, 3%, 0) scale(1.09) rotate(1.5deg);
+  }
+}
+
+@keyframes aurora-noise-drift {
+  0% {
+    background-position: 0 0;
+    transform: translate3d(0, 0, 0) scale(1.02);
+  }
+
+  100% {
+    background-position: 72px 46px;
+    transform: translate3d(-1.5%, 1%, 0) scale(1.04);
+  }
+}
+
+@keyframes aurora-wisp-pan {
+  0% {
+    background-position: 0 22%, 0 0, 118px 54px;
+    opacity: 0.07;
+    transform: translate3d(-2.2%, -1.5%, 0) skewY(-3deg) scale(1.02);
+  }
+
+  50% {
+    opacity: 0.12;
+  }
+
+  100% {
+    background-position: 0 34%, 310px 152px, -130px 128px;
+    opacity: 0.1;
+    transform: translate3d(2.2%, 1.2%, 0) skewY(-5deg) scale(1.05);
+  }
+}
+
+.aurora-backdrop {
+  position: fixed;
+  inset: 0;
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse at 52% 46%, rgba(9, 14, 20, 0.16), rgba(5, 7, 11, 0.64) 72%, rgba(5, 7, 11, 0.9)),
+    linear-gradient(180deg, rgba(5, 7, 11, 0.48), rgba(5, 7, 11, 0.78));
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.92;
+  contain: strict;
+  mask-image:
+    radial-gradient(ellipse at 50% 42%, black 0%, black 58%, rgba(0, 0, 0, 0.72) 78%, transparent 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.68), black 16%, black 92%, rgba(0, 0, 0, 0.5));
+}
+
+.aurora-filter-defs {
+  position: absolute;
+  height: 0;
+  width: 0;
+}
+
+.aurora-backdrop::before,
+.aurora-backdrop::after,
+.aurora-flow-texture,
+.aurora-wisp-texture,
+.aurora-noise-texture {
+  content: "";
+  position: absolute;
+  inset: -12rem -12vw;
+  pointer-events: none;
+  transform-origin: 50% 20%;
+  will-change: opacity, transform;
+}
+
+.aurora-flow-texture,
+.aurora-wisp-texture,
+.aurora-noise-texture {
+  display: block;
+}
+
+.aurora-backdrop::before {
+  animation: aurora-cloud-drift 28s cubic-bezier(0.45, 0, 0.18, 1) infinite alternate;
+  background:
+    linear-gradient(104deg, transparent 4%, rgba(23, 161, 139, 0.16) 18%, transparent 36%) 0 0 / 100% 35% no-repeat,
+    linear-gradient(118deg, transparent 13%, rgba(76, 129, 196, 0.145) 38%, transparent 63%) 0 22% / 100% 44% no-repeat,
+    linear-gradient(92deg, transparent 28%, rgba(137, 198, 162, 0.12) 57%, transparent 83%) 0 56% / 100% 38% no-repeat,
+    linear-gradient(130deg, transparent 14%, rgba(22, 127, 111, 0.12) 42%, transparent 70%) 0 82% / 100% 34% no-repeat,
+    radial-gradient(ellipse at 72% 18%, rgba(98, 144, 195, 0.1), transparent 42%);
+  filter: url("#aurora-flow-displacement") blur(30px) saturate(1.14) brightness(0.76);
+  mix-blend-mode: screen;
+}
+
+.aurora-backdrop::after {
+  animation: aurora-mist-breathe 36s cubic-bezier(0.45, 0, 0.18, 1) infinite alternate;
+  background:
+    radial-gradient(ellipse at 18% 18%, rgba(20, 113, 98, 0.13), transparent 36%),
+    radial-gradient(ellipse at 84% 40%, rgba(76, 116, 178, 0.115), transparent 38%),
+    linear-gradient(82deg, transparent 5%, rgba(20, 105, 92, 0.11) 28%, transparent 49%) 0 8% / 100% 44% no-repeat,
+    linear-gradient(126deg, transparent 26%, rgba(99, 140, 186, 0.105) 53%, transparent 76%) 0 62% / 100% 46% no-repeat;
+  filter: url("#aurora-flow-displacement") blur(38px) saturate(1.04) brightness(0.72);
+  mix-blend-mode: screen;
+}
+
+.aurora-flow-texture {
+  animation: aurora-texture-flow 42s cubic-bezier(0.45, 0, 0.18, 1) infinite alternate;
+  background:
+    linear-gradient(115deg, rgba(19, 128, 111, 0.08), rgba(74, 117, 176, 0.07), transparent 68%),
+    url("/textures/aurora-flow-map.png");
+  background-position: center;
+  background-size: cover;
+  filter: url("#aurora-flow-displacement") blur(16px) contrast(1.08) saturate(1.04) brightness(0.58);
+  mix-blend-mode: soft-light;
+  opacity: 0.2;
+}
+
+.aurora-wisp-texture {
+  animation: aurora-wisp-pan 34s linear infinite alternate;
+  background-image:
+    linear-gradient(110deg, transparent 8%, rgba(84, 198, 172, 0.11) 22%, transparent 39%, rgba(96, 146, 205, 0.09) 60%, transparent 78%),
+    url("/textures/aurora-noise-mask.png"),
+    url("/textures/aurora-noise-mask.png");
+  background-position: 0 22%, 0 0, 118px 54px;
+  background-repeat: no-repeat, repeat, repeat;
+  background-size:
+    100% 50%,
+    clamp(280px, 34vw, 620px) clamp(280px, 34vw, 620px),
+    clamp(170px, 22vw, 360px) clamp(170px, 22vw, 360px);
+  filter: url("#aurora-noise-uv-displacement") blur(3px) contrast(1.12) saturate(0.98) brightness(0.56);
+  mask-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.68), black 14%, black 84%, rgba(0, 0, 0, 0.56)),
+    radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0.78) 0%, black 42%, rgba(0, 0, 0, 0.66) 74%, transparent 100%);
+  mix-blend-mode: soft-light;
+}
+
+.aurora-noise-texture {
+  animation: aurora-noise-drift 54s linear infinite alternate;
+  background-image: url("/textures/aurora-noise-mask.png");
+  background-repeat: repeat;
+  background-size: min(44vw, 620px) min(44vw, 620px);
+  filter: blur(1px) contrast(0.64) brightness(0.5);
+  mix-blend-mode: soft-light;
+  opacity: 0.035;
+}
+
 @keyframes signal-pulse {
   0% {
     opacity: 0;
@@ -98,8 +278,22 @@ body::before {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .aurora-backdrop::before,
+  .aurora-backdrop::after,
+  .aurora-flow-texture,
+  .aurora-wisp-texture,
+  .aurora-noise-texture {
+    animation: none;
+  }
+
   .quiet-extension-flow {
     animation: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .aurora-backdrop {
+    opacity: 0.9;
   }
 }
 
