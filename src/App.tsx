@@ -2691,6 +2691,7 @@ precision mediump float;
 
 uniform vec2 uResolution;
 uniform vec2 uFluidTexel;
+uniform vec4 uWidgetRect;
 uniform float uElapsedTime;
 uniform float uEmitterDebug;
 uniform sampler2D uVelocityMap;
@@ -2700,6 +2701,34 @@ varying vec2 vUv;
 
 float dyeAmount(vec4 dye) {
   return dot(dye.rgb, vec3(0.333)) + dye.a * 0.42;
+}
+
+vec4 sampleDye(vec2 uv) {
+  return texture2D(uDyeMap, clamp(uv, vec2(0.001), vec2(0.999)));
+}
+
+float roundedBoxSdf(vec2 p, vec2 halfSize, float radius) {
+  vec2 q = abs(p) - halfSize + radius;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+float widgetMask(vec2 uv, float aspectRatio) {
+  float active = step(0.0, uWidgetRect.z) * step(0.0, uWidgetRect.w);
+  vec2 rectMin = uWidgetRect.xy;
+  vec2 rectMax = uWidgetRect.zw;
+  vec2 rectCenter = (rectMin + rectMax) * 0.5;
+  vec2 rectHalf = max((rectMax - rectMin) * 0.5 - vec2(0.01, 0.014), vec2(0.001));
+  vec2 p = vec2((uv.x - rectCenter.x) * aspectRatio, uv.y - rectCenter.y);
+  vec2 halfSize = vec2(rectHalf.x * aspectRatio, rectHalf.y);
+  float radius = min(0.03, min(halfSize.x, halfSize.y) * 0.4);
+  float sdf = roundedBoxSdf(p, halfSize, radius);
+  return active * (1.0 - smoothstep(-0.003, 0.006, sdf));
+}
+
+vec3 oppositeHue(vec3 color) {
+  float luma = dot(color, vec3(0.299, 0.587, 0.114));
+  vec3 chroma = color - vec3(luma);
+  return clamp(vec3(luma) - chroma * 1.08, vec3(0.0), vec3(0.56));
 }
 
 float hash21(vec2 p) {
@@ -2771,20 +2800,90 @@ void main() {
   vec2 uv = vUv;
   vec2 aspect = vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
   vec2 fluidVelocity = texture2D(uVelocityMap, uv).rg * 2.0 - 1.0;
-  vec4 dye = texture2D(uDyeMap, uv);
+  vec4 dye = sampleDye(uv);
+  vec2 layerDrift = clamp(fluidVelocity * vec2(0.018, 0.014), vec2(-0.025), vec2(0.025));
+  vec4 nearDye = sampleDye(uv - layerDrift + vec2(0.006, -0.004));
+  vec4 farDye = sampleDye(uv + layerDrift * 0.72 + vec2(-0.012, 0.018));
   float fluidDye = dyeAmount(dye);
-  float dyeRight = dyeAmount(texture2D(uDyeMap, uv + vec2(uFluidTexel.x, 0.0)));
-  float dyeUp = dyeAmount(texture2D(uDyeMap, uv + vec2(0.0, uFluidTexel.y)));
+  float nearDensity = dyeAmount(nearDye);
+  float farDensity = dyeAmount(farDye);
+  float layeredDensity = clamp(fluidDye * 0.62 + nearDensity * 0.27 + farDensity * 0.18, 0.0, 1.0);
+  vec3 layeredSmoke = dye.rgb * 1.0 + nearDye.rgb * 0.42 + farDye.rgb * 0.26;
+  float dyeRight = dyeAmount(sampleDye(uv + vec2(uFluidTexel.x, 0.0)));
+  float dyeUp = dyeAmount(sampleDye(uv + vec2(0.0, uFluidTexel.y)));
   vec2 dyeGradient = vec2(dyeRight - fluidDye, dyeUp - fluidDye);
+  vec2 lightDirection = normalize(vec2(0.82, 0.42));
+  float opticalDepth = 0.0;
+  opticalDepth += dyeAmount(sampleDye(uv + lightDirection * 0.018)) * 0.34;
+  opticalDepth += dyeAmount(sampleDye(uv + lightDirection * 0.043)) * 0.27;
+  opticalDepth += dyeAmount(sampleDye(uv + lightDirection * 0.073)) * 0.21;
+  opticalDepth += dyeAmount(sampleDye(uv + lightDirection * 0.11)) * 0.16;
+  float transmittance = exp(-opticalDepth * 2.4);
+  vec2 densityNormal = dyeGradient / max(length(dyeGradient), 0.0001);
+  float rimLight = max(dot(densityNormal, lightDirection), 0.0) * smoothstep(0.016, 0.22, fluidDye);
+  float innerScatter = layeredDensity * transmittance * smoothstep(0.018, 0.34, opticalDepth + layeredDensity * 0.45);
+  float coreShadow = layeredDensity * (1.0 - transmittance) * 0.22;
   float speed = length(fluidVelocity * aspect);
+  float haloDensity = 0.0;
+  haloDensity += dyeAmount(sampleDye(uv - lightDirection * 0.052)) * 0.36;
+  haloDensity += dyeAmount(sampleDye(uv - lightDirection * 0.092 + vec2(0.012, -0.006))) * 0.26;
+  haloDensity += dyeAmount(sampleDye(uv - lightDirection * 0.14 + vec2(-0.018, 0.011))) * 0.2;
+  haloDensity += dyeAmount(sampleDye(uv - lightDirection * 0.2)) * 0.14;
+  float backGlow = smoothstep(0.01, 0.18, haloDensity) * (1.0 - smoothstep(0.62, 1.08, layeredDensity));
+  float plumeGlow = smoothstep(0.012, 0.34, haloDensity + layeredDensity * 0.56);
+  float edgeEnergy = smoothstep(0.002, 0.04, length(dyeGradient) * 9.0) * smoothstep(0.006, 0.18, layeredDensity);
+  float filmPhase = layeredDensity * 2.15 + opticalDepth * 0.86 + speed * 1.1 + dot(densityNormal, normalize(vec2(-0.36, 0.93))) * 0.72;
+  float filmBlend = 0.5 + 0.5 * cos(6.28318 * filmPhase);
+  float indigoLift = 0.5 + 0.5 * cos(6.28318 * (filmPhase + 0.34));
+  vec3 greenFilm = vec3(0.025, 0.48, 0.32);
+  vec3 violetFilm = vec3(0.36, 0.14, 0.66);
+  vec3 indigoFilm = vec3(0.08, 0.18, 0.62);
+  vec3 iridescentColor = (mix(violetFilm, greenFilm, filmBlend) + indigoFilm * indigoLift * 0.16) * edgeEnergy;
+  vec2 colorField = (uv - vec2(0.5)) * aspect;
+  float paletteTime = uElapsedTime * 0.18;
+  float greenField = pow(0.5 + 0.5 * sin(paletteTime + colorField.x * 1.35 - colorField.y * 0.76), 2.15);
+  float violetField = pow(0.5 + 0.5 * sin(paletteTime + 1.5708 - colorField.x * 0.68 + colorField.y * 1.18), 2.15);
+  float yellowField = pow(0.5 + 0.5 * sin(paletteTime + 3.14159 + colorField.x * 1.08 + colorField.y * 0.48), 2.35);
+  float redField = pow(0.5 + 0.5 * sin(paletteTime + 4.71239 - colorField.x * 1.24 - colorField.y * 0.38), 2.35);
+  float paletteTotal = max(greenField + violetField + yellowField + redField, 0.0001);
+  vec3 spatialPalette = (
+    vec3(0.018, 0.44, 0.31) * greenField +
+    vec3(0.32, 0.11, 0.62) * violetField +
+    vec3(0.54, 0.38, 0.09) * yellowField +
+    vec3(0.34, 0.08, 0.07) * redField
+  ) / paletteTotal;
+  float cyclePhase = mod(uElapsedTime * 0.055, 4.0);
+  float cycleGreen = smoothstep(1.0, 0.0, min(abs(cyclePhase), abs(cyclePhase - 4.0)));
+  float cycleViolet = smoothstep(1.0, 0.0, abs(cyclePhase - 1.0));
+  float cycleYellow = smoothstep(1.0, 0.0, abs(cyclePhase - 2.0));
+  float cycleRed = smoothstep(1.0, 0.0, abs(cyclePhase - 3.0));
+  float cycleTotal = max(cycleGreen + cycleViolet + cycleYellow + cycleRed, 0.0001);
+  vec3 cyclePalette = (
+    vec3(0.018, 0.44, 0.31) * cycleGreen +
+    vec3(0.32, 0.11, 0.62) * cycleViolet +
+    vec3(0.54, 0.38, 0.09) * cycleYellow +
+    vec3(0.34, 0.08, 0.07) * cycleRed
+  ) / cycleTotal;
+  vec3 gradientPalette = mix(spatialPalette, cyclePalette, 0.58);
+  float paletteMask = smoothstep(0.02, 0.42, haloDensity + layeredDensity * 0.52) * (0.45 + plumeGlow * 0.55);
   float caustic = smoothstep(0.009, 0.105, length(dyeGradient) * 7.5 + dye.a * 0.38);
-  vec3 dyeColor = dye.rgb * 1.72 + vec3(0.018, 0.175, 0.15) * fluidDye;
+  vec3 lightColor = vec3(0.08, 0.32, 0.28);
+  vec3 rimColor = vec3(0.11, 0.46, 0.38);
+  vec3 backGlowColor = vec3(0.04, 0.32, 0.24) * backGlow * 1.35 + vec3(0.09, 0.38, 0.28) * plumeGlow * 0.3;
+  vec3 paletteGlow = gradientPalette * paletteMask * (0.22 + backGlow * 0.38 + edgeEnergy * 0.16);
+  vec3 dyeColor = layeredSmoke * 1.46 + vec3(0.018, 0.175, 0.15) * layeredDensity + gradientPalette * layeredDensity * 0.11 * paletteMask;
   vec3 velocityColor = vec3(0.012, 0.085, 0.075) * smoothstep(0.012, 0.22, speed);
   vec3 causticColor = vec3(0.026, 0.16, 0.14) * caustic;
-  vec3 color = dyeColor + velocityColor + causticColor;
-  color = color / (vec3(1.0) + color * 2.15);
-  color = clamp(color, vec3(0.0), vec3(0.34));
-  float alpha = clamp(fluidDye * 1.06 + caustic * 0.22 + smoothstep(0.018, 0.28, speed) * 0.16, 0.0, 0.48);
+  vec3 volumeColor = lightColor * innerScatter * 0.34 + rimColor * rimLight * 0.14 + backGlowColor + paletteGlow + iridescentColor * (0.29 + rimLight * 0.4 + backGlow * 0.1);
+  vec3 color = dyeColor + velocityColor + causticColor + volumeColor;
+  color *= 1.0 - coreShadow;
+  color = color / (vec3(1.0) + color * 1.95);
+  color = clamp(color, vec3(0.0), vec3(0.48));
+  float alpha = clamp(layeredDensity * 1.08 + caustic * 0.2 + innerScatter * 0.1 + backGlow * 0.12 + edgeEnergy * 0.038 + smoothstep(0.018, 0.28, speed) * 0.14, 0.0, 0.62);
+  float panelSmokeMask = widgetMask(uv, aspect.x) * smoothstep(0.018, 0.38, layeredDensity + haloDensity * 0.42);
+  vec3 panelOppositeColor = oppositeHue(color) + vec3(0.028, 0.004, 0.036) * panelSmokeMask;
+  color = mix(color, panelOppositeColor, panelSmokeMask * 0.78);
+  alpha = clamp(alpha + panelSmokeMask * 0.035, 0.0, 0.64);
 
   float weatherTime = uElapsedTime * 0.72;
   float centerA = weatherCenter(weatherTime, 0.2);
@@ -2960,6 +3059,7 @@ function AuroraBackdrop() {
     const renderUniforms = {
       resolution: gl.getUniformLocation(renderProgram, 'uResolution'),
       fluidTexel: gl.getUniformLocation(renderProgram, 'uFluidTexel'),
+      widgetRect: gl.getUniformLocation(renderProgram, 'uWidgetRect'),
       elapsedTime: gl.getUniformLocation(renderProgram, 'uElapsedTime'),
       emitterDebug: gl.getUniformLocation(renderProgram, 'uEmitterDebug'),
       velocityMap: gl.getUniformLocation(renderProgram, 'uVelocityMap'),
@@ -3225,6 +3325,7 @@ function AuroraBackdrop() {
     };
 
     let lastFrameTime = startedAt;
+    const fluidTimeScale = 0.25;
 
     const resize = () => {
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.3);
@@ -3284,6 +3385,39 @@ function AuroraBackdrop() {
       if (reducedMotionQuery.matches) {
         drawFrame(now);
       }
+    };
+
+    const getTimelineWidgetRect = (): [number, number, number, number] => {
+      const viewportWidth = Math.max(window.innerWidth, 1);
+      const viewportHeight = Math.max(window.innerHeight, 1);
+      const widgets = Array.from(document.querySelectorAll<HTMLElement>('.timeline-fluid-obstacle'));
+      const visibleWidget = widgets.find((widget) => {
+        const rect = widget.getBoundingClientRect();
+        const style = window.getComputedStyle(widget);
+
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          rect.width > 1 &&
+          rect.height > 1 &&
+          rect.bottom > 0 &&
+          rect.top < viewportHeight &&
+          rect.right > 0 &&
+          rect.left < viewportWidth
+        );
+      });
+
+      if (!visibleWidget) {
+        return [-1, -1, -1, -1];
+      }
+
+      const rect = visibleWidget.getBoundingClientRect();
+      return [
+        Math.max(0, Math.min(1, rect.left / viewportWidth)),
+        Math.max(0, Math.min(1, 1 - rect.bottom / viewportHeight)),
+        Math.max(0, Math.min(1, rect.right / viewportWidth)),
+        Math.max(0, Math.min(1, 1 - rect.top / viewportHeight)),
+      ];
     };
 
     const stepFluid = (frameSeconds: number, elapsedSeconds: number) => {
@@ -3445,6 +3579,8 @@ function AuroraBackdrop() {
       gl.uniform1i(renderUniforms.dyeMap, 1);
       gl.uniform2f(renderUniforms.resolution, canvas.width, canvas.height);
       gl.uniform2f(renderUniforms.fluidTexel, 1 / velocityTarget.width, 1 / velocityTarget.height);
+      const widgetRect = getTimelineWidgetRect();
+      gl.uniform4f(renderUniforms.widgetRect, widgetRect[0], widgetRect[1], widgetRect[2], widgetRect[3]);
       gl.uniform1f(renderUniforms.elapsedTime, elapsedSeconds);
       gl.uniform1f(renderUniforms.emitterDebug, emitterDebugVisibleRef.current ? 1 : 0);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -3455,9 +3591,11 @@ function AuroraBackdrop() {
       const frameSeconds = Math.min(Math.max((now - lastFrameTime) / 1000, 1 / 120), 1 / 20);
       lastFrameTime = now;
       const elapsedSeconds = (now - startedAt) / 1000;
+      const fluidFrameSeconds = frameSeconds * fluidTimeScale;
+      const fluidElapsedSeconds = elapsedSeconds * fluidTimeScale;
       updatePointerDecay(frameSeconds);
-      stepFluid(frameSeconds, elapsedSeconds);
-      renderFluid(elapsedSeconds);
+      stepFluid(fluidFrameSeconds, fluidElapsedSeconds);
+      renderFluid(fluidElapsedSeconds);
     };
 
     const render = (now: number) => {
