@@ -2147,83 +2147,686 @@ void main() {
 }
 `;
 
-const AURORA_FRAGMENT_SHADER = `
+const FLUID_VELOCITY_FRAGMENT_SHADER = `
 precision mediump float;
 
-uniform vec2 uResolution;
-uniform float uTime;
-uniform float uScroll;
-uniform sampler2D uNoiseMap;
-uniform sampler2D uFlowMap;
+uniform sampler2D uVelocityMap;
+uniform sampler2D uDyeMap;
+uniform vec2 uTexel;
+uniform vec2 uPointerPosition;
+uniform vec2 uPointerVelocity;
+uniform float uPointerActive;
+uniform float uPointerRadius;
+uniform float uDeltaTime;
+uniform float uElapsedTime;
+uniform float uAspect;
 
 varying vec2 vUv;
 
-float sampleNoise(vec2 uv) {
-  return texture2D(uNoiseMap, fract(uv)).r;
+vec2 decodeVelocity(vec4 state) {
+  return state.rg * 2.0 - 1.0;
 }
 
-vec2 sampleFlow(vec2 uv) {
-  return texture2D(uFlowMap, fract(uv)).rg * 2.0 - 1.0;
+vec4 encodeVelocity(vec2 velocity) {
+  return vec4(clamp(velocity * 0.5 + 0.5, 0.0, 1.0), 0.0, 1.0);
 }
 
-float auroraBand(vec2 p, float y, float width, float skew, float phase) {
-  float wave = sin(p.x * 1.7 + uTime * 0.1 + phase) * 0.007;
-  wave += sin(p.x * 53.1 - uTime * 5.038 + phase * 0.7) * 0.535;
-  float d = (p.y - y - p.x * skew - wave) / width;
-  return exp(-d * d);
+float dyeAmount(vec4 dye) {
+  return dot(dye.rgb, vec3(0.933)) + dye.a * 0.42;
+}
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float fbm(vec2 p) {
+  float value = 0.0;
+  value += valueNoise(p) * 0.5;
+  p = p * 2.03 + 17.11;
+  value += valueNoise(p) * 0.3;
+  p = p * 2.01 + 31.73;
+  value += valueNoise(p) * 0.2;
+  return value;
+}
+
+float weatherCenter(float t, float phase) {
+  float drift = fbm(vec2(t * 0.42 + phase, phase * 1.91));
+  float wander = fbm(vec2(t * 0.17 + phase * 2.7, 8.4 + phase));
+  float wave = sin(t * 0.31 + phase + drift * 6.28318);
+  return clamp(0.5 + wave * 0.36 + (wander - 0.5) * 0.28, 0.08, 0.92);
+}
+
+float weatherSideY(float t, float phase) {
+  float drift = fbm(vec2(t * 0.33 + phase, phase * 2.41));
+  float wander = fbm(vec2(t * 0.19 + phase * 2.2, 13.7 + phase));
+  float wave = sin(t * 0.27 + phase + drift * 6.28318);
+  return clamp(0.5 + wave * 0.32 + (wander - 0.5) * 0.24, 0.12, 0.88);
+}
+
+float emitterBase(vec2 uv, float center, float width, float strength) {
+  float x = (uv.x - center) * uAspect;
+  float source = exp(-(x * x) / max(width * width, 0.0001)) * smoothstep(0.19, 0.0, uv.y);
+  return source * strength;
+}
+
+float emitterColumn(vec2 uv, float center, float width, float strength) {
+  float x = (uv.x - center) * uAspect;
+  float rise = smoothstep(0.68, 0.0, uv.y);
+  float spread = mix(width * 1.1, width * 5.6, smoothstep(0.0, 0.68, uv.y));
+  return exp(-(x * x) / max(spread * spread, 0.0001)) * rise * strength;
+}
+
+float emitterRoll(vec2 uv, float center, float width, float strength) {
+  float x = (uv.x - center) * uAspect;
+  float rise = smoothstep(0.56, 0.0, uv.y);
+  float field = exp(-(x * x) / max(width * width * 8.0, 0.0001)) * rise;
+  return clamp(-x / max(width * 3.2, 0.0001), -1.0, 1.0) * field * strength;
+}
+
+float sideEmitterBase(vec2 uv, float centerY, float height, float strength) {
+  vec2 p = vec2((uv.x - 0.985) * uAspect, uv.y - centerY);
+  float source = exp(-(p.x * p.x) / (0.028 * 0.028)) * exp(-(p.y * p.y) / max(height * height, 0.0001));
+  return source * strength;
+}
+
+float sideEmitterColumn(vec2 uv, float centerY, float height, float strength) {
+  float inward = max(0.0, 1.0 - uv.x);
+  float spread = height + inward * 0.46;
+  float vertical = exp(-((uv.y - centerY) * (uv.y - centerY)) / max(spread * spread, 0.0001));
+  float horizontal = exp(-(inward * inward) / (0.34 * 0.34));
+  return vertical * horizontal * strength;
+}
+
+float sideEmitterRoll(vec2 uv, float centerY, float height, float strength) {
+  float inward = max(0.0, 1.0 - uv.x);
+  float field = sideEmitterColumn(uv, centerY, height, strength) * smoothstep(0.52, 0.02, inward);
+  return clamp((uv.y - centerY) / max(height * 3.6, 0.0001), -1.0, 1.0) * field;
+}
+
+void main() {
+  vec2 uv = vUv;
+  float dt = clamp(uDeltaTime, 0.0, 0.05);
+  float fluidDt = dt * 0.25;
+  vec2 currentVelocity = decodeVelocity(texture2D(uVelocityMap, uv));
+  vec2 backUv = clamp(uv - currentVelocity * fluidDt * 1.08, vec2(0.001), vec2(0.999));
+  vec2 velocity = decodeVelocity(texture2D(uVelocityMap, backUv));
+  float frameScale = dt * 10.0;
+  float fluidFrameScale = fluidDt * 60.0;
+
+  float dyeCenter = dyeAmount(texture2D(uDyeMap, uv));
+  float dyeLeft = dyeAmount(texture2D(uDyeMap, clamp(uv - vec2(uTexel.x, 0.0), vec2(0.001), vec2(0.999))));
+  float dyeRight = dyeAmount(texture2D(uDyeMap, clamp(uv + vec2(uTexel.x, 0.0), vec2(0.001), vec2(0.999))));
+  float dyeDown = dyeAmount(texture2D(uDyeMap, clamp(uv - vec2(0.0, uTexel.y), vec2(0.001), vec2(0.999))));
+  float dyeUp = dyeAmount(texture2D(uDyeMap, clamp(uv + vec2(0.0, uTexel.y), vec2(0.001), vec2(0.999))));
+  vec2 dyeGradient = vec2((dyeRight - dyeLeft) * uAspect, dyeUp - dyeDown);
+  vec2 surfaceTangent = vec2(-dyeGradient.y, dyeGradient.x);
+  float surfaceEnergy = smoothstep(0.012, 0.22, dyeCenter);
+  velocity += clamp(surfaceTangent * 1.65, vec2(-0.026), vec2(0.026)) * surfaceEnergy * fluidFrameScale;
+
+  float weatherTime = uElapsedTime * 0.72;
+  float centerA = weatherCenter(weatherTime, 0.2);
+  float centerB = weatherCenter(weatherTime * 0.86 + 9.0, 2.6);
+  float sideY = weatherSideY(weatherTime * 1.08 + 17.0, 5.1);
+  float strengthA = smoothstep(0.18, 0.86, fbm(vec2(weatherTime * 0.58 + 1.3, 2.0)));
+  float strengthB = smoothstep(0.22, 0.88, fbm(vec2(weatherTime * 0.52 + 8.7, 5.0)));
+  float strengthC = smoothstep(0.26, 0.9, fbm(vec2(weatherTime * 0.64 + 15.4, 9.0)));
+  float sideStrength = 0.52 + strengthC * 0.72;
+  float baseField = emitterBase(uv, centerA, 0.042, strengthA);
+  baseField += emitterBase(uv, centerB, 0.052, strengthB * 0.82);
+  float columnField = emitterColumn(uv, centerA, 0.045, strengthA);
+  columnField += emitterColumn(uv, centerB, 0.055, strengthB * 0.8);
+  columnField = clamp(columnField, 0.0, 1.35);
+  float rollField = emitterRoll(uv, centerA, 0.052, strengthA);
+  rollField += emitterRoll(uv, centerB, 0.064, strengthB * 0.85);
+  float sideBase = sideEmitterBase(uv, sideY, 0.048, sideStrength);
+  float sideColumn = sideEmitterColumn(uv, sideY, 0.06, sideStrength * 0.82);
+  float sideRoll = sideEmitterRoll(uv, sideY, 0.058, sideStrength * 0.9);
+  float crossWind = fbm(uv * vec2(1.2, 5.4) + vec2(weatherTime * 0.045, weatherTime * 0.038)) - 0.5;
+  float lateralFlow = rollField * 0.008 + crossWind * (columnField + sideColumn * 0.42) * 0.016 - sideBase * 0.115 - sideColumn * 0.034;
+  float upwardFlow = baseField * 1.53 + columnField * 0.0125 + sideRoll * 0.22;
+  vec2 ambientFlow = vec2(lateralFlow, upwardFlow);
+  velocity += ambientFlow * frameScale;
+
+  vec2 pointerDelta = vec2((uv.x - uPointerPosition.x) * uAspect, uv.y - uPointerPosition.y);
+  float radius = max(uPointerRadius, 0.0001);
+  float pointerField = exp(-dot(pointerDelta, pointerDelta) / (radius * radius)) * uPointerActive;
+  float pointerSpeed = min(length(uPointerVelocity), 7.5);
+  vec2 pointerDirection = uPointerVelocity / max(pointerSpeed, 0.0001);
+  vec2 pointerNormal = vec2(-pointerDirection.y, pointerDirection.x);
+  float crossWake = clamp(dot(pointerDelta, pointerNormal) / radius, -1.0, 1.0);
+  velocity += pointerDirection * pointerSpeed * 0.22 * pointerField;
+  velocity += pointerNormal * crossWake * pointerSpeed * 0.11 * pointerField;
+
+  velocity *= pow(0.99984, frameScale);
+
+  gl_FragColor = encodeVelocity(velocity);
+}
+`;
+
+const FLUID_CURL_FRAGMENT_SHADER = `
+precision mediump float;
+
+uniform sampler2D uVelocityMap;
+uniform vec2 uTexel;
+uniform float uAspect;
+
+varying vec2 vUv;
+
+vec2 decodeVelocity(vec4 state) {
+  return state.rg * 2.0 - 1.0;
+}
+
+vec4 encodeScalar(float value) {
+  return vec4(clamp(value * 0.5 + 0.5, 0.0, 1.0), 0.0, 0.0, 1.0);
+}
+
+void main() {
+  vec2 uv = vUv;
+  vec2 leftVelocity = decodeVelocity(texture2D(uVelocityMap, clamp(uv - vec2(uTexel.x, 0.0), vec2(0.001), vec2(0.999))));
+  vec2 rightVelocity = decodeVelocity(texture2D(uVelocityMap, clamp(uv + vec2(uTexel.x, 0.0), vec2(0.001), vec2(0.999))));
+  vec2 downVelocity = decodeVelocity(texture2D(uVelocityMap, clamp(uv - vec2(0.0, uTexel.y), vec2(0.001), vec2(0.999))));
+  vec2 upVelocity = decodeVelocity(texture2D(uVelocityMap, clamp(uv + vec2(0.0, uTexel.y), vec2(0.001), vec2(0.999))));
+  float curl = ((rightVelocity.y - leftVelocity.y) * uAspect - (upVelocity.x - downVelocity.x)) * 0.58;
+
+  gl_FragColor = encodeScalar(curl);
+}
+`;
+
+const FLUID_VORTICITY_FRAGMENT_SHADER = `
+precision mediump float;
+
+uniform sampler2D uVelocityMap;
+uniform sampler2D uCurlMap;
+uniform vec2 uTexel;
+uniform float uDeltaTime;
+uniform float uStrength;
+uniform float uAspect;
+
+varying vec2 vUv;
+
+vec2 decodeVelocity(vec4 state) {
+  return state.rg * 2.0 - 1.0;
+}
+
+vec4 encodeVelocity(vec2 velocity) {
+  return vec4(clamp(velocity * 0.5 + 0.5, 0.0, 1.0), 0.0, 1.0);
+}
+
+float decodeScalar(vec4 state) {
+  return state.r * 2.0 - 1.0;
+}
+
+void main() {
+  vec2 uv = vUv;
+  float dt = clamp(uDeltaTime, 0.0, 0.05);
+  vec2 velocity = decodeVelocity(texture2D(uVelocityMap, uv));
+  float centerCurl = decodeScalar(texture2D(uCurlMap, uv));
+  float leftCurl = abs(decodeScalar(texture2D(uCurlMap, clamp(uv - vec2(uTexel.x, 0.0), vec2(0.001), vec2(0.999)))));
+  float rightCurl = abs(decodeScalar(texture2D(uCurlMap, clamp(uv + vec2(uTexel.x, 0.0), vec2(0.001), vec2(0.999)))));
+  float downCurl = abs(decodeScalar(texture2D(uCurlMap, clamp(uv - vec2(0.0, uTexel.y), vec2(0.001), vec2(0.999)))));
+  float upCurl = abs(decodeScalar(texture2D(uCurlMap, clamp(uv + vec2(0.0, uTexel.y), vec2(0.001), vec2(0.999)))));
+  vec2 curlGradient = vec2((rightCurl - leftCurl) * uAspect, upCurl - downCurl);
+  curlGradient /= max(length(curlGradient), 0.0001);
+  vec2 confinement = vec2(curlGradient.y, -curlGradient.x) * centerCurl * uStrength;
+
+  velocity += clamp(confinement, vec2(-1.2), vec2(1.2)) * dt;
+  gl_FragColor = encodeVelocity(velocity);
+}
+`;
+
+const FLUID_DIVERGENCE_FRAGMENT_SHADER = `
+precision mediump float;
+
+uniform sampler2D uVelocityMap;
+uniform vec2 uTexel;
+uniform vec4 uObstacleRect;
+uniform float uAspect;
+
+varying vec2 vUv;
+
+vec2 decodeVelocity(vec4 state) {
+  return state.rg * 2.0 - 1.0;
+}
+
+vec4 encodeScalar(float value) {
+  return vec4(clamp(value * 0.5 + 0.5, 0.0, 1.0), 0.0, 0.0, 1.0);
+}
+
+float roundedBoxSdf(vec2 p, vec2 halfSize, float radius) {
+  vec2 q = abs(p) - halfSize + radius;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+float solidMask(vec2 uv) {
+  vec2 obstacleMin = uObstacleRect.xy;
+  vec2 obstacleMax = uObstacleRect.zw;
+  float obstacleActive = step(0.0, obstacleMax.x) * step(0.0, obstacleMax.y);
+  vec2 obstacleCenter = (obstacleMin + obstacleMax) * 0.5;
+  vec2 obstacleHalf = max((obstacleMax - obstacleMin) * 0.5, vec2(0.001));
+  vec2 obstacleSpace = vec2((uv.x - obstacleCenter.x) * uAspect, uv.y - obstacleCenter.y);
+  vec2 obstacleHalfSpace = vec2(obstacleHalf.x * uAspect, obstacleHalf.y);
+  float sdf = roundedBoxSdf(obstacleSpace, obstacleHalfSpace, 0.035);
+  return obstacleActive * (1.0 - smoothstep(-0.004, 0.012, sdf));
+}
+
+vec2 sampleVelocity(vec2 uv, vec2 centerVelocity) {
+  float solid = solidMask(uv);
+  return mix(decodeVelocity(texture2D(uVelocityMap, clamp(uv, vec2(0.001), vec2(0.999)))), centerVelocity, solid);
+}
+
+void main() {
+  vec2 uv = vUv;
+  vec2 centerVelocity = decodeVelocity(texture2D(uVelocityMap, uv));
+  vec2 leftVelocity = sampleVelocity(uv - vec2(uTexel.x, 0.0), centerVelocity);
+  vec2 rightVelocity = sampleVelocity(uv + vec2(uTexel.x, 0.0), centerVelocity);
+  vec2 downVelocity = sampleVelocity(uv - vec2(0.0, uTexel.y), centerVelocity);
+  vec2 upVelocity = sampleVelocity(uv + vec2(0.0, uTexel.y), centerVelocity);
+  float divergence = 0.5 * ((rightVelocity.x - leftVelocity.x) + (upVelocity.y - downVelocity.y));
+
+  gl_FragColor = encodeScalar(divergence);
+}
+`;
+
+const FLUID_PRESSURE_FRAGMENT_SHADER = `
+precision mediump float;
+
+uniform sampler2D uPressureMap;
+uniform sampler2D uDivergenceMap;
+uniform vec2 uTexel;
+uniform vec4 uObstacleRect;
+uniform float uAspect;
+
+varying vec2 vUv;
+
+float decodeScalar(vec4 state) {
+  return state.r * 2.0 - 1.0;
+}
+
+vec4 encodeScalar(float value) {
+  return vec4(clamp(value * 0.5 + 0.5, 0.0, 1.0), 0.0, 0.0, 1.0);
+}
+
+float roundedBoxSdf(vec2 p, vec2 halfSize, float radius) {
+  vec2 q = abs(p) - halfSize + radius;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+float solidMask(vec2 uv) {
+  vec2 obstacleMin = uObstacleRect.xy;
+  vec2 obstacleMax = uObstacleRect.zw;
+  float obstacleActive = step(0.0, obstacleMax.x) * step(0.0, obstacleMax.y);
+  vec2 obstacleCenter = (obstacleMin + obstacleMax) * 0.5;
+  vec2 obstacleHalf = max((obstacleMax - obstacleMin) * 0.5, vec2(0.001));
+  vec2 obstacleSpace = vec2((uv.x - obstacleCenter.x) * uAspect, uv.y - obstacleCenter.y);
+  vec2 obstacleHalfSpace = vec2(obstacleHalf.x * uAspect, obstacleHalf.y);
+  float sdf = roundedBoxSdf(obstacleSpace, obstacleHalfSpace, 0.035);
+  return obstacleActive * (1.0 - smoothstep(-0.004, 0.012, sdf));
+}
+
+float samplePressure(vec2 uv, float centerPressure) {
+  float solid = solidMask(uv);
+  return mix(decodeScalar(texture2D(uPressureMap, clamp(uv, vec2(0.001), vec2(0.999)))), centerPressure, solid);
+}
+
+void main() {
+  vec2 uv = vUv;
+  float centerPressure = decodeScalar(texture2D(uPressureMap, uv));
+  float leftPressure = samplePressure(uv - vec2(uTexel.x, 0.0), centerPressure);
+  float rightPressure = samplePressure(uv + vec2(uTexel.x, 0.0), centerPressure);
+  float downPressure = samplePressure(uv - vec2(0.0, uTexel.y), centerPressure);
+  float upPressure = samplePressure(uv + vec2(0.0, uTexel.y), centerPressure);
+  float divergence = decodeScalar(texture2D(uDivergenceMap, uv));
+  float pressure = (leftPressure + rightPressure + downPressure + upPressure - divergence) * 0.25;
+
+  gl_FragColor = encodeScalar(pressure);
+}
+`;
+
+const FLUID_GRADIENT_FRAGMENT_SHADER = `
+precision mediump float;
+
+uniform sampler2D uVelocityMap;
+uniform sampler2D uPressureMap;
+uniform vec2 uTexel;
+uniform vec4 uObstacleRect;
+uniform float uAspect;
+
+varying vec2 vUv;
+
+vec2 decodeVelocity(vec4 state) {
+  return state.rg * 2.0 - 1.0;
+}
+
+vec4 encodeVelocity(vec2 velocity) {
+  return vec4(clamp(velocity * 0.5 + 0.5, 0.0, 1.0), 0.0, 1.0);
+}
+
+float decodeScalar(vec4 state) {
+  return state.r * 2.0 - 1.0;
+}
+
+float roundedBoxSdf(vec2 p, vec2 halfSize, float radius) {
+  vec2 q = abs(p) - halfSize + radius;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+float solidMask(vec2 uv) {
+  vec2 obstacleMin = uObstacleRect.xy;
+  vec2 obstacleMax = uObstacleRect.zw;
+  float obstacleActive = step(0.0, obstacleMax.x) * step(0.0, obstacleMax.y);
+  vec2 obstacleCenter = (obstacleMin + obstacleMax) * 0.5;
+  vec2 obstacleHalf = max((obstacleMax - obstacleMin) * 0.5, vec2(0.001));
+  vec2 obstacleSpace = vec2((uv.x - obstacleCenter.x) * uAspect, uv.y - obstacleCenter.y);
+  vec2 obstacleHalfSpace = vec2(obstacleHalf.x * uAspect, obstacleHalf.y);
+  float sdf = roundedBoxSdf(obstacleSpace, obstacleHalfSpace, 0.035);
+  return obstacleActive * (1.0 - smoothstep(-0.004, 0.012, sdf));
+}
+
+float samplePressure(vec2 uv, float centerPressure) {
+  float solid = solidMask(uv);
+  return mix(decodeScalar(texture2D(uPressureMap, clamp(uv, vec2(0.001), vec2(0.999)))), centerPressure, solid);
+}
+
+void main() {
+  vec2 uv = vUv;
+  vec2 velocity = decodeVelocity(texture2D(uVelocityMap, uv));
+  float centerPressure = decodeScalar(texture2D(uPressureMap, uv));
+  float leftPressure = samplePressure(uv - vec2(uTexel.x, 0.0), centerPressure);
+  float rightPressure = samplePressure(uv + vec2(uTexel.x, 0.0), centerPressure);
+  float downPressure = samplePressure(uv - vec2(0.0, uTexel.y), centerPressure);
+  float upPressure = samplePressure(uv + vec2(0.0, uTexel.y), centerPressure);
+  vec2 gradient = vec2(rightPressure - leftPressure, upPressure - downPressure) * 0.52;
+  velocity -= gradient;
+  velocity = mix(velocity, vec2(0.0), solidMask(uv));
+
+  gl_FragColor = encodeVelocity(velocity);
+}
+`;
+
+const FLUID_DYE_FRAGMENT_SHADER = `
+precision mediump float;
+
+uniform sampler2D uVelocityMap;
+uniform sampler2D uDyeMap;
+uniform vec2 uPointerPosition;
+uniform vec2 uPointerVelocity;
+uniform float uPointerActive;
+uniform float uPointerRadius;
+uniform float uDeltaTime;
+uniform float uElapsedTime;
+uniform float uAspect;
+
+varying vec2 vUv;
+
+vec2 decodeVelocity(vec4 state) {
+  return state.rg * 2.0 - 1.0;
+}
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float fbm(vec2 p) {
+  float value = 0.0;
+  value += valueNoise(p) * 0.5;
+  p = p * 2.03 + 17.11;
+  value += valueNoise(p) * 0.3;
+  p = p * 2.01 + 31.73;
+  value += valueNoise(p) * 0.2;
+  return value;
+}
+
+float weatherCenter(float t, float phase) {
+  float drift = fbm(vec2(t * 0.42 + phase, phase * 1.91));
+  float wander = fbm(vec2(t * 0.17 + phase * 2.7, 8.4 + phase));
+  float wave = sin(t * 0.31 + phase + drift * 6.28318);
+  return clamp(0.5 + wave * 0.36 + (wander - 0.5) * 0.28, 0.08, 0.92);
+}
+
+float weatherSideY(float t, float phase) {
+  float drift = fbm(vec2(t * 0.33 + phase, phase * 2.41));
+  float wander = fbm(vec2(t * 0.19 + phase * 2.2, 13.7 + phase));
+  float wave = sin(t * 0.27 + phase + drift * 6.28318);
+  return clamp(0.5 + wave * 0.32 + (wander - 0.5) * 0.24, 0.12, 0.88);
+}
+
+float emitterBase(vec2 uv, float center, float width, float strength) {
+  float x = (uv.x - center) * uAspect;
+  float source = exp(-(x * x) / max(width * width, 0.0001)) * smoothstep(0.19, 0.0, uv.y);
+  return source * strength;
+}
+
+float emitterColumn(vec2 uv, float center, float width, float strength) {
+  float x = (uv.x - center) * uAspect;
+  float rise = smoothstep(0.68, 0.0, uv.y);
+  float spread = mix(width * 1.1, width * 5.6, smoothstep(0.0, 0.68, uv.y));
+  return exp(-(x * x) / max(spread * spread, 0.0001)) * rise * strength;
+}
+
+float sideEmitterBase(vec2 uv, float centerY, float height, float strength) {
+  vec2 p = vec2((uv.x - 0.985) * uAspect, uv.y - centerY);
+  float source = exp(-(p.x * p.x) / (0.028 * 0.028)) * exp(-(p.y * p.y) / max(height * height, 0.0001));
+  return source * strength;
+}
+
+float sideEmitterColumn(vec2 uv, float centerY, float height, float strength) {
+  float inward = max(0.0, 1.0 - uv.x);
+  float spread = height + inward * 0.46;
+  float vertical = exp(-((uv.y - centerY) * (uv.y - centerY)) / max(spread * spread, 0.0001));
+  float horizontal = exp(-(inward * inward) / (0.34 * 0.34));
+  return vertical * horizontal * strength;
+}
+
+void main() {
+  vec2 uv = vUv;
+  float dt = clamp(uDeltaTime, 0.0, 0.05);
+  float fluidDt = dt * 0.25;
+  vec2 velocity = decodeVelocity(texture2D(uVelocityMap, uv));
+  vec2 backUv = clamp(uv - velocity * fluidDt * 1.08, vec2(0.001), vec2(0.999));
+  vec4 dye = texture2D(uDyeMap, backUv);
+  float frameScale = dt * 60.0;
+  dye.rgb *= pow(0.9991, frameScale);
+  dye.a *= pow(0.9984, frameScale);
+
+  float weatherTime = uElapsedTime * 0.72;
+  float centerA = weatherCenter(weatherTime, 0.2);
+  float centerB = weatherCenter(weatherTime * 0.86 + 9.0, 2.6);
+  float sideY = weatherSideY(weatherTime * 1.08 + 17.0, 5.1);
+  float strengthA = smoothstep(0.18, 0.86, fbm(vec2(weatherTime * 0.58 + 1.3, 2.0)));
+  float strengthB = smoothstep(0.22, 0.88, fbm(vec2(weatherTime * 0.52 + 8.7, 5.0)));
+  float strengthC = smoothstep(0.26, 0.9, fbm(vec2(weatherTime * 0.64 + 15.4, 9.0)));
+  float sideStrength = 0.72 + strengthC * 0.72;
+  float sourceBase = emitterBase(uv, centerA, 0.042, strengthA);
+  sourceBase += emitterBase(uv, centerB, 0.052, strengthB * 0.82);
+  float sourceColumn = emitterColumn(uv, centerA, 0.045, strengthA);
+  sourceColumn += emitterColumn(uv, centerB, 0.055, strengthB * 0.8);
+  sourceColumn = clamp(sourceColumn, 0.0, 1.35);
+  float sideSource = sideEmitterBase(uv, sideY, 0.048, sideStrength);
+  float sideColumn = sideEmitterColumn(uv, sideY, 0.06, sideStrength * 0.82);
+  float sourceVeil = 0.58 + 0.42 * fbm(uv * vec2(4.2, 7.0) + vec2(weatherTime * 0.05, -weatherTime * 0.038));
+  float ambientDye = (sourceBase * 0.021 + sourceColumn * 0.0065 + sideSource * 0.031 + sideColumn * 0.009) * sourceVeil * frameScale;
+  dye.rgb += vec3(0.014, 0.085, 0.074) * ambientDye;
+  dye.a += ambientDye * 0.42;
+
+  vec2 pointerDelta = vec2((uv.x - uPointerPosition.x) * uAspect, uv.y - uPointerPosition.y);
+  float radius = max(uPointerRadius * 0.92, 0.0001);
+  float pointerField = exp(-dot(pointerDelta, pointerDelta) / (radius * radius)) * uPointerActive;
+  float pointerSpeed = min(length(uPointerVelocity), 7.5);
+  float dyeImpulse = pointerField * (0.075 + pointerSpeed * 0.052);
+  dye.rgb += vec3(0.02, 0.12, 0.105) * dyeImpulse;
+  dye.a += dyeImpulse * 0.48;
+
+  gl_FragColor = clamp(dye, 0.0, 1.0);
+}
+`;
+
+const FLUID_RENDER_FRAGMENT_SHADER = `
+precision mediump float;
+
+uniform vec2 uResolution;
+uniform vec2 uFluidTexel;
+uniform float uElapsedTime;
+uniform float uEmitterDebug;
+uniform sampler2D uVelocityMap;
+uniform sampler2D uDyeMap;
+
+varying vec2 vUv;
+
+float dyeAmount(vec4 dye) {
+  return dot(dye.rgb, vec3(0.333)) + dye.a * 0.42;
+}
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float fbm(vec2 p) {
+  float value = 0.0;
+  value += valueNoise(p) * 0.5;
+  p = p * 2.03 + 17.11;
+  value += valueNoise(p) * 0.3;
+  p = p * 2.01 + 31.73;
+  value += valueNoise(p) * 0.2;
+  return value;
+}
+
+float weatherCenter(float t, float phase) {
+  float drift = fbm(vec2(t * 0.42 + phase, phase * 1.91));
+  float wander = fbm(vec2(t * 0.17 + phase * 2.7, 8.4 + phase));
+  float wave = sin(t * 0.31 + phase + drift * 6.28318);
+  return clamp(0.5 + wave * 0.36 + (wander - 0.5) * 0.28, 0.08, 0.92);
+}
+
+float weatherSideY(float t, float phase) {
+  float drift = fbm(vec2(t * 0.33 + phase, phase * 2.41));
+  float wander = fbm(vec2(t * 0.19 + phase * 2.2, 13.7 + phase));
+  float wave = sin(t * 0.27 + phase + drift * 6.28318);
+  return clamp(0.5 + wave * 0.32 + (wander - 0.5) * 0.24, 0.12, 0.88);
+}
+
+float debugEmitter(vec2 uv, float center, float strength, float width, float aspect) {
+  float x = (uv.x - center) * aspect;
+  float baseDistance = length(vec2(x / max(width, 0.0001), (uv.y - 0.052) / 0.024));
+  float baseDot = (1.0 - smoothstep(0.82, 1.0, baseDistance)) * (0.36 + strength * 0.64);
+  float ring = smoothstep(1.32, 1.08, baseDistance) * smoothstep(0.72, 1.0, baseDistance);
+  float columnWidth = mix(width * 0.9, width * 4.8, smoothstep(0.0, 0.62, uv.y));
+  float column = exp(-(x * x) / max(columnWidth * columnWidth, 0.0001)) * smoothstep(0.62, 0.02, uv.y) * smoothstep(0.025, 0.16, uv.y);
+  float guide = (1.0 - smoothstep(0.0025, 0.009, abs(uv.x - center))) * smoothstep(0.72, 0.05, uv.y);
+  return baseDot * 1.2 + ring * 1.05 + column * strength * 0.72 + guide * (0.18 + strength * 0.26);
+}
+
+float debugSideEmitter(vec2 uv, float centerY, float strength, float height, float aspect) {
+  vec2 p = vec2((uv.x - 0.985) * aspect, uv.y - centerY);
+  float baseDistance = length(vec2(p.x / 0.028, p.y / max(height, 0.0001)));
+  float baseDot = (1.0 - smoothstep(0.82, 1.0, baseDistance)) * (0.36 + strength * 0.64);
+  float ring = (1.0 - smoothstep(1.08, 1.32, baseDistance)) * smoothstep(0.72, 1.0, baseDistance);
+  float inward = max(0.0, 1.0 - uv.x);
+  float spread = height + inward * 0.46;
+  float edgeFade = 1.0 - smoothstep(0.02, 0.72, inward);
+  float column = exp(-((uv.y - centerY) * (uv.y - centerY)) / max(spread * spread, 0.0001)) * exp(-(inward * inward) / (0.34 * 0.34)) * edgeFade;
+  float guide = (1.0 - smoothstep(0.0025, 0.009, abs(uv.y - centerY))) * smoothstep(0.55, 0.98, uv.x);
+  return baseDot * 1.2 + ring * 1.05 + column * strength * 0.72 + guide * (0.18 + strength * 0.26);
 }
 
 void main() {
   vec2 uv = vUv;
   vec2 aspect = vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
-  vec2 p = (uv * 2.0 - 1.0) * aspect * 0.76;
-  vec2 scrollUv = uv + vec2(0.0, -uScroll * 0.04);
-  float t = uTime * 50.1;
+  vec2 fluidVelocity = texture2D(uVelocityMap, uv).rg * 2.0 - 1.0;
+  vec4 dye = texture2D(uDyeMap, uv);
+  float fluidDye = dyeAmount(dye);
+  float dyeRight = dyeAmount(texture2D(uDyeMap, uv + vec2(uFluidTexel.x, 0.0)));
+  float dyeUp = dyeAmount(texture2D(uDyeMap, uv + vec2(0.0, uFluidTexel.y)));
+  vec2 dyeGradient = vec2(dyeRight - fluidDye, dyeUp - fluidDye);
+  float speed = length(fluidVelocity * aspect);
+  float caustic = smoothstep(0.009, 0.105, length(dyeGradient) * 7.5 + dye.a * 0.38);
+  vec3 dyeColor = dye.rgb * 1.72 + vec3(0.018, 0.175, 0.15) * fluidDye;
+  vec3 velocityColor = vec3(0.012, 0.085, 0.075) * smoothstep(0.012, 0.22, speed);
+  vec3 causticColor = vec3(0.026, 0.16, 0.14) * caustic;
+  vec3 color = dyeColor + velocityColor + causticColor;
+  color = color / (vec3(1.0) + color * 2.15);
+  color = clamp(color, vec3(0.0), vec3(0.34));
+  float alpha = clamp(fluidDye * 1.06 + caustic * 0.22 + smoothstep(0.018, 0.28, speed) * 0.16, 0.0, 0.48);
 
-  float noiseX = sampleNoise(scrollUv * vec2(1.78, 2.34) + vec2(t * 0.006, -t * 0.003));
-  float noiseY = sampleNoise(scrollUv * vec2(2.72, 3.22) + vec2(-t * 0.004, t * 0.0055));
-  vec2 noiseOffset = (vec2(noiseX, noiseY) - 0.5) * 0.01;
+  float weatherTime = uElapsedTime * 0.72;
+  float centerA = weatherCenter(weatherTime, 0.2);
+  float centerB = weatherCenter(weatherTime * 0.86 + 9.0, 2.6);
+  float sideY = weatherSideY(weatherTime * 1.08 + 17.0, 5.1);
+  float strengthA = smoothstep(0.18, 0.86, fbm(vec2(weatherTime * 0.58 + 1.3, 2.0)));
+  float strengthB = smoothstep(0.22, 0.88, fbm(vec2(weatherTime * 0.52 + 8.7, 5.0)));
+  float strengthC = smoothstep(0.26, 0.9, fbm(vec2(weatherTime * 0.64 + 15.4, 9.0)));
+  float sideStrength = 0.72 + strengthC * 0.72;
+  float debugA = debugEmitter(uv, centerA, strengthA, 0.042, aspect.x);
+  float debugB = debugEmitter(uv, centerB, strengthB * 0.82, 0.052, aspect.x);
+  float debugC = debugSideEmitter(uv, sideY, sideStrength * 0.54, 0.048, aspect.x);
+  vec3 debugColor = vec3(0.28, 0.95, 0.82) * debugA;
+  debugColor += vec3(0.42, 0.78, 1.0) * debugB;
+  debugColor += vec3(0.95, 0.78, 0.34) * debugC;
+  float debugAlpha = clamp((debugA + debugB + debugC) * 0.92, 0.0, 0.92) * uEmitterDebug;
+  color = mix(color, clamp(color + debugColor * 0.9, vec3(0.0), vec3(0.78)), debugAlpha);
+  alpha = max(alpha, debugAlpha);
 
-  vec2 flow = sampleFlow(scrollUv * 0.72 + noiseOffset + vec2(t * 0.00042, -t * 0.00028));
-  vec2 warpedUv = scrollUv + noiseOffset + flow * 0.045;
-  vec2 q = (warpedUv * 2.0 - 1.0) * aspect * 0.76;
-
-  float cloud = sampleNoise(warpedUv * vec2(3.5, 2.86) + vec2(-t * 0.003, t * 0.002));
-  float detail = sampleNoise(warpedUv * vec2(5.46, 4.16) + vec2(t * 0.005, t * 0.003));
-  float slowMist = sampleNoise(scrollUv * vec2(1.1, 1.5) + vec2(t * 0.0015, -t * 0.001));
-  float veil = smoothstep(0.26, 0.88, cloud * 0.68 + detail * 0.22 + slowMist * 0.34);
-
-  float bandA = auroraBand(q, 0.25, 1.48, -0.13, 0.0);
-  float bandB = auroraBand(q, -0.03, 0.42, 0.09, 1.7);
-  float bandC = auroraBand(q, -0.38, 0.44, -0.07, 3.4);
-
-  vec3 base = vec3(0.014, 0.02, 0.032);
-  vec3 teal = vec3(0.055, 0.42, 0.35);
-  vec3 blue = vec3(0.06, 0.18, 0.39);
-  vec3 green = vec3(0.12, 0.36, 0.25);
-  vec3 aurora = teal * bandA * 0.58 + blue * bandB * 0.0 + green * bandC * 0.0;
-
-  float fieldFade = 0.28 + 0.72 * (1.0 - smoothstep(0.55, 2.05, length(p * vec2(0.56, 0.82))));
-  float panelShade = (1.0 - smoothstep(0.02, 0.72, uv.y)) * 0.1;
-  vec3 haze = vec3(0.025, 0.05, 0.058) * (slowMist * 0.18 + cloud * 0.08);
-  vec3 color = base + aurora * veil * fieldFade + haze * (0.74 + fieldFade * 0.26);
-  color *= 0.7 + fieldFade * 0.3;
-  color -= panelShade;
-
-  float grain = sampleNoise(scrollUv * uResolution.xy / 140.0 + vec2(t * 0.004, -t * 0.003));
-  color += (grain - 0.5) * 0.01;
-
-  gl_FragColor = vec4(color, 1.0);
+  gl_FragColor = vec4(color, alpha);
 }
 `;
 
 function AuroraBackdrop() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [isCursorFluidEnabled, setIsCursorFluidEnabled] = useState(false);
+  const [isEmitterDebugVisible, setIsEmitterDebugVisible] = useState(false);
+  const cursorFluidEnabledRef = useRef(isCursorFluidEnabled);
+  const emitterDebugVisibleRef = useRef(isEmitterDebugVisible);
+
+  useEffect(() => {
+    cursorFluidEnabledRef.current = isCursorFluidEnabled;
+  }, [isCursorFluidEnabled]);
+
+  useEffect(() => {
+    emitterDebugVisibleRef.current = isEmitterDebugVisible;
+  }, [isEmitterDebugVisible]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const gl = canvas?.getContext('webgl', {
-      alpha: false,
+      alpha: true,
       antialias: false,
       depth: false,
       failIfMajorPerformanceCaveat: false,
@@ -2235,6 +2838,18 @@ function AuroraBackdrop() {
     if (!canvas || !gl) {
       return;
     }
+
+    type FluidTarget = {
+      framebuffer: WebGLFramebuffer;
+      height: number;
+      texture: WebGLTexture;
+      width: number;
+    };
+
+    type FluidTextureConfig = {
+      filter: number;
+      type: number;
+    };
 
     const compileShader = (type: number, source: string) => {
       const shader = gl.createShader(type);
@@ -2255,39 +2870,71 @@ function AuroraBackdrop() {
       return shader;
     };
 
-    const vertexShader = compileShader(gl.VERTEX_SHADER, AURORA_VERTEX_SHADER);
-    const fragmentShader = compileShader(gl.FRAGMENT_SHADER, AURORA_FRAGMENT_SHADER);
+    const createProgram = (fragmentSource: string) => {
+      const vertexShader = compileShader(gl.VERTEX_SHADER, AURORA_VERTEX_SHADER);
+      const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentSource);
 
-    if (!vertexShader || !fragmentShader) {
-      return;
-    }
+      if (!vertexShader || !fragmentShader) {
+        if (vertexShader) {
+          gl.deleteShader(vertexShader);
+        }
 
-    const program = gl.createProgram();
+        if (fragmentShader) {
+          gl.deleteShader(fragmentShader);
+        }
 
-    if (!program) {
+        return null;
+      }
+
+      const program = gl.createProgram();
+
+      if (!program) {
+        gl.deleteShader(vertexShader);
+        gl.deleteShader(fragmentShader);
+        return null;
+      }
+
+      gl.attachShader(program, vertexShader);
+      gl.attachShader(program, fragmentShader);
+      gl.linkProgram(program);
+
       gl.deleteShader(vertexShader);
       gl.deleteShader(fragmentShader);
-      return;
-    }
 
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.warn(gl.getProgramInfoLog(program));
+        gl.deleteProgram(program);
+        return null;
+      }
 
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      console.warn(gl.getProgramInfoLog(program));
-      gl.deleteProgram(program);
-      gl.deleteShader(vertexShader);
-      gl.deleteShader(fragmentShader);
+      return program;
+    };
+
+    const renderProgram = createProgram(FLUID_RENDER_FRAGMENT_SHADER);
+    const velocityProgram = createProgram(FLUID_VELOCITY_FRAGMENT_SHADER);
+    const curlProgram = createProgram(FLUID_CURL_FRAGMENT_SHADER);
+    const vorticityProgram = createProgram(FLUID_VORTICITY_FRAGMENT_SHADER);
+    const divergenceProgram = createProgram(FLUID_DIVERGENCE_FRAGMENT_SHADER);
+    const pressureProgram = createProgram(FLUID_PRESSURE_FRAGMENT_SHADER);
+    const gradientProgram = createProgram(FLUID_GRADIENT_FRAGMENT_SHADER);
+    const dyeProgram = createProgram(FLUID_DYE_FRAGMENT_SHADER);
+    const deletePrograms = () => {
+      [renderProgram, velocityProgram, curlProgram, vorticityProgram, divergenceProgram, pressureProgram, gradientProgram, dyeProgram].forEach((program) => {
+        if (program) {
+          gl.deleteProgram(program);
+        }
+      });
+    };
+
+    if (!renderProgram || !velocityProgram || !curlProgram || !vorticityProgram || !divergenceProgram || !pressureProgram || !gradientProgram || !dyeProgram) {
+      deletePrograms();
       return;
     }
 
     const quadBuffer = gl.createBuffer();
 
     if (!quadBuffer) {
-      gl.deleteProgram(program);
-      gl.deleteShader(vertexShader);
-      gl.deleteShader(fragmentShader);
+      deletePrograms();
       return;
     }
 
@@ -2298,53 +2945,286 @@ function AuroraBackdrop() {
       gl.STATIC_DRAW,
     );
 
-    gl.useProgram(program);
+    const bindQuad = (targetProgram: WebGLProgram) => {
+      const positionLocation = gl.getAttribLocation(targetProgram, 'aPosition');
 
-    const positionLocation = gl.getAttribLocation(program, 'aPosition');
-    gl.enableVertexAttribArray(positionLocation);
-    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-
-    const resolutionLocation = gl.getUniformLocation(program, 'uResolution');
-    const timeLocation = gl.getUniformLocation(program, 'uTime');
-    const scrollLocation = gl.getUniformLocation(program, 'uScroll');
-    const noiseMapLocation = gl.getUniformLocation(program, 'uNoiseMap');
-    const flowMapLocation = gl.getUniformLocation(program, 'uFlowMap');
-
-    const createTexture = (unit: number, src: string) => {
-      const texture = gl.createTexture();
-
-      if (!texture) {
-        return Promise.resolve(null);
+      if (positionLocation < 0) {
+        return;
       }
 
-      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+      gl.enableVertexAttribArray(positionLocation);
+      gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+    };
+
+    const renderUniforms = {
+      resolution: gl.getUniformLocation(renderProgram, 'uResolution'),
+      fluidTexel: gl.getUniformLocation(renderProgram, 'uFluidTexel'),
+      elapsedTime: gl.getUniformLocation(renderProgram, 'uElapsedTime'),
+      emitterDebug: gl.getUniformLocation(renderProgram, 'uEmitterDebug'),
+      velocityMap: gl.getUniformLocation(renderProgram, 'uVelocityMap'),
+      dyeMap: gl.getUniformLocation(renderProgram, 'uDyeMap'),
+    };
+    const velocityUniforms = {
+      velocityMap: gl.getUniformLocation(velocityProgram, 'uVelocityMap'),
+      dyeMap: gl.getUniformLocation(velocityProgram, 'uDyeMap'),
+      texel: gl.getUniformLocation(velocityProgram, 'uTexel'),
+      pointerPosition: gl.getUniformLocation(velocityProgram, 'uPointerPosition'),
+      pointerVelocity: gl.getUniformLocation(velocityProgram, 'uPointerVelocity'),
+      pointerActive: gl.getUniformLocation(velocityProgram, 'uPointerActive'),
+      pointerRadius: gl.getUniformLocation(velocityProgram, 'uPointerRadius'),
+      deltaTime: gl.getUniformLocation(velocityProgram, 'uDeltaTime'),
+      elapsedTime: gl.getUniformLocation(velocityProgram, 'uElapsedTime'),
+      aspect: gl.getUniformLocation(velocityProgram, 'uAspect'),
+    };
+    const curlUniforms = {
+      velocityMap: gl.getUniformLocation(curlProgram, 'uVelocityMap'),
+      texel: gl.getUniformLocation(curlProgram, 'uTexel'),
+      aspect: gl.getUniformLocation(curlProgram, 'uAspect'),
+    };
+    const vorticityUniforms = {
+      velocityMap: gl.getUniformLocation(vorticityProgram, 'uVelocityMap'),
+      curlMap: gl.getUniformLocation(vorticityProgram, 'uCurlMap'),
+      texel: gl.getUniformLocation(vorticityProgram, 'uTexel'),
+      deltaTime: gl.getUniformLocation(vorticityProgram, 'uDeltaTime'),
+      strength: gl.getUniformLocation(vorticityProgram, 'uStrength'),
+      aspect: gl.getUniformLocation(vorticityProgram, 'uAspect'),
+    };
+    const divergenceUniforms = {
+      velocityMap: gl.getUniformLocation(divergenceProgram, 'uVelocityMap'),
+      texel: gl.getUniformLocation(divergenceProgram, 'uTexel'),
+      obstacleRect: gl.getUniformLocation(divergenceProgram, 'uObstacleRect'),
+      aspect: gl.getUniformLocation(divergenceProgram, 'uAspect'),
+    };
+    const pressureUniforms = {
+      pressureMap: gl.getUniformLocation(pressureProgram, 'uPressureMap'),
+      divergenceMap: gl.getUniformLocation(pressureProgram, 'uDivergenceMap'),
+      texel: gl.getUniformLocation(pressureProgram, 'uTexel'),
+      obstacleRect: gl.getUniformLocation(pressureProgram, 'uObstacleRect'),
+      aspect: gl.getUniformLocation(pressureProgram, 'uAspect'),
+    };
+    const gradientUniforms = {
+      velocityMap: gl.getUniformLocation(gradientProgram, 'uVelocityMap'),
+      pressureMap: gl.getUniformLocation(gradientProgram, 'uPressureMap'),
+      texel: gl.getUniformLocation(gradientProgram, 'uTexel'),
+      obstacleRect: gl.getUniformLocation(gradientProgram, 'uObstacleRect'),
+      aspect: gl.getUniformLocation(gradientProgram, 'uAspect'),
+    };
+    const dyeUniforms = {
+      velocityMap: gl.getUniformLocation(dyeProgram, 'uVelocityMap'),
+      dyeMap: gl.getUniformLocation(dyeProgram, 'uDyeMap'),
+      pointerPosition: gl.getUniformLocation(dyeProgram, 'uPointerPosition'),
+      pointerVelocity: gl.getUniformLocation(dyeProgram, 'uPointerVelocity'),
+      pointerActive: gl.getUniformLocation(dyeProgram, 'uPointerActive'),
+      pointerRadius: gl.getUniformLocation(dyeProgram, 'uPointerRadius'),
+      deltaTime: gl.getUniformLocation(dyeProgram, 'uDeltaTime'),
+      elapsedTime: gl.getUniformLocation(dyeProgram, 'uElapsedTime'),
+      aspect: gl.getUniformLocation(dyeProgram, 'uAspect'),
+    };
+
+    const canRenderToTextureType = (type: number) => {
+      const texture = gl.createTexture();
+      const framebuffer = gl.createFramebuffer();
+
+      if (!texture || !framebuffer) {
+        if (texture) {
+          gl.deleteTexture(texture);
+        }
+
+        if (framebuffer) {
+          gl.deleteFramebuffer(framebuffer);
+        }
+
+        return false;
+      }
+
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([6, 10, 16, 255]));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, type, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
 
-      return new Promise<WebGLTexture | null>((resolve) => {
-        const image = new Image();
+      const isComplete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteTexture(texture);
+      gl.deleteFramebuffer(framebuffer);
+      return isComplete;
+    };
 
-        image.onload = () => {
-          gl.activeTexture(gl.TEXTURE0 + unit);
-          gl.bindTexture(gl.TEXTURE_2D, texture);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-          resolve(texture);
+    const getFluidTextureConfig = (): FluidTextureConfig => {
+      const halfFloatExtension = gl.getExtension('OES_texture_half_float');
+      const halfFloatLinearExtension = gl.getExtension('OES_texture_half_float_linear');
+      gl.getExtension('EXT_color_buffer_half_float');
+
+      if (halfFloatExtension && halfFloatLinearExtension && canRenderToTextureType(halfFloatExtension.HALF_FLOAT_OES)) {
+        return {
+          filter: gl.LINEAR,
+          type: halfFloatExtension.HALF_FLOAT_OES,
         };
+      }
 
-        image.onerror = () => resolve(texture);
-        image.src = src;
-      });
+      const floatExtension = gl.getExtension('OES_texture_float');
+      const floatLinearExtension = gl.getExtension('OES_texture_float_linear');
+      gl.getExtension('WEBGL_color_buffer_float');
+
+      if (floatExtension && floatLinearExtension && canRenderToTextureType(gl.FLOAT)) {
+        return {
+          filter: gl.LINEAR,
+          type: gl.FLOAT,
+        };
+      }
+
+      return {
+        filter: gl.LINEAR,
+        type: gl.UNSIGNED_BYTE,
+      };
+    };
+
+    const fluidTextureConfig = getFluidTextureConfig();
+
+    const createFluidTarget = (width: number, height: number, clearColor: [number, number, number, number]): FluidTarget | null => {
+      const texture = gl.createTexture();
+      const framebuffer = gl.createFramebuffer();
+
+      if (!texture || !framebuffer) {
+        if (texture) {
+          gl.deleteTexture(texture);
+        }
+
+        if (framebuffer) {
+          gl.deleteFramebuffer(framebuffer);
+        }
+
+        return null;
+      }
+
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, fluidTextureConfig.filter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, fluidTextureConfig.filter);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, fluidTextureConfig.type, null);
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.deleteTexture(texture);
+        gl.deleteFramebuffer(framebuffer);
+        return null;
+      }
+
+      gl.viewport(0, 0, width, height);
+      gl.clearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+      return {framebuffer, height, texture, width};
+    };
+
+    const clearFluidTarget = (target: FluidTarget, clearColor: [number, number, number, number]) => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+      gl.viewport(0, 0, target.width, target.height);
+      gl.clearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    };
+
+    const deleteFluidTarget = (target: FluidTarget) => {
+      gl.deleteFramebuffer(target.framebuffer);
+      gl.deleteTexture(target.texture);
+    };
+
+    const getFluidSize = (): [number, number] => {
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.3);
+      const width = Math.max(120, Math.min(340, Math.floor((window.innerWidth * pixelRatio) / 5)));
+      const height = Math.max(80, Math.min(220, Math.floor((window.innerHeight * pixelRatio) / 5)));
+
+      return [width, height];
     };
 
     let animationFrame = 0;
     let disposed = false;
+    let velocityTargets: [FluidTarget, FluidTarget] | null = null;
+    let pressureTargets: [FluidTarget, FluidTarget] | null = null;
+    let dyeTargets: [FluidTarget, FluidTarget] | null = null;
+    let divergenceTarget: FluidTarget | null = null;
+    let curlTarget: FluidTarget | null = null;
+    let velocityReadIndex = 0;
+    let pressureReadIndex = 0;
+    let dyeReadIndex = 0;
     const startedAt = performance.now();
     const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const getScrollProgress = () => window.scrollY / Math.max(window.innerHeight, 1);
+    const inactiveObstacleRect: [number, number, number, number] = [-1, -1, -1, -1];
+    let pointerPosition: [number, number] = [0.5, 0.5];
+    let pointerVelocity: [number, number] = [0, 0];
+    let pointerActive = 0;
+    let lastPointerPosition: [number, number] | null = null;
+    let lastPointerTime = startedAt;
+
+    const ensureFluidTargets = () => {
+      const [width, height] = getFluidSize();
+
+      if (velocityTargets?.[0].width === width && velocityTargets[0].height === height) {
+        return true;
+      }
+
+      velocityTargets?.forEach(deleteFluidTarget);
+      pressureTargets?.forEach(deleteFluidTarget);
+      dyeTargets?.forEach(deleteFluidTarget);
+      if (divergenceTarget) {
+        deleteFluidTarget(divergenceTarget);
+      }
+      if (curlTarget) {
+        deleteFluidTarget(curlTarget);
+      }
+
+      const nextVelocityTargets: [FluidTarget | null, FluidTarget | null] = [
+        createFluidTarget(width, height, [0.5, 0.5, 0, 1]),
+        createFluidTarget(width, height, [0.5, 0.5, 0, 1]),
+      ];
+      const nextPressureTargets: [FluidTarget | null, FluidTarget | null] = [
+        createFluidTarget(width, height, [0.5, 0, 0, 1]),
+        createFluidTarget(width, height, [0.5, 0, 0, 1]),
+      ];
+      const nextDyeTargets: [FluidTarget | null, FluidTarget | null] = [
+        createFluidTarget(width, height, [0, 0, 0, 0]),
+        createFluidTarget(width, height, [0, 0, 0, 0]),
+      ];
+      const nextDivergenceTarget = createFluidTarget(width, height, [0.5, 0, 0, 1]);
+      const nextCurlTarget = createFluidTarget(width, height, [0.5, 0, 0, 1]);
+      const createdTargets = [...nextVelocityTargets, ...nextPressureTargets, ...nextDyeTargets, nextDivergenceTarget, nextCurlTarget];
+
+      if (createdTargets.some((target) => !target)) {
+        createdTargets.forEach((target) => {
+          if (target) {
+            deleteFluidTarget(target);
+          }
+        });
+        velocityTargets = null;
+        pressureTargets = null;
+        dyeTargets = null;
+        divergenceTarget = null;
+        curlTarget = null;
+        return false;
+      }
+
+      velocityTargets = nextVelocityTargets as [FluidTarget, FluidTarget];
+      pressureTargets = nextPressureTargets as [FluidTarget, FluidTarget];
+      dyeTargets = nextDyeTargets as [FluidTarget, FluidTarget];
+      divergenceTarget = nextDivergenceTarget;
+      curlTarget = nextCurlTarget;
+      velocityReadIndex = 0;
+      pressureReadIndex = 0;
+      dyeReadIndex = 0;
+      return true;
+    };
+
+    let lastFrameTime = startedAt;
 
     const resize = () => {
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.3);
@@ -2357,20 +3237,227 @@ function AuroraBackdrop() {
         gl.viewport(0, 0, width, height);
       }
 
-      gl.uniform2f(resolutionLocation, width, height);
+      gl.useProgram(renderProgram);
+      gl.uniform2f(renderUniforms.resolution, width, height);
+      ensureFluidTargets();
+    };
+
+    const updatePointerDecay = (frameSeconds: number) => {
+      const frameScale = frameSeconds * 60;
+      pointerActive *= Math.pow(0.9, frameScale);
+      pointerVelocity = [
+        pointerVelocity[0] * Math.pow(0.94, frameScale),
+        pointerVelocity[1] * Math.pow(0.94, frameScale),
+      ];
+    };
+
+    const updatePointerFromEvent = (event: PointerEvent) => {
+      if (!cursorFluidEnabledRef.current || event.pointerType === 'touch') {
+        return;
+      }
+
+      const viewportWidth = Math.max(window.innerWidth, 1);
+      const viewportHeight = Math.max(window.innerHeight, 1);
+      const nextPosition: [number, number] = [
+        Math.max(0, Math.min(1, event.clientX / viewportWidth)),
+        Math.max(0, Math.min(1, 1 - event.clientY / viewportHeight)),
+      ];
+      const now = performance.now();
+      const frameSeconds = Math.max((now - lastPointerTime) / 1000, 1 / 120);
+
+      if (lastPointerPosition) {
+        const targetVelocity: [number, number] = [
+          Math.max(-7.5, Math.min(7.5, (nextPosition[0] - lastPointerPosition[0]) / frameSeconds)),
+          Math.max(-7.5, Math.min(7.5, (nextPosition[1] - lastPointerPosition[1]) / frameSeconds)),
+        ];
+        pointerVelocity = [
+          pointerVelocity[0] + (targetVelocity[0] - pointerVelocity[0]) * 0.74,
+          pointerVelocity[1] + (targetVelocity[1] - pointerVelocity[1]) * 0.74,
+        ];
+      }
+
+      pointerPosition = nextPosition;
+      lastPointerPosition = nextPosition;
+      lastPointerTime = now;
+      pointerActive = Math.min(1, pointerActive + 0.92);
+
+      if (reducedMotionQuery.matches) {
+        drawFrame(now);
+      }
+    };
+
+    const stepFluid = (frameSeconds: number, elapsedSeconds: number) => {
+      if (!velocityTargets || !pressureTargets || !dyeTargets || !divergenceTarget || !curlTarget) {
+        return;
+      }
+
+      const aspect = canvas.width / Math.max(canvas.height, 1);
+      let velocityReadTarget = velocityTargets[velocityReadIndex];
+      let velocityWriteTarget = velocityTargets[1 - velocityReadIndex];
+      const currentDyeTarget = dyeTargets[dyeReadIndex];
+      gl.bindFramebuffer(gl.FRAMEBUFFER, velocityWriteTarget.framebuffer);
+      gl.viewport(0, 0, velocityWriteTarget.width, velocityWriteTarget.height);
+      gl.useProgram(velocityProgram);
+      bindQuad(velocityProgram);
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, velocityReadTarget.texture);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, currentDyeTarget.texture);
+
+      gl.uniform1i(velocityUniforms.velocityMap, 0);
+      gl.uniform1i(velocityUniforms.dyeMap, 1);
+      gl.uniform2f(velocityUniforms.texel, 1 / velocityReadTarget.width, 1 / velocityReadTarget.height);
+      gl.uniform2f(velocityUniforms.pointerPosition, pointerPosition[0], pointerPosition[1]);
+      gl.uniform2f(velocityUniforms.pointerVelocity, pointerVelocity[0], pointerVelocity[1]);
+      gl.uniform1f(velocityUniforms.pointerActive, cursorFluidEnabledRef.current ? pointerActive : 0);
+      gl.uniform1f(velocityUniforms.pointerRadius, 0.088);
+      gl.uniform1f(velocityUniforms.deltaTime, frameSeconds);
+      gl.uniform1f(velocityUniforms.elapsedTime, elapsedSeconds);
+      gl.uniform1f(velocityUniforms.aspect, aspect);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      velocityReadIndex = 1 - velocityReadIndex;
+      velocityReadTarget = velocityTargets[velocityReadIndex];
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, curlTarget.framebuffer);
+      gl.viewport(0, 0, curlTarget.width, curlTarget.height);
+      gl.useProgram(curlProgram);
+      bindQuad(curlProgram);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, velocityReadTarget.texture);
+      gl.uniform1i(curlUniforms.velocityMap, 0);
+      gl.uniform2f(curlUniforms.texel, 1 / velocityReadTarget.width, 1 / velocityReadTarget.height);
+      gl.uniform1f(curlUniforms.aspect, aspect);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      velocityWriteTarget = velocityTargets[1 - velocityReadIndex];
+      gl.bindFramebuffer(gl.FRAMEBUFFER, velocityWriteTarget.framebuffer);
+      gl.viewport(0, 0, velocityWriteTarget.width, velocityWriteTarget.height);
+      gl.useProgram(vorticityProgram);
+      bindQuad(vorticityProgram);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, velocityReadTarget.texture);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, curlTarget.texture);
+      gl.uniform1i(vorticityUniforms.velocityMap, 0);
+      gl.uniform1i(vorticityUniforms.curlMap, 1);
+      gl.uniform2f(vorticityUniforms.texel, 1 / velocityReadTarget.width, 1 / velocityReadTarget.height);
+      gl.uniform1f(vorticityUniforms.deltaTime, frameSeconds * 0.25);
+      gl.uniform1f(vorticityUniforms.strength, 13.0);
+      gl.uniform1f(vorticityUniforms.aspect, aspect);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      velocityReadIndex = 1 - velocityReadIndex;
+      velocityReadTarget = velocityTargets[velocityReadIndex];
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, divergenceTarget.framebuffer);
+      gl.viewport(0, 0, divergenceTarget.width, divergenceTarget.height);
+      gl.useProgram(divergenceProgram);
+      bindQuad(divergenceProgram);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, velocityReadTarget.texture);
+      gl.uniform1i(divergenceUniforms.velocityMap, 0);
+      gl.uniform2f(divergenceUniforms.texel, 1 / velocityReadTarget.width, 1 / velocityReadTarget.height);
+      gl.uniform4f(divergenceUniforms.obstacleRect, inactiveObstacleRect[0], inactiveObstacleRect[1], inactiveObstacleRect[2], inactiveObstacleRect[3]);
+      gl.uniform1f(divergenceUniforms.aspect, aspect);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      pressureTargets.forEach((target) => clearFluidTarget(target, [0.5, 0, 0, 1]));
+      pressureReadIndex = 0;
+      for (let iteration = 0; iteration < 12; iteration += 1) {
+        const pressureReadTarget = pressureTargets[pressureReadIndex];
+        const pressureWriteTarget = pressureTargets[1 - pressureReadIndex];
+        gl.bindFramebuffer(gl.FRAMEBUFFER, pressureWriteTarget.framebuffer);
+        gl.viewport(0, 0, pressureWriteTarget.width, pressureWriteTarget.height);
+        gl.useProgram(pressureProgram);
+        bindQuad(pressureProgram);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, pressureReadTarget.texture);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, divergenceTarget.texture);
+        gl.uniform1i(pressureUniforms.pressureMap, 0);
+        gl.uniform1i(pressureUniforms.divergenceMap, 1);
+        gl.uniform2f(pressureUniforms.texel, 1 / pressureReadTarget.width, 1 / pressureReadTarget.height);
+        gl.uniform4f(pressureUniforms.obstacleRect, inactiveObstacleRect[0], inactiveObstacleRect[1], inactiveObstacleRect[2], inactiveObstacleRect[3]);
+        gl.uniform1f(pressureUniforms.aspect, aspect);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        pressureReadIndex = 1 - pressureReadIndex;
+      }
+
+      velocityWriteTarget = velocityTargets[1 - velocityReadIndex];
+      gl.bindFramebuffer(gl.FRAMEBUFFER, velocityWriteTarget.framebuffer);
+      gl.viewport(0, 0, velocityWriteTarget.width, velocityWriteTarget.height);
+      gl.useProgram(gradientProgram);
+      bindQuad(gradientProgram);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, velocityReadTarget.texture);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, pressureTargets[pressureReadIndex].texture);
+      gl.uniform1i(gradientUniforms.velocityMap, 0);
+      gl.uniform1i(gradientUniforms.pressureMap, 1);
+      gl.uniform2f(gradientUniforms.texel, 1 / velocityReadTarget.width, 1 / velocityReadTarget.height);
+      gl.uniform4f(gradientUniforms.obstacleRect, inactiveObstacleRect[0], inactiveObstacleRect[1], inactiveObstacleRect[2], inactiveObstacleRect[3]);
+      gl.uniform1f(gradientUniforms.aspect, aspect);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      velocityReadIndex = 1 - velocityReadIndex;
+      velocityReadTarget = velocityTargets[velocityReadIndex];
+
+      const dyeReadTarget = dyeTargets[dyeReadIndex];
+      const dyeWriteTarget = dyeTargets[1 - dyeReadIndex];
+      gl.bindFramebuffer(gl.FRAMEBUFFER, dyeWriteTarget.framebuffer);
+      gl.viewport(0, 0, dyeWriteTarget.width, dyeWriteTarget.height);
+      gl.useProgram(dyeProgram);
+      bindQuad(dyeProgram);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, velocityReadTarget.texture);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, dyeReadTarget.texture);
+      gl.uniform1i(dyeUniforms.velocityMap, 0);
+      gl.uniform1i(dyeUniforms.dyeMap, 1);
+      gl.uniform2f(dyeUniforms.pointerPosition, pointerPosition[0], pointerPosition[1]);
+      gl.uniform2f(dyeUniforms.pointerVelocity, pointerVelocity[0], pointerVelocity[1]);
+      gl.uniform1f(dyeUniforms.pointerActive, cursorFluidEnabledRef.current ? pointerActive : 0);
+      gl.uniform1f(dyeUniforms.pointerRadius, 0.088);
+      gl.uniform1f(dyeUniforms.deltaTime, frameSeconds);
+      gl.uniform1f(dyeUniforms.elapsedTime, elapsedSeconds);
+      gl.uniform1f(dyeUniforms.aspect, aspect);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      dyeReadIndex = 1 - dyeReadIndex;
+    };
+
+    const renderFluid = (elapsedSeconds: number) => {
+      if (!velocityTargets || !dyeTargets) {
+        return;
+      }
+
+      const velocityTarget = velocityTargets[velocityReadIndex];
+      const dyeTarget = dyeTargets[dyeReadIndex];
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.useProgram(renderProgram);
+      bindQuad(renderProgram);
+
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, velocityTarget.texture);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, dyeTarget.texture);
+
+      gl.uniform1i(renderUniforms.velocityMap, 0);
+      gl.uniform1i(renderUniforms.dyeMap, 1);
+      gl.uniform2f(renderUniforms.resolution, canvas.width, canvas.height);
+      gl.uniform2f(renderUniforms.fluidTexel, 1 / velocityTarget.width, 1 / velocityTarget.height);
+      gl.uniform1f(renderUniforms.elapsedTime, elapsedSeconds);
+      gl.uniform1f(renderUniforms.emitterDebug, emitterDebugVisibleRef.current ? 1 : 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
     };
 
     const drawFrame = (now: number) => {
       resize();
-      gl.uniform1f(timeLocation, (now - startedAt) / 1000);
-      gl.uniform1f(scrollLocation, getScrollProgress());
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-    };
-
-    const updateScrollTarget = () => {
-      if (reducedMotionQuery.matches) {
-        drawFrame(performance.now());
-      }
+      const frameSeconds = Math.min(Math.max((now - lastFrameTime) / 1000, 1 / 120), 1 / 20);
+      lastFrameTime = now;
+      const elapsedSeconds = (now - startedAt) / 1000;
+      updatePointerDecay(frameSeconds);
+      stepFluid(frameSeconds, elapsedSeconds);
+      renderFluid(elapsedSeconds);
     };
 
     const render = (now: number) => {
@@ -2385,20 +3472,13 @@ function AuroraBackdrop() {
       drawFrame(now);
     };
 
-    const start = async () => {
-      await Promise.all([
-        createTexture(0, '/textures/aurora-noise-mask.png'),
-        createTexture(1, '/textures/aurora-flow-vector-map.png'),
-      ]);
-
+    const start = () => {
       if (disposed) {
         return;
       }
 
-      gl.useProgram(program);
-      gl.uniform1i(noiseMapLocation, 0);
-      gl.uniform1i(flowMapLocation, 1);
-      drawFrame(startedAt + 8000);
+      resize();
+      drawFrame(startedAt + 1000);
 
       if (!reducedMotionQuery.matches) {
         animationFrame = window.requestAnimationFrame(render);
@@ -2406,25 +3486,60 @@ function AuroraBackdrop() {
     };
 
     window.addEventListener('resize', resize);
-    window.addEventListener('scroll', updateScrollTarget, {passive: true});
-    void start();
+    window.addEventListener('pointermove', updatePointerFromEvent, {passive: true});
+    start();
 
     return () => {
       disposed = true;
       window.cancelAnimationFrame(animationFrame);
       window.removeEventListener('resize', resize);
-      window.removeEventListener('scroll', updateScrollTarget);
+      window.removeEventListener('pointermove', updatePointerFromEvent);
+      velocityTargets?.forEach(deleteFluidTarget);
+      pressureTargets?.forEach(deleteFluidTarget);
+      dyeTargets?.forEach(deleteFluidTarget);
+      if (divergenceTarget) {
+        deleteFluidTarget(divergenceTarget);
+      }
+      if (curlTarget) {
+        deleteFluidTarget(curlTarget);
+      }
+
       gl.deleteBuffer(quadBuffer);
-      gl.deleteProgram(program);
-      gl.deleteShader(vertexShader);
-      gl.deleteShader(fragmentShader);
+      deletePrograms();
     };
   }, []);
 
   return (
-    <div className="aurora-backdrop" aria-hidden="true">
-      <canvas ref={canvasRef} className="aurora-canvas" />
-    </div>
+    <>
+      <div className="aurora-backdrop" aria-hidden="true">
+      </div>
+      <canvas
+        ref={canvasRef}
+        className="aurora-canvas"
+        style={isEmitterDebugVisible ? {zIndex: 35} : undefined}
+        aria-hidden="true"
+      />
+      <div className="fixed bottom-4 left-4 z-40 flex flex-col gap-2 sm:flex-row">
+        <button
+          type="button"
+          aria-pressed={isCursorFluidEnabled}
+          onClick={() => setIsCursorFluidEnabled((enabled) => !enabled)}
+          className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--edge)] bg-[rgba(8,11,16,0.82)] px-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)] backdrop-blur-md transition duration-300 hover:border-[var(--edge-strong)] hover:text-[var(--ink)] active:scale-[0.98]"
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${isCursorFluidEnabled ? 'bg-[#4fb9a5]' : 'bg-[var(--muted)]'}`} />
+          Fluid cursor {isCursorFluidEnabled ? 'On' : 'Off'}
+        </button>
+        <button
+          type="button"
+          aria-pressed={isEmitterDebugVisible}
+          onClick={() => setIsEmitterDebugVisible((visible) => !visible)}
+          className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--edge)] bg-[rgba(8,11,16,0.82)] px-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)] backdrop-blur-md transition duration-300 hover:border-[var(--edge-strong)] hover:text-[var(--ink)] active:scale-[0.98]"
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${isEmitterDebugVisible ? 'bg-[#d4b55f]' : 'bg-[var(--muted)]'}`} />
+          Emitters {isEmitterDebugVisible ? 'On' : 'Off'}
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -2612,11 +3727,11 @@ function DesktopTimelineExperience({
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_320px] lg:items-end">
             <div className="space-y-5">
               <h1 className="max-w-5xl text-4xl leading-none tracking-tighter text-[var(--ink)] md:text-6xl">
-                AI model launches, arranged as one continuous race.
+                Mapping major AI progress across time
               </h1>
               <p className="max-w-[68ch] text-base leading-relaxed text-[var(--ink-soft)] md:text-lg">
                 {boardView.isDefault
-                  ? 'Compare the cadence of OpenAI, Anthropic, Google, and xAI on one horizontal field. Every node marks a release, every segment shows the gap, and the live marker makes it obvious who has gone quiet.'
+                  ? 'Explore important AI milestones across frontier models, open systems, generative media, coding tools, and the companies shaping them.'
                   : boardView.isEmpty
                     ? 'Turn on one or more product lines to compose the timeline.'
                   : boardView.isComposite
@@ -2641,7 +3756,7 @@ function DesktopTimelineExperience({
           initial={{opacity: 0, y: 24}}
           animate={{opacity: 1, y: 0}}
           transition={{duration: 0.9, delay: 0.14, ease: [0.22, 1, 0.36, 1]}}
-          className="overflow-hidden rounded-[2.4rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
+          className="timeline-fluid-obstacle overflow-hidden rounded-[2.4rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
         >
           <div className="border-b border-[var(--edge)] px-5 py-5 md:px-7">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
@@ -2878,11 +3993,11 @@ function MobileTimelineExperience({
         >
           <div className="space-y-4">
             <h1 className="max-w-xl text-[2.35rem] leading-none tracking-tighter text-[var(--ink)]">
-              AI model launches, arranged as one continuous race.
+              Mapping major AI progress across time
             </h1>
             <p className="text-sm leading-7 text-[var(--ink-soft)]">
               {boardView.isDefault
-                ? 'The default board stays focused on frontier company lines, with open-source, image, video, 3D, and coding lines kept in separate views.'
+                ? 'Explore important AI milestones across frontier models, open systems, generative media, coding tools, and the companies shaping them.'
                 : boardView.isEmpty
                   ? 'Turn on one or more product lines to compose the mobile timeline.'
                 : boardView.isComposite
@@ -2918,7 +4033,7 @@ function MobileTimelineExperience({
           initial={{opacity: 0, y: 20}}
           animate={{opacity: 1, y: 0}}
           transition={{duration: 0.8, delay: 0.1, ease: [0.22, 1, 0.36, 1]}}
-          className="overflow-hidden rounded-[1.9rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
+          className="timeline-fluid-obstacle overflow-hidden rounded-[1.9rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
         >
           <div className="border-b border-[var(--edge)] px-4 py-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Timeline field</p>

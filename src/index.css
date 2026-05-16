@@ -53,35 +53,26 @@ body::before {
   position: fixed;
   inset: 0;
   min-height: 100dvh;
-  background:
-    radial-gradient(ellipse at 52% 46%, rgba(9, 14, 20, 0.16), rgba(5, 7, 11, 0.64) 72%, rgba(5, 7, 11, 0.9)),
-    linear-gradient(180deg, rgba(5, 7, 11, 0.48), rgba(5, 7, 11, 0.78));
+  background: #05070b;
   overflow: hidden;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.92;
+  opacity: 1;
   contain: strict;
-  mask-image:
-    radial-gradient(ellipse at 50% 42%, black 0%, black 58%, rgba(0, 0, 0, 0.72) 78%, transparent 100%),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.68), black 16%, black 92%, rgba(0, 0, 0, 0.5));
 }
 
 .aurora-backdrop::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 50% 36%, transparent 0%, rgba(5, 7, 11, 0.1) 66%, rgba(5, 7, 11, 0.42) 100%),
-    linear-gradient(180deg, rgba(5, 7, 11, 0.03), rgba(5, 7, 11, 0.2) 74%, rgba(5, 7, 11, 0.4));
-  pointer-events: none;
+  content: none;
 }
 
 .aurora-canvas {
-  position: absolute;
+  position: fixed;
   inset: 0;
   display: block;
   height: 100%;
   width: 100%;
+  pointer-events: none;
+  z-index: 1;
 }
 
 @keyframes signal-pulse {
@@ -141,6 +132,10 @@ body::before {
 @media (max-width: 767px) {
   .aurora-backdrop {
     opacity: 0.9;
+  }
+
+  .aurora-canvas {
+    display: none;
   }
 }
 
