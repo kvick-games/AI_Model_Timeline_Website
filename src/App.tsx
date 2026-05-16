@@ -2160,6 +2160,7 @@ uniform float uPointerRadius;
 uniform float uDeltaTime;
 uniform float uElapsedTime;
 uniform float uAspect;
+uniform vec4 uEmitterSeed;
 
 varying vec2 vUv;
 
@@ -2216,43 +2217,61 @@ float weatherSideY(float t, float phase) {
   return clamp(0.5 + wave * 0.32 + (wander - 0.5) * 0.24, 0.12, 0.88);
 }
 
-float emitterBase(vec2 uv, float center, float width, float strength) {
+float bottomTrackY(float t, float phase) {
+  float drift = fbm(vec2(t * 0.28 + phase, phase * 2.17));
+  float wave = sin(t * 0.38 + phase + drift * 6.28318);
+  return clamp(0.026 + wave * 0.018 + (drift - 0.5) * 0.024, 0.0, 0.064);
+}
+
+float rightTrackX(float t, float phase) {
+  float drift = fbm(vec2(t * 0.3 + phase, phase * 1.73));
+  float wave = sin(t * 0.34 + phase + drift * 6.28318);
+  return clamp(0.974 + wave * 0.015 + (drift - 0.5) * 0.012, 0.946, 0.992);
+}
+
+float emitterBase(vec2 uv, float center, float originY, float width, float strength) {
   float x = (uv.x - center) * uAspect;
-  float source = exp(-(x * x) / max(width * width, 0.0001)) * smoothstep(0.19, 0.0, uv.y);
+  float y = uv.y - originY;
+  float upward = max(y, 0.0);
+  float source = exp(-(x * x) / max(width * width, 0.0001)) * smoothstep(0.19, 0.0, upward) * smoothstep(-0.03, 0.018, y);
   return source * strength;
 }
 
-float emitterColumn(vec2 uv, float center, float width, float strength) {
+float emitterColumn(vec2 uv, float center, float originY, float width, float strength) {
   float x = (uv.x - center) * uAspect;
-  float rise = smoothstep(0.68, 0.0, uv.y);
-  float spread = mix(width * 1.1, width * 5.6, smoothstep(0.0, 0.68, uv.y));
+  float y = uv.y - originY;
+  float upward = max(y, 0.0);
+  float rise = smoothstep(0.68, 0.0, upward) * smoothstep(-0.02, 0.04, y);
+  float spread = mix(width * 1.1, width * 5.6, smoothstep(0.0, 0.68, upward));
   return exp(-(x * x) / max(spread * spread, 0.0001)) * rise * strength;
 }
 
-float emitterRoll(vec2 uv, float center, float width, float strength) {
+float emitterRoll(vec2 uv, float center, float originY, float width, float strength) {
   float x = (uv.x - center) * uAspect;
-  float rise = smoothstep(0.56, 0.0, uv.y);
+  float y = uv.y - originY;
+  float upward = max(y, 0.0);
+  float rise = smoothstep(0.56, 0.0, upward) * smoothstep(-0.02, 0.04, y);
   float field = exp(-(x * x) / max(width * width * 8.0, 0.0001)) * rise;
   return clamp(-x / max(width * 3.2, 0.0001), -1.0, 1.0) * field * strength;
 }
 
-float sideEmitterBase(vec2 uv, float centerY, float height, float strength) {
-  vec2 p = vec2((uv.x - 0.985) * uAspect, uv.y - centerY);
+float sideEmitterBase(vec2 uv, float originX, float centerY, float height, float strength) {
+  vec2 p = vec2((uv.x - originX) * uAspect, uv.y - centerY);
   float source = exp(-(p.x * p.x) / (0.028 * 0.028)) * exp(-(p.y * p.y) / max(height * height, 0.0001));
   return source * strength;
 }
 
-float sideEmitterColumn(vec2 uv, float centerY, float height, float strength) {
-  float inward = max(0.0, 1.0 - uv.x);
+float sideEmitterColumn(vec2 uv, float originX, float centerY, float height, float strength) {
+  float inward = max(0.0, originX - uv.x);
   float spread = height + inward * 0.46;
   float vertical = exp(-((uv.y - centerY) * (uv.y - centerY)) / max(spread * spread, 0.0001));
   float horizontal = exp(-(inward * inward) / (0.34 * 0.34));
   return vertical * horizontal * strength;
 }
 
-float sideEmitterRoll(vec2 uv, float centerY, float height, float strength) {
-  float inward = max(0.0, 1.0 - uv.x);
-  float field = sideEmitterColumn(uv, centerY, height, strength) * smoothstep(0.52, 0.02, inward);
+float sideEmitterRoll(vec2 uv, float originX, float centerY, float height, float strength) {
+  float inward = max(0.0, originX - uv.x);
+  float field = sideEmitterColumn(uv, originX, centerY, height, strength) * smoothstep(0.52, 0.02, inward);
   return clamp((uv.y - centerY) / max(height * 3.6, 0.0001), -1.0, 1.0) * field;
 }
 
@@ -2277,23 +2296,26 @@ void main() {
   velocity += clamp(surfaceTangent * 1.65, vec2(-0.026), vec2(0.026)) * surfaceEnergy * fluidFrameScale;
 
   float weatherTime = uElapsedTime * 0.72;
-  float centerA = weatherCenter(weatherTime, 0.2);
-  float centerB = weatherCenter(weatherTime * 0.86 + 9.0, 2.6);
-  float sideY = weatherSideY(weatherTime * 1.08 + 17.0, 5.1);
-  float strengthA = smoothstep(0.18, 0.86, fbm(vec2(weatherTime * 0.58 + 1.3, 2.0)));
-  float strengthB = smoothstep(0.22, 0.88, fbm(vec2(weatherTime * 0.52 + 8.7, 5.0)));
-  float strengthC = smoothstep(0.26, 0.9, fbm(vec2(weatherTime * 0.64 + 15.4, 9.0)));
+  float centerA = clamp(weatherCenter(weatherTime + uEmitterSeed.x * 17.0, 0.2 + uEmitterSeed.x * 6.28318) + (uEmitterSeed.x - 0.5) * 0.12, 0.08, 0.92);
+  float centerB = clamp(weatherCenter(weatherTime * 0.86 + 9.0 + uEmitterSeed.y * 19.0, 2.6 + uEmitterSeed.y * 6.28318) + (uEmitterSeed.y - 0.5) * 0.12, 0.08, 0.92);
+  float liftA = bottomTrackY(weatherTime * 0.92 + uEmitterSeed.x * 11.0, 1.4 + uEmitterSeed.x * 5.0);
+  float liftB = bottomTrackY(weatherTime * 0.78 + uEmitterSeed.y * 13.0, 4.7 + uEmitterSeed.y * 5.0);
+  float sideY = weatherSideY(weatherTime * 1.08 + 17.0 + uEmitterSeed.z * 23.0, 5.1 + uEmitterSeed.z * 6.28318);
+  float sideX = rightTrackX(weatherTime * 0.82 + uEmitterSeed.z * 17.0, 2.2 + uEmitterSeed.w * 6.28318);
+  float strengthA = smoothstep(0.18, 0.86, fbm(vec2(weatherTime * 0.58 + 1.3 + uEmitterSeed.x * 8.0, 2.0 + uEmitterSeed.x * 5.0)));
+  float strengthB = smoothstep(0.22, 0.88, fbm(vec2(weatherTime * 0.52 + 8.7 + uEmitterSeed.y * 8.0, 5.0 + uEmitterSeed.y * 5.0)));
+  float strengthC = smoothstep(0.26, 0.9, fbm(vec2(weatherTime * 0.64 + 15.4 + uEmitterSeed.z * 8.0, 9.0 + uEmitterSeed.z * 5.0)));
   float sideStrength = 0.52 + strengthC * 0.72;
-  float baseField = emitterBase(uv, centerA, 0.042, strengthA);
-  baseField += emitterBase(uv, centerB, 0.052, strengthB * 0.82);
-  float columnField = emitterColumn(uv, centerA, 0.045, strengthA);
-  columnField += emitterColumn(uv, centerB, 0.055, strengthB * 0.8);
+  float baseField = emitterBase(uv, centerA, liftA, 0.042, strengthA);
+  baseField += emitterBase(uv, centerB, liftB, 0.052, strengthB * 0.82);
+  float columnField = emitterColumn(uv, centerA, liftA, 0.045, strengthA);
+  columnField += emitterColumn(uv, centerB, liftB, 0.055, strengthB * 0.8);
   columnField = clamp(columnField, 0.0, 1.35);
-  float rollField = emitterRoll(uv, centerA, 0.052, strengthA);
-  rollField += emitterRoll(uv, centerB, 0.064, strengthB * 0.85);
-  float sideBase = sideEmitterBase(uv, sideY, 0.048, sideStrength);
-  float sideColumn = sideEmitterColumn(uv, sideY, 0.06, sideStrength * 0.82);
-  float sideRoll = sideEmitterRoll(uv, sideY, 0.058, sideStrength * 0.9);
+  float rollField = emitterRoll(uv, centerA, liftA, 0.052, strengthA);
+  rollField += emitterRoll(uv, centerB, liftB, 0.064, strengthB * 0.85);
+  float sideBase = sideEmitterBase(uv, sideX, sideY, 0.048, sideStrength);
+  float sideColumn = sideEmitterColumn(uv, sideX, sideY, 0.06, sideStrength * 0.82);
+  float sideRoll = sideEmitterRoll(uv, sideX, sideY, 0.058, sideStrength * 0.9);
   float crossWind = fbm(uv * vec2(1.2, 5.4) + vec2(weatherTime * 0.045, weatherTime * 0.038)) - 0.5;
   float lateralFlow = rollField * 0.008 + crossWind * (columnField + sideColumn * 0.42) * 0.016 - sideBase * 0.115 - sideColumn * 0.034;
   float upwardFlow = baseField * 1.53 + columnField * 0.0125 + sideRoll * 0.22;
@@ -2568,6 +2590,7 @@ uniform float uPointerRadius;
 uniform float uDeltaTime;
 uniform float uElapsedTime;
 uniform float uAspect;
+uniform vec4 uEmitterSeed;
 
 varying vec2 vUv;
 
@@ -2616,27 +2639,43 @@ float weatherSideY(float t, float phase) {
   return clamp(0.5 + wave * 0.32 + (wander - 0.5) * 0.24, 0.12, 0.88);
 }
 
-float emitterBase(vec2 uv, float center, float width, float strength) {
+float bottomTrackY(float t, float phase) {
+  float drift = fbm(vec2(t * 0.28 + phase, phase * 2.17));
+  float wave = sin(t * 0.38 + phase + drift * 6.28318);
+  return clamp(0.026 + wave * 0.018 + (drift - 0.5) * 0.024, 0.0, 0.064);
+}
+
+float rightTrackX(float t, float phase) {
+  float drift = fbm(vec2(t * 0.3 + phase, phase * 1.73));
+  float wave = sin(t * 0.34 + phase + drift * 6.28318);
+  return clamp(0.974 + wave * 0.015 + (drift - 0.5) * 0.012, 0.946, 0.992);
+}
+
+float emitterBase(vec2 uv, float center, float originY, float width, float strength) {
   float x = (uv.x - center) * uAspect;
-  float source = exp(-(x * x) / max(width * width, 0.0001)) * smoothstep(0.19, 0.0, uv.y);
+  float y = uv.y - originY;
+  float upward = max(y, 0.0);
+  float source = exp(-(x * x) / max(width * width, 0.0001)) * smoothstep(0.19, 0.0, upward) * smoothstep(-0.03, 0.018, y);
   return source * strength;
 }
 
-float emitterColumn(vec2 uv, float center, float width, float strength) {
+float emitterColumn(vec2 uv, float center, float originY, float width, float strength) {
   float x = (uv.x - center) * uAspect;
-  float rise = smoothstep(0.68, 0.0, uv.y);
-  float spread = mix(width * 1.1, width * 5.6, smoothstep(0.0, 0.68, uv.y));
+  float y = uv.y - originY;
+  float upward = max(y, 0.0);
+  float rise = smoothstep(0.68, 0.0, upward) * smoothstep(-0.02, 0.04, y);
+  float spread = mix(width * 1.1, width * 5.6, smoothstep(0.0, 0.68, upward));
   return exp(-(x * x) / max(spread * spread, 0.0001)) * rise * strength;
 }
 
-float sideEmitterBase(vec2 uv, float centerY, float height, float strength) {
-  vec2 p = vec2((uv.x - 0.985) * uAspect, uv.y - centerY);
+float sideEmitterBase(vec2 uv, float originX, float centerY, float height, float strength) {
+  vec2 p = vec2((uv.x - originX) * uAspect, uv.y - centerY);
   float source = exp(-(p.x * p.x) / (0.028 * 0.028)) * exp(-(p.y * p.y) / max(height * height, 0.0001));
   return source * strength;
 }
 
-float sideEmitterColumn(vec2 uv, float centerY, float height, float strength) {
-  float inward = max(0.0, 1.0 - uv.x);
+float sideEmitterColumn(vec2 uv, float originX, float centerY, float height, float strength) {
+  float inward = max(0.0, originX - uv.x);
   float spread = height + inward * 0.46;
   float vertical = exp(-((uv.y - centerY) * (uv.y - centerY)) / max(spread * spread, 0.0001));
   float horizontal = exp(-(inward * inward) / (0.34 * 0.34));
@@ -2655,20 +2694,23 @@ void main() {
   dye.a *= pow(0.9984, frameScale);
 
   float weatherTime = uElapsedTime * 0.72;
-  float centerA = weatherCenter(weatherTime, 0.2);
-  float centerB = weatherCenter(weatherTime * 0.86 + 9.0, 2.6);
-  float sideY = weatherSideY(weatherTime * 1.08 + 17.0, 5.1);
-  float strengthA = smoothstep(0.18, 0.86, fbm(vec2(weatherTime * 0.58 + 1.3, 2.0)));
-  float strengthB = smoothstep(0.22, 0.88, fbm(vec2(weatherTime * 0.52 + 8.7, 5.0)));
-  float strengthC = smoothstep(0.26, 0.9, fbm(vec2(weatherTime * 0.64 + 15.4, 9.0)));
+  float centerA = clamp(weatherCenter(weatherTime + uEmitterSeed.x * 17.0, 0.2 + uEmitterSeed.x * 6.28318) + (uEmitterSeed.x - 0.5) * 0.12, 0.08, 0.92);
+  float centerB = clamp(weatherCenter(weatherTime * 0.86 + 9.0 + uEmitterSeed.y * 19.0, 2.6 + uEmitterSeed.y * 6.28318) + (uEmitterSeed.y - 0.5) * 0.12, 0.08, 0.92);
+  float liftA = bottomTrackY(weatherTime * 0.92 + uEmitterSeed.x * 11.0, 1.4 + uEmitterSeed.x * 5.0);
+  float liftB = bottomTrackY(weatherTime * 0.78 + uEmitterSeed.y * 13.0, 4.7 + uEmitterSeed.y * 5.0);
+  float sideY = weatherSideY(weatherTime * 1.08 + 17.0 + uEmitterSeed.z * 23.0, 5.1 + uEmitterSeed.z * 6.28318);
+  float sideX = rightTrackX(weatherTime * 0.82 + uEmitterSeed.z * 17.0, 2.2 + uEmitterSeed.w * 6.28318);
+  float strengthA = smoothstep(0.18, 0.86, fbm(vec2(weatherTime * 0.58 + 1.3 + uEmitterSeed.x * 8.0, 2.0 + uEmitterSeed.x * 5.0)));
+  float strengthB = smoothstep(0.22, 0.88, fbm(vec2(weatherTime * 0.52 + 8.7 + uEmitterSeed.y * 8.0, 5.0 + uEmitterSeed.y * 5.0)));
+  float strengthC = smoothstep(0.26, 0.9, fbm(vec2(weatherTime * 0.64 + 15.4 + uEmitterSeed.z * 8.0, 9.0 + uEmitterSeed.z * 5.0)));
   float sideStrength = 0.72 + strengthC * 0.72;
-  float sourceBase = emitterBase(uv, centerA, 0.042, strengthA);
-  sourceBase += emitterBase(uv, centerB, 0.052, strengthB * 0.82);
-  float sourceColumn = emitterColumn(uv, centerA, 0.045, strengthA);
-  sourceColumn += emitterColumn(uv, centerB, 0.055, strengthB * 0.8);
+  float sourceBase = emitterBase(uv, centerA, liftA, 0.042, strengthA);
+  sourceBase += emitterBase(uv, centerB, liftB, 0.052, strengthB * 0.82);
+  float sourceColumn = emitterColumn(uv, centerA, liftA, 0.045, strengthA);
+  sourceColumn += emitterColumn(uv, centerB, liftB, 0.055, strengthB * 0.8);
   sourceColumn = clamp(sourceColumn, 0.0, 1.35);
-  float sideSource = sideEmitterBase(uv, sideY, 0.048, sideStrength);
-  float sideColumn = sideEmitterColumn(uv, sideY, 0.06, sideStrength * 0.82);
+  float sideSource = sideEmitterBase(uv, sideX, sideY, 0.048, sideStrength);
+  float sideColumn = sideEmitterColumn(uv, sideX, sideY, 0.06, sideStrength * 0.82);
   float sourceVeil = 0.58 + 0.42 * fbm(uv * vec2(4.2, 7.0) + vec2(weatherTime * 0.05, -weatherTime * 0.038));
   float ambientDye = (sourceBase * 0.021 + sourceColumn * 0.0065 + sideSource * 0.031 + sideColumn * 0.009) * sourceVeil * frameScale;
   dye.rgb += vec3(0.014, 0.085, 0.074) * ambientDye;
@@ -2694,6 +2736,7 @@ uniform vec2 uFluidTexel;
 uniform vec4 uWidgetRect;
 uniform float uElapsedTime;
 uniform float uEmitterDebug;
+uniform vec4 uEmitterSeed;
 uniform sampler2D uVelocityMap;
 uniform sampler2D uDyeMap;
 
@@ -2772,27 +2815,41 @@ float weatherSideY(float t, float phase) {
   return clamp(0.5 + wave * 0.32 + (wander - 0.5) * 0.24, 0.12, 0.88);
 }
 
-float debugEmitter(vec2 uv, float center, float strength, float width, float aspect) {
+float bottomTrackY(float t, float phase) {
+  float drift = fbm(vec2(t * 0.28 + phase, phase * 2.17));
+  float wave = sin(t * 0.38 + phase + drift * 6.28318);
+  return clamp(0.026 + wave * 0.018 + (drift - 0.5) * 0.024, 0.0, 0.064);
+}
+
+float rightTrackX(float t, float phase) {
+  float drift = fbm(vec2(t * 0.3 + phase, phase * 1.73));
+  float wave = sin(t * 0.34 + phase + drift * 6.28318);
+  return clamp(0.974 + wave * 0.015 + (drift - 0.5) * 0.012, 0.946, 0.992);
+}
+
+float debugEmitter(vec2 uv, float center, float originY, float strength, float width, float aspect) {
   float x = (uv.x - center) * aspect;
-  float baseDistance = length(vec2(x / max(width, 0.0001), (uv.y - 0.052) / 0.024));
+  float y = uv.y - originY;
+  float baseDistance = length(vec2(x / max(width, 0.0001), (y - 0.052) / 0.024));
   float baseDot = (1.0 - smoothstep(0.82, 1.0, baseDistance)) * (0.36 + strength * 0.64);
   float ring = smoothstep(1.32, 1.08, baseDistance) * smoothstep(0.72, 1.0, baseDistance);
-  float columnWidth = mix(width * 0.9, width * 4.8, smoothstep(0.0, 0.62, uv.y));
-  float column = exp(-(x * x) / max(columnWidth * columnWidth, 0.0001)) * smoothstep(0.62, 0.02, uv.y) * smoothstep(0.025, 0.16, uv.y);
-  float guide = (1.0 - smoothstep(0.0025, 0.009, abs(uv.x - center))) * smoothstep(0.72, 0.05, uv.y);
+  float upward = max(y, 0.0);
+  float columnWidth = mix(width * 0.9, width * 4.8, smoothstep(0.0, 0.62, upward));
+  float column = exp(-(x * x) / max(columnWidth * columnWidth, 0.0001)) * smoothstep(0.62, 0.02, upward) * smoothstep(0.025, 0.16, upward);
+  float guide = (1.0 - smoothstep(0.0025, 0.009, abs(uv.x - center))) * smoothstep(0.72, 0.05, upward);
   return baseDot * 1.2 + ring * 1.05 + column * strength * 0.72 + guide * (0.18 + strength * 0.26);
 }
 
-float debugSideEmitter(vec2 uv, float centerY, float strength, float height, float aspect) {
-  vec2 p = vec2((uv.x - 0.985) * aspect, uv.y - centerY);
+float debugSideEmitter(vec2 uv, float originX, float centerY, float strength, float height, float aspect) {
+  vec2 p = vec2((uv.x - originX) * aspect, uv.y - centerY);
   float baseDistance = length(vec2(p.x / 0.028, p.y / max(height, 0.0001)));
   float baseDot = (1.0 - smoothstep(0.82, 1.0, baseDistance)) * (0.36 + strength * 0.64);
   float ring = (1.0 - smoothstep(1.08, 1.32, baseDistance)) * smoothstep(0.72, 1.0, baseDistance);
-  float inward = max(0.0, 1.0 - uv.x);
+  float inward = max(0.0, originX - uv.x);
   float spread = height + inward * 0.46;
   float edgeFade = 1.0 - smoothstep(0.02, 0.72, inward);
   float column = exp(-((uv.y - centerY) * (uv.y - centerY)) / max(spread * spread, 0.0001)) * exp(-(inward * inward) / (0.34 * 0.34)) * edgeFade;
-  float guide = (1.0 - smoothstep(0.0025, 0.009, abs(uv.y - centerY))) * smoothstep(0.55, 0.98, uv.x);
+  float guide = (1.0 - smoothstep(0.0025, 0.009, abs(uv.y - centerY))) * smoothstep(0.55, originX, uv.x);
   return baseDot * 1.2 + ring * 1.05 + column * strength * 0.72 + guide * (0.18 + strength * 0.26);
 }
 
@@ -2832,13 +2889,6 @@ void main() {
   float backGlow = smoothstep(0.01, 0.18, haloDensity) * (1.0 - smoothstep(0.62, 1.08, layeredDensity));
   float plumeGlow = smoothstep(0.012, 0.34, haloDensity + layeredDensity * 0.56);
   float edgeEnergy = smoothstep(0.002, 0.04, length(dyeGradient) * 9.0) * smoothstep(0.006, 0.18, layeredDensity);
-  float filmPhase = layeredDensity * 2.15 + opticalDepth * 0.86 + speed * 1.1 + dot(densityNormal, normalize(vec2(-0.36, 0.93))) * 0.72;
-  float filmBlend = 0.5 + 0.5 * cos(6.28318 * filmPhase);
-  float indigoLift = 0.5 + 0.5 * cos(6.28318 * (filmPhase + 0.34));
-  vec3 greenFilm = vec3(0.025, 0.48, 0.32);
-  vec3 violetFilm = vec3(0.36, 0.14, 0.66);
-  vec3 indigoFilm = vec3(0.08, 0.18, 0.62);
-  vec3 iridescentColor = (mix(violetFilm, greenFilm, filmBlend) + indigoFilm * indigoLift * 0.16) * edgeEnergy;
   vec2 colorField = (uv - vec2(0.5)) * aspect;
   float paletteTime = uElapsedTime * 0.18;
   float greenField = pow(0.5 + 0.5 * sin(paletteTime + colorField.x * 1.35 - colorField.y * 0.76), 2.15);
@@ -2874,7 +2924,7 @@ void main() {
   vec3 dyeColor = layeredSmoke * 1.46 + vec3(0.018, 0.175, 0.15) * layeredDensity + gradientPalette * layeredDensity * 0.11 * paletteMask;
   vec3 velocityColor = vec3(0.012, 0.085, 0.075) * smoothstep(0.012, 0.22, speed);
   vec3 causticColor = vec3(0.026, 0.16, 0.14) * caustic;
-  vec3 volumeColor = lightColor * innerScatter * 0.34 + rimColor * rimLight * 0.14 + backGlowColor + paletteGlow + iridescentColor * (0.29 + rimLight * 0.4 + backGlow * 0.1);
+  vec3 volumeColor = lightColor * innerScatter * 0.34 + rimColor * rimLight * 0.14 + backGlowColor + paletteGlow;
   vec3 color = dyeColor + velocityColor + causticColor + volumeColor;
   color *= 1.0 - coreShadow;
   color = color / (vec3(1.0) + color * 1.95);
@@ -2886,16 +2936,19 @@ void main() {
   alpha = clamp(alpha + panelSmokeMask * 0.035, 0.0, 0.64);
 
   float weatherTime = uElapsedTime * 0.72;
-  float centerA = weatherCenter(weatherTime, 0.2);
-  float centerB = weatherCenter(weatherTime * 0.86 + 9.0, 2.6);
-  float sideY = weatherSideY(weatherTime * 1.08 + 17.0, 5.1);
-  float strengthA = smoothstep(0.18, 0.86, fbm(vec2(weatherTime * 0.58 + 1.3, 2.0)));
-  float strengthB = smoothstep(0.22, 0.88, fbm(vec2(weatherTime * 0.52 + 8.7, 5.0)));
-  float strengthC = smoothstep(0.26, 0.9, fbm(vec2(weatherTime * 0.64 + 15.4, 9.0)));
+  float centerA = clamp(weatherCenter(weatherTime + uEmitterSeed.x * 17.0, 0.2 + uEmitterSeed.x * 6.28318) + (uEmitterSeed.x - 0.5) * 0.12, 0.08, 0.92);
+  float centerB = clamp(weatherCenter(weatherTime * 0.86 + 9.0 + uEmitterSeed.y * 19.0, 2.6 + uEmitterSeed.y * 6.28318) + (uEmitterSeed.y - 0.5) * 0.12, 0.08, 0.92);
+  float liftA = bottomTrackY(weatherTime * 0.92 + uEmitterSeed.x * 11.0, 1.4 + uEmitterSeed.x * 5.0);
+  float liftB = bottomTrackY(weatherTime * 0.78 + uEmitterSeed.y * 13.0, 4.7 + uEmitterSeed.y * 5.0);
+  float sideY = weatherSideY(weatherTime * 1.08 + 17.0 + uEmitterSeed.z * 23.0, 5.1 + uEmitterSeed.z * 6.28318);
+  float sideX = rightTrackX(weatherTime * 0.82 + uEmitterSeed.z * 17.0, 2.2 + uEmitterSeed.w * 6.28318);
+  float strengthA = smoothstep(0.18, 0.86, fbm(vec2(weatherTime * 0.58 + 1.3 + uEmitterSeed.x * 8.0, 2.0 + uEmitterSeed.x * 5.0)));
+  float strengthB = smoothstep(0.22, 0.88, fbm(vec2(weatherTime * 0.52 + 8.7 + uEmitterSeed.y * 8.0, 5.0 + uEmitterSeed.y * 5.0)));
+  float strengthC = smoothstep(0.26, 0.9, fbm(vec2(weatherTime * 0.64 + 15.4 + uEmitterSeed.z * 8.0, 9.0 + uEmitterSeed.z * 5.0)));
   float sideStrength = 0.72 + strengthC * 0.72;
-  float debugA = debugEmitter(uv, centerA, strengthA, 0.042, aspect.x);
-  float debugB = debugEmitter(uv, centerB, strengthB * 0.82, 0.052, aspect.x);
-  float debugC = debugSideEmitter(uv, sideY, sideStrength * 0.54, 0.048, aspect.x);
+  float debugA = debugEmitter(uv, centerA, liftA, strengthA, 0.042, aspect.x);
+  float debugB = debugEmitter(uv, centerB, liftB, strengthB * 0.82, 0.052, aspect.x);
+  float debugC = debugSideEmitter(uv, sideX, sideY, sideStrength * 0.54, 0.048, aspect.x);
   vec3 debugColor = vec3(0.28, 0.95, 0.82) * debugA;
   debugColor += vec3(0.42, 0.78, 1.0) * debugB;
   debugColor += vec3(0.95, 0.78, 0.34) * debugC;
@@ -2910,17 +2963,12 @@ void main() {
 function AuroraBackdrop() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isCursorFluidEnabled, setIsCursorFluidEnabled] = useState(false);
-  const [isEmitterDebugVisible, setIsEmitterDebugVisible] = useState(false);
   const cursorFluidEnabledRef = useRef(isCursorFluidEnabled);
-  const emitterDebugVisibleRef = useRef(isEmitterDebugVisible);
+  const emitterDebugVisibleRef = useRef(false);
 
   useEffect(() => {
     cursorFluidEnabledRef.current = isCursorFluidEnabled;
   }, [isCursorFluidEnabled]);
-
-  useEffect(() => {
-    emitterDebugVisibleRef.current = isEmitterDebugVisible;
-  }, [isEmitterDebugVisible]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -3062,6 +3110,7 @@ function AuroraBackdrop() {
       widgetRect: gl.getUniformLocation(renderProgram, 'uWidgetRect'),
       elapsedTime: gl.getUniformLocation(renderProgram, 'uElapsedTime'),
       emitterDebug: gl.getUniformLocation(renderProgram, 'uEmitterDebug'),
+      emitterSeed: gl.getUniformLocation(renderProgram, 'uEmitterSeed'),
       velocityMap: gl.getUniformLocation(renderProgram, 'uVelocityMap'),
       dyeMap: gl.getUniformLocation(renderProgram, 'uDyeMap'),
     };
@@ -3076,6 +3125,7 @@ function AuroraBackdrop() {
       deltaTime: gl.getUniformLocation(velocityProgram, 'uDeltaTime'),
       elapsedTime: gl.getUniformLocation(velocityProgram, 'uElapsedTime'),
       aspect: gl.getUniformLocation(velocityProgram, 'uAspect'),
+      emitterSeed: gl.getUniformLocation(velocityProgram, 'uEmitterSeed'),
     };
     const curlUniforms = {
       velocityMap: gl.getUniformLocation(curlProgram, 'uVelocityMap'),
@@ -3120,6 +3170,7 @@ function AuroraBackdrop() {
       deltaTime: gl.getUniformLocation(dyeProgram, 'uDeltaTime'),
       elapsedTime: gl.getUniformLocation(dyeProgram, 'uElapsedTime'),
       aspect: gl.getUniformLocation(dyeProgram, 'uAspect'),
+      emitterSeed: gl.getUniformLocation(dyeProgram, 'uEmitterSeed'),
     };
 
     const canRenderToTextureType = (type: number) => {
@@ -3325,7 +3376,13 @@ function AuroraBackdrop() {
     };
 
     let lastFrameTime = startedAt;
-    const fluidTimeScale = 0.25;
+    const fluidTimeScale = 0.5;
+    const emitterSeed: [number, number, number, number] = [
+      Math.random(),
+      Math.random(),
+      Math.random(),
+      Math.random(),
+    ];
 
     const resize = () => {
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.3);
@@ -3449,6 +3506,7 @@ function AuroraBackdrop() {
       gl.uniform1f(velocityUniforms.deltaTime, frameSeconds);
       gl.uniform1f(velocityUniforms.elapsedTime, elapsedSeconds);
       gl.uniform1f(velocityUniforms.aspect, aspect);
+      gl.uniform4f(velocityUniforms.emitterSeed, emitterSeed[0], emitterSeed[1], emitterSeed[2], emitterSeed[3]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       velocityReadIndex = 1 - velocityReadIndex;
       velocityReadTarget = velocityTargets[velocityReadIndex];
@@ -3554,6 +3612,7 @@ function AuroraBackdrop() {
       gl.uniform1f(dyeUniforms.deltaTime, frameSeconds);
       gl.uniform1f(dyeUniforms.elapsedTime, elapsedSeconds);
       gl.uniform1f(dyeUniforms.aspect, aspect);
+      gl.uniform4f(dyeUniforms.emitterSeed, emitterSeed[0], emitterSeed[1], emitterSeed[2], emitterSeed[3]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       dyeReadIndex = 1 - dyeReadIndex;
     };
@@ -3583,6 +3642,7 @@ function AuroraBackdrop() {
       gl.uniform4f(renderUniforms.widgetRect, widgetRect[0], widgetRect[1], widgetRect[2], widgetRect[3]);
       gl.uniform1f(renderUniforms.elapsedTime, elapsedSeconds);
       gl.uniform1f(renderUniforms.emitterDebug, emitterDebugVisibleRef.current ? 1 : 0);
+      gl.uniform4f(renderUniforms.emitterSeed, emitterSeed[0], emitterSeed[1], emitterSeed[2], emitterSeed[3]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     };
 
@@ -3654,7 +3714,6 @@ function AuroraBackdrop() {
       <canvas
         ref={canvasRef}
         className="aurora-canvas"
-        style={isEmitterDebugVisible ? {zIndex: 35} : undefined}
         aria-hidden="true"
       />
       <div className="fixed bottom-4 left-4 z-40 flex flex-col gap-2 sm:flex-row">
@@ -3666,15 +3725,6 @@ function AuroraBackdrop() {
         >
           <span className={`h-1.5 w-1.5 rounded-full ${isCursorFluidEnabled ? 'bg-[#4fb9a5]' : 'bg-[var(--muted)]'}`} />
           Fluid cursor {isCursorFluidEnabled ? 'On' : 'Off'}
-        </button>
-        <button
-          type="button"
-          aria-pressed={isEmitterDebugVisible}
-          onClick={() => setIsEmitterDebugVisible((visible) => !visible)}
-          className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--edge)] bg-[rgba(8,11,16,0.82)] px-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)] backdrop-blur-md transition duration-300 hover:border-[var(--edge-strong)] hover:text-[var(--ink)] active:scale-[0.98]"
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${isEmitterDebugVisible ? 'bg-[#d4b55f]' : 'bg-[var(--muted)]'}`} />
-          Emitters {isEmitterDebugVisible ? 'On' : 'Off'}
         </button>
       </div>
     </>
