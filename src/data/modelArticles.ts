@@ -304,6 +304,243 @@ export const modelArticles: ModelArticle[] = [
       {label: 'Figure: Introducing Figure 03', url: 'https://www.figure.ai/news/introducing-figure-03'},
     ],
   },
+  {
+    slug: 'composer-1',
+    release: {
+      companyId: 'cursor',
+      productLineId: 'cursor-composer',
+      name: 'Composer 1',
+      date: '2025-10-29',
+    },
+    logo: {
+      modelLabel: 'Composer 1',
+      modelMark: 'cursor',
+    },
+    eyebrow: 'First Cursor coding model',
+    title: 'Composer made Cursor a model builder, not just an editor',
+    dek: 'Cursor introduced Composer alongside Cursor 2.0 on October 29, 2025, presenting it as its first coding model built for low-latency agentic work inside the editor.',
+    summary:
+      'Composer 1 marked the point where Cursor moved beyond orchestrating third-party coding models and shipped its own agent model. Cursor described it as a fast frontier model for software engineering, trained with production search and editing tools and designed to keep multi-step coding work interactive.',
+    impact:
+      'The launch made the coding harness more vertically integrated: model behavior, agent tools, editor workflow, and multi-agent UI all became parts of the same product system.',
+    facts: [
+      {label: 'Provider', value: 'Cursor'},
+      {label: 'Release date', value: 'October 29, 2025'},
+      {label: 'Model family', value: 'Composer'},
+      {label: 'Product surface', value: 'Cursor 2.0'},
+      {label: 'Primary shift', value: 'First Cursor-built agentic coding model'},
+    ],
+    sections: [
+      {
+        heading: 'What changed',
+        body: [
+          'Cursor launched Composer with Cursor 2.0 as its first coding model, built for low-latency agentic coding and most turns completing in under 30 seconds.',
+          'The technical post framed Composer as an agent model trained for real software engineering challenges with access to Cursor-style tools such as file editing, terminal use, and codebase-wide semantic search.',
+        ],
+      },
+      {
+        heading: 'Why it mattered',
+        body: [
+          'Composer changed the shape of Cursor releases. Cursor was no longer only improving the editor shell around external models; it was also competing on the model layer that powers agent behavior.',
+          'For the timeline, Composer 1 is the starting point for Cursor as a coding-model lab, with later Composer releases measuring progress against the same agentic software-engineering target.',
+        ],
+      },
+    ],
+    sources: [
+      {label: 'Cursor: Introducing Cursor 2.0 and Composer', url: 'https://cursor.com/blog/2-0'},
+      {label: 'Cursor: Composer technical launch post', url: 'https://cursor.com/blog/composer'},
+    ],
+  },
+  {
+    slug: 'composer-1-5',
+    release: {
+      companyId: 'cursor',
+      productLineId: 'cursor-composer',
+      name: 'Composer 1.5',
+      date: '2026-02-09',
+    },
+    logo: {
+      modelLabel: 'Composer 1.5',
+      modelMark: 'cursor',
+    },
+    eyebrow: 'Thinking model update',
+    title: 'Composer 1.5 brought reasoning and self-summary into Cursor coding',
+    dek: 'Cursor released Composer 1.5 on February 9, 2026, describing it as a stronger daily-use coding model built by scaling reinforcement learning on the Composer 1 base.',
+    summary:
+      'Composer 1.5 was the first major Composer upgrade after the initial launch. Cursor emphasized larger-scale reinforcement learning, thinking tokens for harder problems, and self-summarization so the model could continue through longer tasks when context ran short.',
+    impact:
+      'The release made long-horizon behavior a named part of the Composer roadmap and showed Cursor tuning the model for sustained software work rather than only faster single-turn edits.',
+    facts: [
+      {label: 'Provider', value: 'Cursor'},
+      {label: 'Release date', value: 'February 9, 2026'},
+      {label: 'Model family', value: 'Composer'},
+      {label: 'Training focus', value: 'Scaled reinforcement learning'},
+      {label: 'Primary shift', value: 'Thinking and self-summarization'},
+    ],
+    sections: [
+      {
+        heading: 'What changed',
+        body: [
+          'Cursor described Composer 1.5 as a significantly stronger model than Composer 1, trained by scaling reinforcement learning further on the same pretrained model.',
+          'The release introduced a thinking-model framing for Composer and highlighted self-summarization for longer tasks, letting the model preserve useful context when it needed to keep exploring.',
+        ],
+      },
+      {
+        heading: 'Why it mattered',
+        body: [
+          'Composer 1.5 shifted the Composer story from launch novelty to an improvement cadence. Cursor was showing that its own model could be iterated quickly with clearer long-task behavior.',
+          'It also foreshadowed the later Composer 2 and 2.5 focus on long-running agent sessions, where memory, planning, and effort calibration matter as much as raw code generation.',
+        ],
+      },
+    ],
+    sources: [
+      {label: 'Cursor: Introducing Composer 1.5', url: 'https://cursor.com/blog/composer-1-5'},
+    ],
+  },
+  {
+    slug: 'composer-2',
+    release: {
+      companyId: 'cursor',
+      productLineId: 'cursor-composer',
+      name: 'Composer 2',
+      date: '2026-03-19',
+    },
+    logo: {
+      modelLabel: 'Composer 2',
+      modelMark: 'cursor',
+    },
+    eyebrow: 'Frontier-level coding model',
+    title: 'Composer 2 made Cursor compete on coding-model quality and cost',
+    dek: 'Cursor released Composer 2 on March 19, 2026, calling it frontier-level at coding and pairing the upgrade with a lower-cost Standard tier and a faster default option.',
+    summary:
+      'Composer 2 was a larger step than the 1.5 update. Cursor reported large benchmark gains over Composer 1 and 1.5, tied the improvement to continued pretraining plus reinforcement learning, and priced the model as a core Cursor usage pool option.',
+    impact:
+      'The release made Composer a more direct competitor to external frontier coding models by combining quality, speed, and pricing into the same release story.',
+    facts: [
+      {label: 'Provider', value: 'Cursor'},
+      {label: 'Release date', value: 'March 19, 2026'},
+      {label: 'Model family', value: 'Composer'},
+      {label: 'Training focus', value: 'Continued pretraining plus RL'},
+      {label: 'Primary shift', value: 'Frontier-level coding quality and lower cost'},
+    ],
+    sections: [
+      {
+        heading: 'What changed',
+        body: [
+          'Composer 2 delivered large benchmark gains over Composer 1.5 and Composer 1, including CursorBench, Terminal-Bench 2.0, and SWE-bench Multilingual results reported by Cursor.',
+          'Cursor said the quality jump came from its first continued-pretraining run followed by reinforcement learning on long-horizon coding tasks.',
+        ],
+      },
+      {
+        heading: 'Why it mattered',
+        body: [
+          'Composer 2 made the model line feel like a serious platform bet. Cursor could now argue not only that Composer was fast inside the IDE, but that it was strong enough to anchor everyday agent work.',
+          'The release also connected capability to economics: Standard and Fast tiers made model quality, latency, and usage pricing visible parts of the coding-tool competition.',
+        ],
+      },
+    ],
+    sources: [
+      {label: 'Cursor: Introducing Composer 2', url: 'https://cursor.com/blog/composer-2'},
+      {label: 'Cursor: Composer 2 technical report', url: 'https://cursor.com/resources/Composer2.pdf'},
+    ],
+  },
+  {
+    slug: 'cursor-spacex-partnership',
+    release: {
+      companyId: 'cursor',
+      productLineId: 'cursor-events',
+      name: 'SpaceXAI partnership',
+      date: '2026-04-21',
+    },
+    logo: {
+      modelLabel: 'SpaceXAI partnership',
+      modelMark: 'cursor',
+    },
+    eyebrow: 'Compute partnership',
+    title: 'Cursor and SpaceXAI turned Composer into a compute race',
+    dek: 'On April 21, 2026, Cursor announced a SpaceX partnership to accelerate model training, giving the Composer line access to xAI Colossus infrastructure after Cursor described compute as its bottleneck.',
+    summary:
+      'The SpaceXAI partnership mattered because it moved Composer from an IDE-model story into the larger frontier-compute contest. Cursor said each step up in compute had translated into more capable Composer models, and that the partnership would let its team leverage xAI Colossus infrastructure to scale model intelligence.',
+    impact:
+      'For the AI timeline, the deal marked SpaceXAI trying to turn Colossus-scale infrastructure into a path toward the same frontier territory occupied by Anthropic, OpenAI, and Google, with Cursor as a high-usage coding surface for that push.',
+    facts: [
+      {label: 'Parties', value: 'Cursor and SpaceXAI / SpaceX'},
+      {label: 'Announcement date', value: 'April 21, 2026'},
+      {label: 'Infrastructure', value: 'xAI Colossus'},
+      {label: 'Model line', value: 'Composer'},
+      {label: 'Event type', value: 'Partnership'},
+    ],
+    sections: [
+      {
+        heading: 'What changed',
+        body: [
+          'Cursor publicly framed the partnership as a way to accelerate model training after Composer 1, Composer 1.5, and Composer 2 had each used more training scale to improve coding ability.',
+          'The announcement made compute the explicit bottleneck. Cursor said it wanted to push training further and would use xAI Colossus infrastructure to dramatically scale the intelligence of its models.',
+        ],
+      },
+      {
+        heading: 'Why it mattered',
+        body: [
+          'The deal made coding models part of the broader infrastructure race. SpaceXAI was no longer only a distant compute story; it had a concrete software-engineering model partner with a large developer distribution surface.',
+          'That made the partnership a pivotal moment for anyone tracking whether SpaceXAI could close the gap with the established frontier labs. Cursor brought the product loop and coding data; SpaceXAI brought the training cluster narrative.',
+        ],
+      },
+    ],
+    sources: [
+      {label: 'Cursor: SpaceX model-training partnership', url: 'https://cursor.com/blog/spacex-model-training'},
+      {label: 'Axios: SpaceX nears deal with Cursor', url: 'https://www.axios.com/2026/04/21/spacex-ai-cursor-deal'},
+    ],
+  },
+  {
+    slug: 'composer-2-5',
+    release: {
+      companyId: 'cursor',
+      productLineId: 'cursor-composer',
+      name: 'Composer 2.5',
+      date: '2026-05-18',
+    },
+    logo: {
+      modelLabel: 'Composer 2.5',
+      modelMark: 'cursor',
+    },
+    eyebrow: 'Agentic coding model release',
+    title: 'Composer 2.5 pushed Cursor deeper into long-running coding work',
+    dek: 'Cursor launched Composer 2.5 on May 18, 2026, positioning it as a stronger coding model for sustained software tasks, complex instruction following, and day-to-day collaboration inside Cursor.',
+    summary:
+      'Composer 2.5 matters because Cursor framed the release around behavior on longer coding sessions rather than only short benchmark wins. The model became available directly in Cursor with Standard and Fast tiers, and Cursor paired the launch with doubled included usage for the first week. It also arrived after Cursor had made the SpaceXAI compute partnership public, tying the Composer line to a much larger training-cluster story.',
+    impact:
+      'For agentic coding tools, the launch sharpened the competition around model behavior inside the IDE: reliability over many steps, instruction adherence, latency, and included usage all became part of the product story. It was also notable at a moment when general-user access to frontier coding models was getting expensive, because Cursor was positioning Composer against then-current premium competitors such as Claude 4.7 Opus and GPT-5.5 while keeping standard Composer pricing much lower.',
+    facts: [
+      {label: 'Provider', value: 'Cursor'},
+      {label: 'Release date', value: 'May 18, 2026'},
+      {label: 'Model family', value: 'Composer'},
+      {label: 'Product surface', value: 'Cursor'},
+      {label: 'Primary shift', value: 'Long-running coding task reliability'},
+    ],
+    sections: [
+      {
+        heading: 'What changed',
+        body: [
+          'Cursor made Composer 2.5 available in Cursor as a new Composer generation after Composer 2. The release emphasized stronger intelligence, more reliable handling of complex instructions, and better behavior during sustained work.',
+          'The launch also came with two usage tiers: a lower-cost Standard mode and a faster default mode. Cursor temporarily doubled included usage for the first week, making the model easier for existing users to try immediately after launch.',
+        ],
+      },
+      {
+        heading: 'Why it mattered',
+        body: [
+          'Composer 2.5 was not just another checkbox in a model picker. It showed Cursor continuing to treat the coding model itself as part of the IDE product, where quality is measured by how well it keeps context and executes over a long edit session.',
+          'That makes the release important for the coding-harness timeline: the competitive unit is no longer only the assistant UI, but the pairing of editor workflow, agent behavior, model speed, and pricing.',
+          'As a historical note, Composer 2.5 landed in a period when heavy coding-agent use was becoming expensive for general users. Cursor was making a cost-performance argument: a Composer model that could be discussed alongside Claude 4.7 Opus and GPT-5.5, but with Standard pricing that made repeated coding sessions easier to justify.',
+          'The launch page also made the SpaceXAI thread harder to separate from the model roadmap. Cursor said it was training a significantly larger model from scratch with SpaceXAI using Colossus 2, which made the Composer line one of the first public foundation-model efforts tied directly to that new training partnership.',
+        ],
+      },
+    ],
+    sources: [
+      {label: 'Cursor: Introducing Composer 2.5', url: 'https://cursor.com/blog/composer-2-5'},
+      {label: 'Cursor: Composer 2.5 changelog', url: 'https://cursor.com/changelog/composer-2-5'},
+      {label: 'Cursor: Composer 2.5 announcement on X', url: 'https://x.com/cursor_ai/status/2056415413077233983'},
+    ],
+  },
 ];
 
 export const modelArticlesBySlug = modelArticles.reduce<Record<string, ModelArticle>>((articles, article) => {

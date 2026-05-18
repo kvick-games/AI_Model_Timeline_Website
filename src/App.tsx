@@ -90,6 +90,7 @@ const ZOOM_SLIDER_KEYBOARD_STEP = 0.04;
 
 const ARTICLE_LOGO_ASSET_PATHS: Partial<Record<ArticleLogoMark, string>> = {
   anthropic: 'logos/anthropic.svg',
+  cursor: 'logos/cursor.svg',
   figure: 'logos/figure.svg',
   google: 'logos/google.svg',
   openai: 'logos/openai.svg',
@@ -1385,11 +1386,19 @@ function CompanyLogoBadge({
 function renderArticleLogoMark(mark: ArticleLogoMark, accent: string, textSizeClassName: string) {
   const sharedClassName = `relative font-semibold tracking-tight ${textSizeClassName}`;
 
+  if (mark === 'calendar') {
+    return <CalendarDays className="relative h-7 w-7 text-[var(--ink)]" strokeWidth={1.8} />;
+  }
+
   if (mark === 'gpt' || mark === 'openai') {
     return <span className={sharedClassName}>AI</span>;
   }
 
   if (mark === 'claude' || mark === 'anthropic') {
+    return <span className={sharedClassName}>C</span>;
+  }
+
+  if (mark === 'cursor') {
     return <span className={sharedClassName}>C</span>;
   }
 
@@ -2057,14 +2066,15 @@ function ArticleLogoGlyph({
       ? 'relative h-10 w-10 object-contain'
       : 'relative h-7 w-7 object-contain';
   const textSizeClassName = isLarge ? 'text-lg' : 'text-sm';
+  const accessibleLabel = mark === 'calendar' ? `${label} event icon` : `${label} logo`;
 
   return (
     <span
-      aria-label={`${label} logo`}
+      aria-label={accessibleLabel}
       className={`${boxClassName} relative grid shrink-0 place-items-center overflow-hidden border border-white/10 ${
         assetPath ? 'bg-[#f4f3ef]' : 'bg-[rgba(255,255,255,0.045)]'
       } shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]`}
-      title={`${label} logo`}
+      title={accessibleLabel}
     >
       {!assetPath ? (
         <span
@@ -2154,7 +2164,14 @@ function ModelArticlePanel({
   requestedSlug: string;
 }) {
   const article = entry?.article ?? null;
-  const logo = entry ? (article?.logo ?? getFallbackModelLogo(entry)) : null;
+  const logo = entry
+    ? entry.eventKind === 'event'
+      ? {
+          modelLabel: entry.name,
+          modelMark: 'calendar' as const,
+        }
+      : (article?.logo ?? getFallbackModelLogo(entry))
+    : null;
   const title = article?.title ?? entry?.name ?? 'Model not found';
   const summary =
     article?.summary ??
@@ -2933,10 +2950,9 @@ float widgetMask(vec2 uv, float aspectRatio) {
   return active * (1.0 - smoothstep(-0.003, 0.006, sdf));
 }
 
-vec3 oppositeHue(vec3 color) {
+vec3 grayscaleColor(vec3 color) {
   float luma = dot(color, vec3(0.299, 0.587, 0.114));
-  vec3 chroma = color - vec3(luma);
-  return clamp(vec3(luma) - chroma * 1.08, vec3(0.0), vec3(0.56));
+  return clamp(vec3(luma), vec3(0.0), vec3(0.56));
 }
 
 float hash21(vec2 p) {
@@ -3096,8 +3112,8 @@ void main() {
   color = clamp(color, vec3(0.0), vec3(0.48));
   float alpha = clamp(layeredDensity * 1.08 + caustic * 0.2 + innerScatter * 0.1 + backGlow * 0.12 + edgeEnergy * 0.038 + smoothstep(0.018, 0.28, speed) * 0.14, 0.0, 0.62);
   float panelSmokeMask = widgetMask(uv, aspect.x) * smoothstep(0.018, 0.38, layeredDensity + haloDensity * 0.42);
-  vec3 panelOppositeColor = oppositeHue(color) + vec3(0.028, 0.004, 0.036) * panelSmokeMask;
-  color = mix(color, panelOppositeColor, panelSmokeMask * 0.78);
+  vec3 panelGrayscaleColor = grayscaleColor(color);
+  color = mix(color, panelGrayscaleColor, panelSmokeMask);
   alpha = clamp(alpha + panelSmokeMask * 0.035, 0.0, 0.64);
 
   float weatherTime = uElapsedTime * 0.72;

@@ -35,6 +35,7 @@ export type TimelineEventTypeId =
   | 'product-launch'
   | 'research-release'
   | 'announcement'
+  | 'partnership'
   | 'public-demo'
   | 'deployment'
   | 'livestream';
@@ -76,7 +77,9 @@ export type ProductLineRecord = ProductLineConfig & {
 
 export type ArticleLogoMark =
   | 'anthropic'
+  | 'calendar'
   | 'claude'
+  | 'cursor'
   | 'deepseek'
   | 'gemini'
   | 'generic'

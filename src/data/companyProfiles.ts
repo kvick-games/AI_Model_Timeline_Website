@@ -7,7 +7,7 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'xai', name: 'xAI', accent: '#777f90', logoMark: 'xai'},
   {id: 'tesla', name: 'Tesla', accent: '#b92f3a', logoMark: 'tesla'},
   {id: 'figure', name: 'Figure', accent: '#8d95a8', logoMark: 'figure'},
-  {id: 'cursor', name: 'Cursor', accent: '#7c9cf0'},
+  {id: 'cursor', name: 'Cursor', accent: '#7c9cf0', logoMark: 'cursor'},
   {id: 'deepseek', name: 'DeepSeek', accent: '#4d8bd6', logoMark: 'deepseek'},
   {id: 'qwen', name: 'Alibaba', accent: '#8c79d6'},
   {id: 'moonshot-kimi', name: 'Moonshot AI', accent: '#56a3a6'},
