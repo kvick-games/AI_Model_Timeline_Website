@@ -1,14 +1,21 @@
-import React, {startTransition, useEffect, useMemo, useRef, useState} from 'react';
-import {createPortal, flushSync} from 'react-dom';
+import React, {startTransition, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {flushSync} from 'react-dom';
 import {
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
   ArrowUp,
+  BookOpen,
   Box,
+  Bot,
   BrainCircuit,
+  CalendarDays,
+  CarFront,
   Check,
   ChevronDown,
   Clapperboard,
   Code2,
+  ExternalLink,
   Globe2,
   GripVertical,
   Image as ImageIcon,
@@ -17,24 +24,35 @@ import {
   SlidersHorizontal,
   X,
 } from 'lucide-react';
-import {motion} from 'motion/react';
-
-type ModelClassId = 'frontier-llms' | 'open-source-llms' | 'image-generation' | 'video-generation' | '3d-generation' | 'coding-harnesses';
-type PresetId =
-  | 'frontier-llms'
-  | 'chinese-open-source'
-  | 'mistral'
-  | 'image-generation'
-  | 'video-generation'
-  | '3d-generation'
-  | 'coding-harnesses';
-
-type PresetConfig = {
-  id: PresetId;
-  classId: ModelClassId;
-  label: string;
-  description: string;
-};
+import {AnimatePresence, motion} from 'motion/react';
+import {
+  companies,
+  DEFAULT_PRESET_ID,
+  DEFAULT_SELECTED_PRESET_IDS,
+  formatTimelineDate,
+  formatTimelineDateRange,
+  getReleaseEventType,
+  getReleaseSlug,
+  modelPresets,
+  parseTimelineDate,
+  presetGroups,
+} from './data/timeline';
+import {modelReleaseIndexBySlug} from './data/releaseIndex';
+import type {
+  ArticleMedia,
+  ArticleLogoMark,
+  CompanyRecord,
+  ModelClassId,
+  ModelLogo,
+  ModelReleaseIndexEntry,
+  PresetId,
+  ProcessedCompany,
+  ProcessedProductLine,
+  ProcessedRelease,
+  ProductMarkerShape,
+  ProductLineRecord,
+  ReleaseRecord,
+} from './data/types';
 
 type BoardView = {
   description: string;
@@ -44,71 +62,13 @@ type BoardView = {
   label: string;
 };
 
-type ReleaseRecord = {
-  classes?: ModelClassId[];
-  name: string;
-  presets?: PresetId[];
-  date: string;
-};
-
-type ProductLineId = string;
-type ProductMarkerShape = 'circle' | 'square' | 'diamond';
-
-type ProductLineConfig = {
-  id: ProductLineId;
-  label: string;
-  shortLabel: string;
-  classId: ModelClassId;
-  markerShape: ProductMarkerShape;
-};
-
-type ProductLineRecord = ProductLineConfig & {
-  defaultClasses?: ModelClassId[];
-  defaultPresets?: PresetId[];
-  releases: ReleaseRecord[];
-};
-
-type CompanyRecord = {
-  id: string;
-  name: string;
-  accent: string;
-  defaultClasses: ModelClassId[];
-  defaultPresets: PresetId[];
-  productLines: ProductLineRecord[];
-};
-
-type ProcessedRelease = ReleaseRecord & {
-  classes: ModelClassId[];
-  dateLabel: string;
-  globalDay: number;
-  gap: number;
-  presets: PresetId[];
-};
-
-type ProcessedProductLine = Omit<ProductLineRecord, 'releases'> & {
-  averageGap: number | null;
-  latestRelease: ProcessedRelease | null;
-  releases: ProcessedRelease[];
-  startDay: number;
-  totalSpan: number;
-};
-
-type ProcessedCompany = Omit<CompanyRecord, 'productLines'> & {
-  averageGap: number | null;
-  latestProductLine: ProcessedProductLine | null;
-  latestRelease: ProcessedRelease | null;
-  productLines: ProcessedProductLine[];
-  startDay: number;
-  totalSpan: number;
-};
-
 type Tick = {
   days: number;
   label: string | number;
 };
 
 const DAY_MS = 1000 * 60 * 60 * 24;
-const START_DATE = new Date('2022-11-30T00:00:00Z');
+const START_DATE = new Date('2020-01-01T00:00:00Z');
 const TIMELINE_PIXELS_PER_DAY = 2.24;
 const LABEL_RAIL_WIDTH = 320;
 const MOBILE_LABEL_RAIL_WIDTH = 196;
@@ -125,678 +85,67 @@ const MOBILE_MAX_ZOOM = 3.4;
 const ZOOM_PROGRESS_STEP = 0.12;
 const SIGMOID_STEEPNESS = 6;
 const FIT_BUFFER_MULTIPLIER = 0.92;
-const DRAG_ZOOM_PROGRESS_PER_PIXEL = 0.0011;
-const DRAG_ZOOM_DEADZONE_PX = 12;
-const DEFAULT_PRESET_ID: PresetId = 'frontier-llms';
-const DEFAULT_SELECTED_PRESET_IDS: PresetId[] = [DEFAULT_PRESET_ID];
+const WHEEL_ZOOM_PROGRESS_PER_PIXEL = 0.001;
+const ZOOM_SLIDER_KEYBOARD_STEP = 0.04;
 
-const modelPresets: PresetConfig[] = [
-  {
-    id: 'frontier-llms',
-    classId: 'frontier-llms',
-    label: 'Frontier LLMs',
-    description: 'The default board for OpenAI, Anthropic, Google, and xAI.',
-  },
-  {
-    id: 'chinese-open-source',
-    classId: 'open-source-llms',
-    label: 'Chinese Open Source',
-    description: 'DeepSeek, Qwen, Kimi, and GLM release cadence.',
-  },
-  {
-    id: 'mistral',
-    classId: 'open-source-llms',
-    label: 'Mistral',
-    description: 'Mistral open and commercial model milestones.',
-  },
-  {
-    id: 'image-generation',
-    classId: 'image-generation',
-    label: 'Image Generation',
-    description: 'Major image model generations across creative labs.',
-  },
-  {
-    id: 'video-generation',
-    classId: 'video-generation',
-    label: 'Video Generation',
-    description: 'Text-to-video, image-to-video, and filmmaking model releases.',
-  },
-  {
-    id: '3d-generation',
-    classId: '3d-generation',
-    label: '3D Generation',
-    description: '3D asset and reconstruction models from specialized labs.',
-  },
-  {
-    id: 'coding-harnesses',
-    classId: 'coding-harnesses',
-    label: 'Coding Harnesses',
-    description: 'Agentic coding tools, IDEs, and harnesses built on foundation models.',
-  },
-];
+const ARTICLE_LOGO_ASSET_PATHS: Partial<Record<ArticleLogoMark, string>> = {
+  anthropic: 'logos/anthropic.svg',
+  figure: 'logos/figure.svg',
+  google: 'logos/google.svg',
+  openai: 'logos/openai.svg',
+  tesla: 'logos/tesla.svg',
+  xai: 'logos/xai.svg',
+};
 
-const presetGroups: { label: string; presetIds: PresetId[] }[] = [
-  {
-    label: 'Foundation Models',
-    presetIds: ['frontier-llms', 'chinese-open-source', 'mistral'],
-  },
-  {
-    label: 'Coding Harnesses',
-    presetIds: ['coding-harnesses'],
-  },
-  {
-    label: 'Creative Generation',
-    presetIds: ['image-generation', 'video-generation', '3d-generation'],
-  },
-];
+const WIDE_ARTICLE_LOGO_MARKS = new Set<ArticleLogoMark>(['figure']);
 
-function getDefaultMarkerShape(classId: ModelClassId): ProductMarkerShape {
-  if (classId === 'coding-harnesses') {
-    return 'square';
+function isWideArticleLogoMark(mark: ArticleLogoMark | undefined) {
+  return mark ? WIDE_ARTICLE_LOGO_MARKS.has(mark) : false;
+}
+
+function getPublicAssetPath(path: string) {
+  const basePath = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+  return `${basePath}${path.replace(/^\/+/, '')}`;
+}
+
+type AppRoute = {
+  kind: 'timeline';
+} | {
+  kind: 'model';
+  slug: string;
+};
+
+function parseAppRoute(hash: string): AppRoute {
+  const normalizedHash = hash.replace(/^#\/?/, '');
+
+  if (!normalizedHash) {
+    return {kind: 'timeline'};
   }
 
-  if (classId === 'video-generation') {
-    return 'diamond';
+  const modelMatch = normalizedHash.match(/^(?:models|events)\/([^/?#]+)$/);
+
+  if (modelMatch) {
+    return {kind: 'model', slug: decodeURIComponent(modelMatch[1])};
   }
 
-  return 'circle';
+  return {kind: 'timeline'};
 }
 
-function defineProductLine({
-  classId,
-  defaultClasses,
-  defaultPresets,
-  id,
-  label,
-  markerShape,
-  releases,
-  shortLabel,
-}: {
-  classId: ModelClassId;
-  defaultClasses?: ModelClassId[];
-  defaultPresets: PresetId[];
-  id: ProductLineId;
-  label: string;
-  markerShape?: ProductMarkerShape;
-  releases: ReleaseRecord[];
-  shortLabel?: string;
-}): ProductLineRecord {
-  return {
-    id,
-    label,
-    shortLabel: shortLabel ?? label,
-    classId,
-    markerShape: markerShape ?? getDefaultMarkerShape(classId),
-    defaultClasses: defaultClasses ?? [classId],
-    defaultPresets,
-    releases,
-  };
+function getCurrentAppRoute(): AppRoute {
+  if (typeof window === 'undefined') {
+    return {kind: 'timeline'};
+  }
+
+  return parseAppRoute(window.location.hash);
 }
 
-function defineCompany({
-  accent,
-  id,
-  name,
-  productLines,
-}: {
-  accent: string;
-  id: string;
-  name: string;
-  productLines: ProductLineRecord[];
-}): CompanyRecord {
-  const firstLine = productLines[0];
+function navigateToTimeline() {
+  if (typeof window === 'undefined') {
+    return;
+  }
 
-  return {
-    id,
-    name,
-    accent,
-    defaultClasses: firstLine?.defaultClasses ?? ['frontier-llms'],
-    defaultPresets: firstLine?.defaultPresets ?? [DEFAULT_PRESET_ID],
-    productLines,
-  };
+  window.location.hash = '#/';
 }
-
-const companies: CompanyRecord[] = [
-  defineCompany({
-    id: 'openai',
-    name: 'OpenAI',
-    accent: '#139a74',
-    productLines: [
-      defineProductLine({
-        id: 'openai-gpt',
-        label: 'GPT models',
-        shortLabel: 'GPT',
-        classId: 'frontier-llms',
-        defaultPresets: ['frontier-llms'],
-        releases: [
-      {name: 'GPT-3.5', date: '2022-11-30'},
-      {name: 'GPT-4', date: '2023-03-14'},
-      {name: 'GPT-4 Turbo', date: '2023-11-06'},
-      {name: 'GPT-4o', date: '2024-05-13'},
-      {name: 'o1', date: '2024-12-05'},
-      {name: 'o3', date: '2025-04-16'},
-      {name: 'GPT-5', date: '2025-08-07'},
-      {name: 'GPT-5.1', date: '2025-11-12'},
-      {name: 'GPT-5.2', date: '2025-12-11'},
-      {name: 'GPT-5.3', date: '2026-02-05'},
-      {name: 'GPT-5.4', date: '2026-03-05'},
-      {name: 'GPT-5.5', date: '2026-04-23'},
-        ],
-      }),
-      defineProductLine({
-        id: 'openai-image',
-        label: 'Image models',
-        shortLabel: 'Image',
-        classId: 'image-generation',
-        defaultPresets: ['image-generation'],
-        releases: [
-          {name: 'DALL-E 2', date: '2022-09-28'},
-          {name: 'DALL-E 3', date: '2023-09-20'},
-          {name: 'GPT-4o Image', date: '2025-03-25'},
-          {name: 'GPT Image 2', date: '2026-04-21'},
-        ],
-      }),
-      defineProductLine({
-        id: 'openai-sora',
-        label: 'Sora video',
-        shortLabel: 'Sora',
-        classId: 'video-generation',
-        defaultPresets: ['video-generation'],
-        releases: [
-          {name: 'Sora Preview', date: '2024-02-15'},
-          {name: 'Sora Turbo', date: '2024-12-09'},
-          {name: 'Sora 2', date: '2025-09-30'},
-        ],
-      }),
-      defineProductLine({
-        id: 'openai-codex',
-        label: 'Codex',
-        shortLabel: 'Codex',
-        classId: 'coding-harnesses',
-        defaultPresets: ['coding-harnesses'],
-        markerShape: 'square',
-        releases: [
-          {name: 'Codex Preview', date: '2025-05-16'},
-          {name: 'GPT-5-Codex', date: '2025-09-15'},
-          {name: 'Codex GA', date: '2025-10-06'},
-          {name: 'GPT-5.2-Codex', date: '2025-12-18'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'anthropic',
-    name: 'Anthropic',
-    accent: '#d38b14',
-    productLines: [
-      defineProductLine({
-        id: 'anthropic-claude',
-        label: 'Claude models',
-        shortLabel: 'Claude',
-        classId: 'frontier-llms',
-        defaultPresets: ['frontier-llms'],
-        releases: [
-      {name: 'Claude 1', date: '2023-03-14'},
-      {name: 'Claude 2', date: '2023-07-11'},
-      {name: 'Claude 3', date: '2024-03-04'},
-      {name: 'Claude 3.5', date: '2024-06-20'},
-      {name: 'Claude 3.7', date: '2025-02-24'},
-      {name: 'Claude 4', date: '2025-05-22'},
-      {name: 'Claude 4.5 Sonnet', date: '2025-09-29'},
-      {name: 'Claude 4.5 Opus', date: '2025-11-24'},
-      {name: 'Claude 4.6 Sonnet', date: '2026-02-17'},
-      {name: 'Claude 4.6 Opus', date: '2026-02-05'},
-      {name: 'Claude 4.7 Opus', date: '2026-04-16'},
-        ],
-      }),
-      defineProductLine({
-        id: 'anthropic-claude-code',
-        label: 'Claude Code',
-        shortLabel: 'Code',
-        classId: 'coding-harnesses',
-        defaultPresets: ['coding-harnesses'],
-        markerShape: 'square',
-        releases: [
-          {name: 'Claude Code Preview', date: '2025-02-24'},
-          {name: 'Claude Code GA', date: '2025-05-22'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'google',
-    name: 'Google',
-    accent: '#2d6ed8',
-    productLines: [
-      defineProductLine({
-        id: 'google-gemini',
-        label: 'Gemini models',
-        shortLabel: 'Gemini',
-        classId: 'frontier-llms',
-        defaultPresets: ['frontier-llms'],
-        releases: [
-      {name: 'Gemini 1.0', date: '2023-12-06'},
-      {name: 'Gemini 1.5', date: '2024-02-15'},
-      {name: 'Gemini 2.0', date: '2025-02-05'},
-      {name: 'Gemini 2.5', date: '2025-03-25'},
-      {name: 'Gemini 3.0 Pro', date: '2025-11-18'},
-      {name: 'Gemini 3.1 Pro (Preview)', date: '2026-02-19'},
-      {name: 'Gemini 3.1 Flash-Image', date: '2026-02-26'},
-      {name: 'Gemini 3.1 Flash-Lite', date: '2026-03-03'},
-        ],
-      }),
-      defineProductLine({
-        id: 'google-veo',
-        label: 'Veo video',
-        shortLabel: 'Veo',
-        classId: 'video-generation',
-        defaultPresets: ['video-generation'],
-        releases: [
-          {name: 'Veo', date: '2024-05-14'},
-          {name: 'Veo 2', date: '2024-12-16'},
-          {name: 'Veo 3', date: '2025-05-20'},
-          {name: 'Veo 3.1', date: '2025-10-15'},
-        ],
-      }),
-      defineProductLine({
-        id: 'google-coding-tools',
-        label: 'Gemini coding tools',
-        shortLabel: 'Tools',
-        classId: 'coding-harnesses',
-        defaultPresets: ['coding-harnesses'],
-        markerShape: 'square',
-        releases: [
-          {name: 'Gemini CLI', date: '2025-06-25'},
-          {name: 'Antigravity IDE', date: '2025-11-20'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'xai',
-    name: 'xAI',
-    accent: '#777f90',
-    productLines: [
-      defineProductLine({
-        id: 'xai-grok',
-        label: 'Grok models',
-        shortLabel: 'Grok',
-        classId: 'frontier-llms',
-        defaultPresets: ['frontier-llms'],
-        releases: [
-      {name: 'Grok 1', date: '2023-11-04'},
-      {name: 'Grok 1.5', date: '2024-03-28'},
-      {name: 'Grok 2', date: '2024-08-13'},
-      {name: 'Grok 3', date: '2025-02-17'},
-      {name: 'Grok 4', date: '2025-07-09'},
-      {name: 'Grok 4.1', date: '2025-11-17'},
-      {name: 'Grok 4.20', date: '2026-02-17'},
-      {name: 'Grok 4.3 (Beta)', date: '2026-04-17'},
-        ],
-      }),
-      defineProductLine({
-        id: 'xai-grok-build',
-        label: 'Grok Build',
-        shortLabel: 'Build',
-        classId: 'coding-harnesses',
-        defaultPresets: ['coding-harnesses'],
-        markerShape: 'square',
-        releases: [
-          {name: 'Grok Build (Beta)', date: '2026-05-14'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'cursor',
-    name: 'Cursor',
-    accent: '#7c9cf0',
-    productLines: [
-      defineProductLine({
-        id: 'cursor-editor',
-        label: 'Cursor editor',
-        shortLabel: 'Cursor',
-        classId: 'coding-harnesses',
-        defaultPresets: ['coding-harnesses'],
-        releases: [
-          {name: 'Cursor', date: '2023-07-28'},
-          {name: 'Copilot++ Beta', date: '2023-11-10'},
-          {name: 'Cursor Tab', date: '2025-01-13'},
-          {name: 'Cursor 1.0', date: '2025-06-04'},
-          {name: 'Cursor Agent CLI', date: '2025-08-07'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'deepseek',
-    name: 'DeepSeek',
-    accent: '#4d8bd6',
-    productLines: [
-      defineProductLine({
-        id: 'deepseek-models',
-        label: 'DeepSeek models',
-        shortLabel: 'DeepSeek',
-        classId: 'open-source-llms',
-        defaultPresets: ['chinese-open-source'],
-        releases: [
-      {name: 'DeepSeek-V2', date: '2024-05-06'},
-      {name: 'DeepSeek-V2.5', date: '2024-09-05'},
-      {name: 'DeepSeek-V3', date: '2024-12-26'},
-      {name: 'DeepSeek-R1', date: '2025-01-20'},
-      {name: 'DeepSeek-R1-0528', date: '2025-05-28'},
-      {name: 'DeepSeek-V3.1', date: '2025-08-21'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'qwen',
-    name: 'Alibaba',
-    accent: '#8c79d6',
-    productLines: [
-      defineProductLine({
-        id: 'qwen-models',
-        label: 'Qwen models',
-        shortLabel: 'Qwen',
-        classId: 'open-source-llms',
-        defaultPresets: ['chinese-open-source'],
-        releases: [
-      {name: 'Qwen2', date: '2024-06-07'},
-      {name: 'Qwen2.5', date: '2024-09-19'},
-      {name: 'Qwen2.5-VL', date: '2025-01-28'},
-      {name: 'Qwen3', date: '2025-04-29'},
-      {name: 'Qwen3-Coder', date: '2025-07-29'},
-      {name: 'Qwen3.6-35B-A3B', date: '2026-04-17'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'moonshot-kimi',
-    name: 'Moonshot AI',
-    accent: '#56a3a6',
-    productLines: [
-      defineProductLine({
-        id: 'kimi-models',
-        label: 'Kimi models',
-        shortLabel: 'Kimi',
-        classId: 'open-source-llms',
-        defaultPresets: ['chinese-open-source'],
-        releases: [
-      {name: 'Kimi Chat', date: '2023-10-09'},
-      {name: 'Kimi k1.5', date: '2025-01-20'},
-      {name: 'Kimi K2', date: '2025-07-11'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'zhipu-glm',
-    name: 'Zhipu AI',
-    accent: '#c78f38',
-    productLines: [
-      defineProductLine({
-        id: 'glm-models',
-        label: 'GLM models',
-        shortLabel: 'GLM',
-        classId: 'open-source-llms',
-        defaultPresets: ['chinese-open-source'],
-        releases: [
-      {name: 'GLM-4', date: '2024-01-16'},
-      {name: 'GLM-4-9B', date: '2024-06-05'},
-      {name: 'GLM-4.5', date: '2025-07-28'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'mistral-ai',
-    name: 'Mistral AI',
-    accent: '#ff9f1c',
-    productLines: [
-      defineProductLine({
-        id: 'mistral-models',
-        label: 'Mistral models',
-        shortLabel: 'Mistral',
-        classId: 'open-source-llms',
-        defaultPresets: ['mistral'],
-        releases: [
-      {name: 'Mistral 7B', date: '2023-09-27'},
-      {name: 'Mixtral 8x7B', date: '2023-12-11'},
-      {name: 'Mistral Large', date: '2024-02-26'},
-      {name: 'Mixtral 8x22B', date: '2024-04-17'},
-      {name: 'Codestral', date: '2024-05-29'},
-      {name: 'Mistral Large 2', date: '2024-07-24'},
-      {name: 'Mistral Small 3', date: '2025-01-30'},
-      {name: 'Mistral Medium 3', date: '2025-05-07'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'midjourney',
-    name: 'Midjourney',
-    accent: '#c0537a',
-    productLines: [
-      defineProductLine({
-        id: 'midjourney-image',
-        label: 'Image models',
-        shortLabel: 'Image',
-        classId: 'image-generation',
-        defaultPresets: ['image-generation'],
-        releases: [
-      {name: 'Midjourney V5', date: '2023-03-15'},
-      {name: 'Midjourney V6', date: '2023-12-20'},
-      {name: 'Midjourney V6.1', date: '2024-07-30'},
-      {name: 'Midjourney V7', date: '2025-04-03'},
-      {name: 'Niji 7', date: '2026-01-09'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'stability-ai',
-    name: 'Stability AI',
-    accent: '#6b8e4e',
-    productLines: [
-      defineProductLine({
-        id: 'stability-image',
-        label: 'Image models',
-        shortLabel: 'Image',
-        classId: 'image-generation',
-        defaultPresets: ['image-generation'],
-        releases: [
-      {name: 'Stable Diffusion 2.0', date: '2022-11-24'},
-      {name: 'SDXL 1.0', date: '2023-07-26'},
-      {name: 'Stable Diffusion 3 Medium', date: '2024-06-12'},
-      {name: 'Stable Diffusion 3.5', date: '2024-10-22'},
-        ],
-      }),
-      defineProductLine({
-        id: 'stability-video',
-        label: 'Video models',
-        shortLabel: 'Video',
-        classId: 'video-generation',
-        defaultPresets: ['video-generation'],
-        releases: [
-          {name: 'Stable Video Diffusion', date: '2023-11-21'},
-          {name: 'Stable Video 4D', date: '2024-07-24'},
-        ],
-      }),
-      defineProductLine({
-        id: 'stability-3d',
-        label: '3D models',
-        shortLabel: '3D',
-        classId: '3d-generation',
-        defaultPresets: ['3d-generation'],
-        releases: [
-          {name: 'Stable Zero123', date: '2023-12-13'},
-          {name: 'TripoSR', date: '2024-03-04'},
-          {name: 'Stable Video 3D', date: '2024-03-18'},
-          {name: 'Stable Fast 3D', date: '2024-08-01'},
-          {name: 'Stable Point Aware 3D', date: '2025-03-18'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'black-forest-labs',
-    name: 'Black Forest Labs',
-    accent: '#7b6bd6',
-    productLines: [
-      defineProductLine({
-        id: 'flux-image',
-        label: 'FLUX models',
-        shortLabel: 'FLUX',
-        classId: 'image-generation',
-        defaultPresets: ['image-generation'],
-        releases: [
-      {name: 'FLUX.1', date: '2024-08-01'},
-      {name: 'FLUX.1 Tools', date: '2024-11-21'},
-      {name: 'FLUX.1 Kontext', date: '2025-05-29'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'runway-video',
-    name: 'Runway',
-    accent: '#d7d0c3',
-    productLines: [
-      defineProductLine({
-        id: 'runway-gen',
-        label: 'Gen video',
-        shortLabel: 'Gen',
-        classId: 'video-generation',
-        defaultPresets: ['video-generation'],
-        releases: [
-      {name: 'Gen-2', date: '2023-03-20'},
-      {name: 'Gen-3 Alpha', date: '2024-06-17'},
-      {name: 'Gen-4', date: '2025-03-31'},
-      {name: 'Gen-4.5', date: '2025-12-01'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'luma-ai',
-    name: 'Luma AI',
-    accent: '#58a9c7',
-    productLines: [
-      defineProductLine({
-        id: 'luma-video',
-        label: 'Video models',
-        shortLabel: 'Video',
-        classId: 'video-generation',
-        defaultPresets: ['video-generation'],
-        releases: [
-      {name: 'Dream Machine', date: '2024-06-12'},
-      {name: 'Ray2', date: '2025-01-15'},
-      {name: 'Ray3', date: '2025-09-18'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'pika-labs',
-    name: 'Pika',
-    accent: '#e39b4d',
-    productLines: [
-      defineProductLine({
-        id: 'pika-video',
-        label: 'Video models',
-        shortLabel: 'Video',
-        classId: 'video-generation',
-        defaultPresets: ['video-generation'],
-        releases: [
-      {name: 'Pika 1.0', date: '2023-11-28'},
-      {name: 'Pika 1.5', date: '2024-10-01'},
-      {name: 'Pika 2.0', date: '2024-12-13'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'kuaishou-kling',
-    name: 'Kuaishou',
-    accent: '#c75c4f',
-    productLines: [
-      defineProductLine({
-        id: 'kling-video',
-        label: 'Kling video',
-        shortLabel: 'Kling',
-        classId: 'video-generation',
-        defaultPresets: ['video-generation'],
-        releases: [
-      {name: 'Kling', date: '2024-06-06'},
-      {name: 'Kling 2.0', date: '2025-04-15'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'bytedance-seedance',
-    name: 'ByteDance',
-    accent: '#5f75d6',
-    productLines: [
-      defineProductLine({
-        id: 'seedance-video',
-        label: 'Seedance video',
-        shortLabel: 'Seedance',
-        classId: 'video-generation',
-        defaultPresets: ['video-generation'],
-        releases: [
-      {name: 'Seedance 1.0', date: '2025-06-11'},
-      {name: 'Seedance 2.0', date: '2026-02-12'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'tencent-hunyuan-3d',
-    name: 'Tencent',
-    accent: '#327ec7',
-    productLines: [
-      defineProductLine({
-        id: 'hunyuan-3d',
-        label: 'Hunyuan3D',
-        shortLabel: 'Hunyuan3D',
-        classId: '3d-generation',
-        defaultPresets: ['3d-generation'],
-        releases: [
-      {name: 'Hunyuan3D 1.0', date: '2024-11-05'},
-      {name: 'Hunyuan3D 2.0', date: '2025-01-21'},
-      {name: 'Hunyuan3D 2.1', date: '2025-06-18'},
-        ],
-      }),
-    ],
-  }),
-  defineCompany({
-    id: 'tripo-ai',
-    name: 'Tripo AI',
-    accent: '#d15f45',
-    productLines: [
-      defineProductLine({
-        id: 'tripo-3d',
-        label: '3D models',
-        shortLabel: '3D',
-        classId: '3d-generation',
-        defaultPresets: ['3d-generation'],
-        releases: [
-      {name: 'Tripo AI', date: '2023-09-12'},
-      {name: 'TripoSR', date: '2024-03-04'},
-      {name: 'Tripo 2.0', date: '2025-01-21'},
-        ],
-      }),
-    ],
-  }),
-];
-
-function parseUtcDate(input: string) {
-  return new Date(`${input}T00:00:00Z`);
-}
-
 function formatUtcDate(date: Date, options: Intl.DateTimeFormatOptions) {
   return date.toLocaleDateString('en-US', {
     timeZone: 'UTC',
@@ -915,7 +264,7 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
 
   if (selectedPresets.length === modelPresets.length) {
     return {
-      description: 'Every tracked model family and coding harness line is visible.',
+      description: 'Every tracked model, coding, creative, events, robotics, and vehicle-autonomy line is visible.',
       isComposite: true,
       isDefault: false,
       isEmpty: false,
@@ -1070,26 +419,45 @@ function buildTimelineData(data: CompanyRecord[]) {
         classes: getReleaseClasses(company, productLine, release),
         presets: getReleasePresets(company, productLine, release),
       })).sort((left, right) => {
-        const leftDate = parseUtcDate(left.date).getTime();
-        const rightDate = parseUtcDate(right.date).getTime();
+        const leftDate = parseTimelineDate(left.date).getTime();
+        const rightDate = parseTimelineDate(right.date).getTime();
         return leftDate - rightDate || left.name.localeCompare(right.name);
       });
 
       const processedReleases = sortedReleases.reduce<ProcessedRelease[]>((collection, release) => {
-        const releaseDate = parseUtcDate(release.date);
+        const releaseDate = parseTimelineDate(release.date);
+        const releaseEndDate = release.endDate ? parseTimelineDate(release.endDate) : releaseDate;
 
         if (Number.isNaN(releaseDate.getTime())) {
           invalidEntries.push(`${company.name} / ${productLine.label}: ${release.name}`);
           return collection;
         }
 
+        if (release.endDate && Number.isNaN(releaseEndDate.getTime())) {
+          invalidEntries.push(`${company.name} / ${productLine.label}: ${release.name} end date`);
+          return collection;
+        }
+
         const previousRelease = collection[collection.length - 1];
         const globalDay = Math.round((releaseDate.getTime() - START_DATE.getTime()) / DAY_MS);
+        const endGlobalDay = Number.isNaN(releaseEndDate.getTime())
+          ? globalDay
+          : Math.max(globalDay, Math.round((releaseEndDate.getTime() - START_DATE.getTime()) / DAY_MS));
         const gap = previousRelease ? globalDay - previousRelease.globalDay : 0;
+        const eventType = getReleaseEventType(release);
 
         collection.push({
           ...release,
-          dateLabel: formatUtcDate(releaseDate, {month: 'short', day: 'numeric', year: 'numeric'}),
+          articleSlug: getReleaseSlug(company.id, productLine.id, release),
+          dateLabel: formatTimelineDate(releaseDate),
+          dateRangeLabel: formatTimelineDateRange(release.date, release.endDate),
+          durationDays: endGlobalDay - globalDay + 1,
+          endDateLabel: release.endDate ? formatTimelineDate(release.endDate) : undefined,
+          endGlobalDay,
+          eventKind: eventType.kind,
+          eventType: eventType.id,
+          eventTypeLabel: eventType.label,
+          eventTypeShortLabel: eventType.shortLabel,
           globalDay,
           gap,
         });
@@ -1108,13 +476,13 @@ function buildTimelineData(data: CompanyRecord[]) {
         latestRelease,
         releases: processedReleases,
         startDay: firstRelease?.globalDay ?? 0,
-        totalSpan: latestRelease && firstRelease ? latestRelease.globalDay - firstRelease.globalDay : 0,
+        totalSpan: latestRelease && firstRelease ? latestRelease.endGlobalDay - firstRelease.globalDay : 0,
       };
     });
 
     const latestProductLine = [...processedProductLines]
       .filter((productLine) => productLine.latestRelease)
-      .sort((left, right) => (right.latestRelease?.globalDay ?? 0) - (left.latestRelease?.globalDay ?? 0))[0] ?? null;
+      .sort((left, right) => (right.latestRelease?.endGlobalDay ?? 0) - (left.latestRelease?.endGlobalDay ?? 0))[0] ?? null;
     const latestRelease = latestProductLine?.latestRelease ?? null;
     const firstRelease = [...processedProductLines]
       .flatMap((productLine) => productLine.releases)
@@ -1135,12 +503,12 @@ function buildTimelineData(data: CompanyRecord[]) {
       latestRelease,
       productLines: processedProductLines,
       startDay: firstRelease?.globalDay ?? 0,
-      totalSpan: latestRelease && firstRelease ? latestRelease.globalDay - firstRelease.globalDay : 0,
+      totalSpan: latestRelease && firstRelease ? latestRelease.endGlobalDay - firstRelease.globalDay : 0,
     };
   });
 
   const latestGlobalDay = processedCompanies.reduce((max, company) => {
-    const currentLatestDay = company.latestRelease?.globalDay ?? 0;
+    const currentLatestDay = company.latestRelease?.endGlobalDay ?? 0;
     return Math.max(max, currentLatestDay);
   }, 0);
 
@@ -1161,7 +529,11 @@ function buildTicks(maxDays: number) {
   const monthTicks: Tick[] = [];
   const yearTicks: Tick[] = [];
   const endDate = new Date(START_DATE.getTime() + maxDays * DAY_MS);
-  const cursor = new Date('2022-12-01T00:00:00Z');
+  const cursor = new Date(Date.UTC(START_DATE.getUTCFullYear(), START_DATE.getUTCMonth(), 1));
+
+  if (cursor.getTime() < START_DATE.getTime()) {
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
 
   while (cursor <= endDate) {
     const days = Math.round((cursor.getTime() - START_DATE.getTime()) / DAY_MS);
@@ -1182,7 +554,7 @@ function buildTicks(maxDays: number) {
 }
 
 function getQuietDays(item: {latestRelease: ProcessedRelease | null}, currentGlobalDay: number) {
-  return item.latestRelease ? Math.max(0, Math.floor(currentGlobalDay - item.latestRelease.globalDay)) : 0;
+  return item.latestRelease ? Math.max(0, Math.floor(currentGlobalDay - item.latestRelease.endGlobalDay)) : 0;
 }
 
 function getRecencyFillWidth(quietDays: number, maxQuietDays: number) {
@@ -1317,25 +689,6 @@ function ZoomOutIcon(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-function ResetIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
-      <path d="M3 12a9 9 0 1 0 3.1-6.8" strokeLinecap="round" />
-      <path d="M3 4v4h4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function DragIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
-      <path d="M8 6l-4 6 4 6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16 6l4 6-4 6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M4 12h16" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function ModelClassIcon({classId, className}: {classId: ModelClassId; className?: string}) {
   const iconClassName = className ?? 'h-4 w-4';
 
@@ -1363,174 +716,264 @@ function ModelClassIcon({classId, className}: {classId: ModelClassId; className?
     return <Code2 className={iconClassName} strokeWidth={1.8} />;
   }
 
+  if (classId === 'events') {
+    return <CalendarDays className={iconClassName} strokeWidth={1.8} />;
+  }
+
+  if (classId === 'robotics') {
+    return <Bot className={iconClassName} strokeWidth={1.8} />;
+  }
+
+  if (classId === 'vehicle-autonomy') {
+    return <CarFront className={iconClassName} strokeWidth={1.8} />;
+  }
+
   return <Layers3 className={iconClassName} strokeWidth={1.8} />;
 }
 
 type ModelClassExplorerProps = {
   boardView: BoardView;
-  isOverlayEnabled: boolean;
+  className?: string;
   isOpen: boolean;
   onClearAll: () => void;
-  onClose: () => void;
   onPresetToggle: (presetId: PresetId) => void;
   onReset: () => void;
   onSelectAll: () => void;
   onToggle: () => void;
   presetStats: Record<PresetId, {providerCount: number; releaseCount: number}>;
   selectedPresetIds: PresetId[];
+  variant?: 'panel' | 'rail';
 };
 
 function ModelClassExplorer({
   boardView,
-  isOverlayEnabled,
+  className = '',
   isOpen,
   onClearAll,
-  onClose,
   onPresetToggle,
   onReset,
   onSelectAll,
   onToggle,
   presetStats,
   selectedPresetIds,
+  variant = 'panel',
 }: ModelClassExplorerProps) {
   const selectedCount = selectedPresetIds.length;
-  const pickerOverlay =
-    isOverlayEnabled && isOpen && typeof document !== 'undefined'
-      ? createPortal(
-          <div className="pointer-events-none fixed inset-0 z-[100] px-3 pb-3 pt-4 md:px-8 md:pt-8">
+  const isRail = variant === 'rail';
+  const isCollapsedRail = isRail && !isOpen;
+  const rootClassName = `${isRail ? (isOpen ? 'w-[var(--category-expanded-width,260px)]' : 'w-[74px]') : 'w-full'} timeline-fluid-obstacle overflow-hidden rounded-[1.6rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--soft-shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isCollapsedRail ? 'cursor-pointer hover:bg-[var(--surface-strong)]' : ''} ${className}`;
+
+  return (
+    <aside
+      className={rootClassName}
+      onClick={isCollapsedRail ? onToggle : undefined}
+    >
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        aria-label="Choose timeline categories"
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+        className={`flex w-full items-center gap-3 text-left transition duration-300 hover:bg-[var(--surface-strong)] active:scale-[0.99] ${
+          isOpen
+            ? isRail
+              ? 'justify-between border-b border-[var(--edge)] px-3 py-3'
+              : 'justify-between border-b border-[var(--edge)] px-4 py-4'
+            : 'justify-center px-0 py-4'
+        }`}
+      >
+        <span
+          className={`inline-flex shrink-0 items-center justify-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] text-[var(--ink)] shadow-[var(--soft-shadow)] ${
+            isRail && isOpen ? 'h-8 w-8' : 'h-10 w-10'
+          }`}
+        >
+          <SlidersHorizontal className="h-4 w-4" strokeWidth={1.8} />
+        </span>
+        {isOpen ? (
+          <span className="min-w-0 flex-1">
+            <span className={`block font-semibold uppercase text-[var(--muted)] ${isRail ? 'text-[9px] tracking-[0.16em]' : 'text-[10px] tracking-[0.2em]'}`}>
+              {isRail ? 'Categories' : 'Timeline categories'}
+            </span>
+            <span className="mt-1 block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{boardView.label}</span>
+            <span className={`mt-1 block font-mono uppercase text-[var(--muted)] ${isRail ? 'text-[9px] tracking-[0.12em]' : 'text-[10px] tracking-[0.14em]'}`}>
+              {isRail ? `${selectedCount}/${modelPresets.length} active` : `${selectedCount} of ${modelPresets.length} lines active`}
+            </span>
+          </span>
+        ) : (
+          <span className="sr-only">{boardView.label}</span>
+        )}
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-[var(--ink-soft)] transition duration-300 ${isOpen ? 'rotate-180' : isRail ? '-rotate-90' : ''}`}
+          strokeWidth={1.8}
+        />
+      </button>
+
+      <div
+        data-category-panel
+        aria-hidden={!isOpen}
+        className={`overflow-hidden transition-[max-height,opacity] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          isOpen ? (isRail ? 'max-h-[520px] opacity-100' : 'max-h-[560px] opacity-100') : 'max-h-0 opacity-0'
+        }`}
+        style={{pointerEvents: isOpen ? 'auto' : 'none'}}
+      >
             <motion.div
-              initial={{opacity: 0, y: -18, scale: 0.98}}
-              animate={{opacity: 1, y: 0, scale: 1}}
-              transition={{duration: 0.24, ease: [0.22, 1, 0.36, 1]}}
-              className="pointer-events-auto relative mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-[620px] flex-col overflow-hidden rounded-[1.4rem] border border-[var(--edge-strong)] bg-[rgba(10,13,19,0.98)] shadow-[0_34px_90px_-42px_rgba(0,0,0,0.9)] backdrop-blur-xl md:max-h-[calc(100dvh-4rem)]"
+              initial={false}
+              animate={{y: isOpen ? 0 : -10}}
+              transition={{duration: 0.34, ease: [0.16, 1, 0.3, 1]}}
+              className={`${isRail ? 'max-h-[min(520px,calc(100dvh-20rem))]' : 'max-h-[min(560px,calc(100dvh-12rem))]'} overflow-y-auto px-3 py-3`}
             >
-              <div className="flex items-start justify-between gap-4 border-b border-[var(--edge)] px-4 py-4">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Timeline categories</p>
-                  <p className="mt-1 truncate text-base font-semibold tracking-tight text-[var(--ink)]">Add product lines</p>
-                  <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                    {selectedCount} of {modelPresets.length} lines active
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Close timeline category picker"
-                  onClick={onClose}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--edge)] text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface-strong)] active:scale-[0.96]"
-                >
-                  <X className="h-4 w-4" strokeWidth={1.8} />
-                </button>
-              </div>
+              <div className={isRail ? 'space-y-3' : 'space-y-4'}>
+                {presetGroups.map((group) => (
+                  <div key={group.label}>
+                    <p className={`${isRail ? 'mb-1.5 text-[9px] tracking-[0.15em]' : 'mb-2 text-[10px] tracking-[0.18em]'} px-1 font-semibold uppercase text-[var(--muted)]`}>
+                      {group.label}
+                    </p>
+                    <div className={isRail ? 'space-y-1.5' : 'space-y-2'}>
+                      {group.presetIds.map((presetId) => {
+                        const preset = modelPresets.find((candidate) => candidate.id === presetId);
 
-              <div className="overflow-y-auto px-4 py-4">
-                <div className="space-y-4">
-                  {presetGroups.map((group) => (
-                    <div key={group.label}>
-                      <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
-                        {group.label}
-                      </p>
-                      <div className="space-y-2">
-                        {group.presetIds.map((presetId) => {
-                          const preset = modelPresets.find((candidate) => candidate.id === presetId);
+                        if (!preset) {
+                          return null;
+                        }
 
-                          if (!preset) {
-                            return null;
-                          }
+                        const isSelected = selectedPresetIds.includes(preset.id);
+                        const stats = presetStats[preset.id];
 
-                          const isSelected = selectedPresetIds.includes(preset.id);
-                          const stats = presetStats[preset.id];
-
+                        if (isRail) {
                           return (
                             <button
                               key={preset.id}
                               type="button"
+                              title={preset.description}
+                              disabled={!isOpen}
                               onClick={() => onPresetToggle(preset.id)}
-                              className={`grid w-full grid-cols-[1fr_auto] gap-4 rounded-[0.95rem] border p-4 text-left transition duration-300 active:scale-[0.99] ${
+                              className={`flex h-11 w-full items-center gap-2 rounded-[0.85rem] border px-2.5 text-left transition duration-300 active:scale-[0.99] ${
                                 isSelected
                                   ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
                                   : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
                               }`}
                             >
-                              <span className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] gap-3">
-                                <ModelClassIcon classId={preset.classId} className="mt-0.5 h-5 w-5 text-[var(--ink)]" />
-                                <span className="min-w-0">
-                                  <span className="block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{preset.label}</span>
-                                  <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">{preset.description}</span>
-                                  <span className="mt-3 block font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
-                                    {stats.providerCount} companies / {stats.releaseCount} releases
-                                  </span>
+                              <ModelClassIcon classId={preset.classId} className="h-4 w-4 shrink-0 text-[var(--ink)]" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-xs font-semibold tracking-tight text-[var(--ink)]">
+                                  {preset.label}
+                                </span>
+                                <span className="mt-0.5 block truncate font-mono text-[9px] uppercase tracking-[0.11em] text-[var(--muted)]">
+                                  {stats.providerCount}c / {stats.releaseCount}r
                                 </span>
                               </span>
-
                               <span
-                                className={`mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border ${
+                                className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
                                   isSelected
                                     ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]'
                                     : 'border-[var(--edge)] text-transparent'
                                 }`}
                               >
-                                <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                                <Check className="h-3 w-3" strokeWidth={2} />
                               </span>
                             </button>
                           );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                        }
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={onSelectAll}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
-                  >
-                    <Layers3 className="h-4 w-4" strokeWidth={1.8} />
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onClearAll}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
-                  >
-                    <X className="h-4 w-4" strokeWidth={1.8} />
-                    Clear
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onReset}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
-                  >
-                    <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
-                    Reset
-                  </button>
-                </div>
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            disabled={!isOpen}
+                            onClick={() => onPresetToggle(preset.id)}
+                            className={`grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-[0.95rem] border p-3 text-left transition duration-300 active:scale-[0.99] ${
+                              isSelected
+                                ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
+                                : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                            }`}
+                          >
+                            <span className="grid min-w-0 grid-cols-[1.2rem_minmax(0,1fr)] gap-2.5">
+                              <ModelClassIcon classId={preset.classId} className="mt-0.5 h-4.5 w-4.5 text-[var(--ink)]" />
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">
+                                  {preset.label}
+                                </span>
+                                <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">{preset.description}</span>
+                                <span className="mt-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                                  {stats.providerCount} companies / {stats.releaseCount} releases
+                                </span>
+                              </span>
+                            </span>
+
+                            <span
+                              className={`mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border ${
+                                isSelected
+                                  ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]'
+                                  : 'border-[var(--edge)] text-transparent'
+                              }`}
+                            >
+                              <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className={`${isRail ? 'mt-3 gap-1.5' : 'mt-4 gap-2'} grid grid-cols-3`}>
+                <button
+                  type="button"
+                  disabled={!isOpen}
+                  onClick={onSelectAll}
+                  title="Select all categories"
+                  className={`${isRail ? 'h-8 px-2 text-[11px]' : 'h-10 px-3 text-xs'} inline-flex items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]`}
+                >
+                  <Layers3 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                  All
+                </button>
+                <button
+                  type="button"
+                  disabled={!isOpen}
+                  onClick={onClearAll}
+                  title="Clear categories"
+                  className={`${isRail ? 'h-8 px-2 text-[11px]' : 'h-10 px-3 text-xs'} inline-flex items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]`}
+                >
+                  <X className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  disabled={!isOpen}
+                  onClick={onReset}
+                  title="Reset categories"
+                  className={`${isRail ? 'h-8 px-2 text-[11px]' : 'h-10 px-3 text-xs'} inline-flex items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]`}
+                >
+                  <RotateCcw className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+                  Reset
+                </button>
               </div>
             </motion.div>
-          </div>,
-          document.body,
-        )
-      : null;
+      </div>
 
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-expanded={isOpen}
-        aria-label="Choose timeline categories"
-        onClick={onToggle}
-        className="inline-flex h-11 max-w-full items-center justify-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface)] px-4 text-sm font-medium text-[var(--ink)] shadow-[var(--soft-shadow)] transition duration-300 hover:-translate-y-[1px] hover:border-[var(--edge-strong)] hover:bg-[var(--surface-strong)] active:translate-y-0 active:scale-[0.98]"
-      >
-        <SlidersHorizontal className="h-4 w-4 shrink-0" strokeWidth={1.8} />
-        <span className="min-w-0 truncate">{boardView.label}</span>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 transition duration-300 ${isOpen ? 'rotate-180' : ''}`}
-          strokeWidth={1.8}
-        />
-      </button>
-
-      {pickerOverlay}
-    </div>
+      <AnimatePresence initial={false}>
+        {!isOpen && isRail ? (
+          <motion.div
+            key="category-rail"
+            initial={{opacity: 0, y: 8}}
+            animate={{opacity: 1, y: 0}}
+            exit={{opacity: 0, y: 8}}
+            transition={{duration: 0.2, ease: [0.22, 1, 0.36, 1]}}
+            className="flex flex-col items-center gap-3 px-2 pb-5"
+          >
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]" style={{writingMode: 'vertical-rl'}}>
+              Categories
+            </span>
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] font-mono text-[10px] text-[var(--ink-soft)]">
+              {selectedCount}
+            </span>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </aside>
   );
 }
 
@@ -1555,6 +998,323 @@ function SurfaceButton({
   );
 }
 
+function TimelineZoomRail({
+  className = '',
+  compact = false,
+  maxZoom,
+  minZoom,
+  onSliderActiveChange,
+  onZoomChange,
+  zoom,
+}: {
+  className?: string;
+  compact?: boolean;
+  maxZoom: number;
+  minZoom: number;
+  onSliderActiveChange?: (isActive: boolean) => void;
+  onZoomChange: ZoomHandler;
+  zoom: number;
+}) {
+  const sliderRef = useRef<HTMLLabelElement>(null);
+  const activeSliderPointerIdRef = useRef<number | null>(null);
+  const removeMouseDragListenersRef = useRef<(() => void) | null>(null);
+  const queuedSliderClientYRef = useRef<number | null>(null);
+  const sliderFrameRef = useRef<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const progress = getZoomProgress(zoom, minZoom, maxZoom);
+  const thumbTopPercent = 8 + (1 - progress) * 84;
+  const iconClassName = compact ? 'h-3.5 w-3.5' : 'h-4 w-4';
+  const isThumbExpanded = isDragging || isFocused || isHovered;
+  const thumbSizeClassName = isThumbExpanded
+    ? compact
+      ? 'h-10 min-w-10 px-2 text-[9px]'
+      : 'h-11 min-w-11 px-2.5 text-[10px]'
+    : compact
+      ? 'h-4 min-w-4 px-0 text-[0px]'
+      : 'h-5 min-w-5 px-0 text-[0px]';
+  const thumbInteractiveSizeClassName = compact
+    ? 'group-hover/zoomrail:h-10 group-hover/zoomrail:min-w-10 group-hover/zoomrail:px-2 group-hover/zoomrail:text-[9px] group-focus-within/zoomrail:h-10 group-focus-within/zoomrail:min-w-10 group-focus-within/zoomrail:px-2 group-focus-within/zoomrail:text-[9px]'
+    : 'group-hover/zoomrail:h-11 group-hover/zoomrail:min-w-11 group-hover/zoomrail:px-2.5 group-hover/zoomrail:text-[10px] group-focus-within/zoomrail:h-11 group-focus-within/zoomrail:min-w-11 group-focus-within/zoomrail:px-2.5 group-focus-within/zoomrail:text-[10px]';
+  const activeRailClassName = isDragging
+    ? 'text-[var(--ink)] opacity-100'
+    : 'opacity-45';
+
+  const setSliderActive = (isActive: boolean, sync = false) => {
+    const updateActiveState = () => {
+      setIsDragging(isActive);
+      onSliderActiveChange?.(isActive);
+    };
+
+    if (sync) {
+      flushSync(updateActiveState);
+      return;
+    }
+
+    updateActiveState();
+  };
+
+  const handleSliderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextProgress = Number(event.currentTarget.value);
+    onZoomChange(() => getZoomFromProgress(nextProgress, minZoom, maxZoom));
+  };
+
+  useEffect(() => {
+    return () => {
+      if (sliderFrameRef.current !== null) {
+        window.cancelAnimationFrame(sliderFrameRef.current);
+      }
+
+      queuedSliderClientYRef.current = null;
+      removeMouseDragListenersRef.current?.();
+      onSliderActiveChange?.(false);
+    };
+  }, [onSliderActiveChange]);
+
+  const updateZoomFromSliderPoint = (clientY: number) => {
+    const sliderRect = sliderRef.current?.getBoundingClientRect();
+
+    if (!sliderRect || sliderRect.height <= 0) {
+      return;
+    }
+
+    const nextProgress = clampNumber(1 - (clientY - sliderRect.top) / sliderRect.height, 0, 1);
+    onZoomChange(() => getZoomFromProgress(nextProgress, minZoom, maxZoom));
+  };
+
+  const flushQueuedSliderZoom = () => {
+    if (sliderFrameRef.current !== null) {
+      window.cancelAnimationFrame(sliderFrameRef.current);
+      sliderFrameRef.current = null;
+    }
+
+    const queuedClientY = queuedSliderClientYRef.current;
+    queuedSliderClientYRef.current = null;
+
+    if (queuedClientY !== null) {
+      updateZoomFromSliderPoint(queuedClientY);
+    }
+  };
+
+  const scheduleZoomFromSliderPoint = (clientY: number) => {
+    queuedSliderClientYRef.current = clientY;
+
+    if (sliderFrameRef.current !== null) {
+      return;
+    }
+
+    sliderFrameRef.current = window.requestAnimationFrame(() => {
+      sliderFrameRef.current = null;
+
+      const queuedClientY = queuedSliderClientYRef.current;
+      queuedSliderClientYRef.current = null;
+
+      if (queuedClientY !== null) {
+        updateZoomFromSliderPoint(queuedClientY);
+      }
+    });
+  };
+
+  const handleSliderPointerDown = (event: React.PointerEvent<HTMLLabelElement>) => {
+    if (!event.isPrimary || event.button !== 0) {
+      return;
+    }
+
+    activeSliderPointerIdRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSliderActive(true, true);
+    updateZoomFromSliderPoint(event.clientY);
+  };
+
+  const handleSliderPointerMove = (event: React.PointerEvent<HTMLLabelElement>) => {
+    if (activeSliderPointerIdRef.current !== event.pointerId) {
+      return;
+    }
+
+    scheduleZoomFromSliderPoint(event.clientY);
+    event.preventDefault();
+  };
+
+  const stopSliderPointerDrag = (event: React.PointerEvent<HTMLLabelElement>) => {
+    if (activeSliderPointerIdRef.current !== event.pointerId) {
+      return;
+    }
+
+    flushQueuedSliderZoom();
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    activeSliderPointerIdRef.current = null;
+    setSliderActive(false);
+  };
+
+  const stopMouseSliderDrag = () => {
+    flushQueuedSliderZoom();
+    removeMouseDragListenersRef.current?.();
+    removeMouseDragListenersRef.current = null;
+    setSliderActive(false);
+  };
+
+  const handleSliderMouseDown = (event: React.MouseEvent<HTMLLabelElement>) => {
+    if (event.button !== 0 || activeSliderPointerIdRef.current !== null) {
+      return;
+    }
+
+    removeMouseDragListenersRef.current?.();
+    setSliderActive(true, true);
+    updateZoomFromSliderPoint(event.clientY);
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      scheduleZoomFromSliderPoint(moveEvent.clientY);
+      moveEvent.preventDefault();
+    };
+
+    const handleMouseUp = () => stopMouseSliderDrag();
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp, {once: true});
+    removeMouseDragListenersRef.current = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  };
+
+  const handleSliderKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    const keyStep = event.shiftKey ? ZOOM_PROGRESS_STEP : ZOOM_SLIDER_KEYBOARD_STEP;
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowRight') {
+      onZoomChange((current) => getSteppedZoom(current, keyStep, minZoom, maxZoom));
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') {
+      onZoomChange((current) => getSteppedZoom(current, -keyStep, minZoom, maxZoom));
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === 'PageUp') {
+      onZoomChange((current) => getSteppedZoom(current, ZOOM_PROGRESS_STEP, minZoom, maxZoom));
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === 'PageDown') {
+      onZoomChange((current) => getSteppedZoom(current, -ZOOM_PROGRESS_STEP, minZoom, maxZoom));
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === 'Home') {
+      onZoomChange(() => minZoom);
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === 'End') {
+      onZoomChange(() => maxZoom);
+      event.preventDefault();
+    }
+  };
+
+  const handleRailBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      setIsFocused(false);
+    }
+  };
+
+  return (
+    <div
+      aria-label="Timeline zoom controls"
+      role="group"
+      className={`absolute z-40 flex ${
+        compact ? 'min-h-[17rem] w-12 py-3' : 'min-h-[22rem] w-14 py-4'
+      } group/zoomrail select-none flex-col items-center justify-center gap-3 px-2 text-[var(--ink-soft)] transition-[opacity,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:text-[var(--ink)] hover:opacity-100 focus-within:text-[var(--ink)] focus-within:opacity-100 ${activeRailClassName} ${className}`}
+      onBlur={handleRailBlur}
+      onFocus={() => setIsFocused(true)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onPointerEnter={() => setIsHovered(true)}
+      onPointerLeave={() => setIsHovered(false)}
+    >
+      <div
+        aria-hidden="true"
+        className={`${compact ? 'h-6 w-6' : 'h-7 w-7'} relative z-10 inline-flex shrink-0 items-center justify-center opacity-70`}
+      >
+        <ZoomInIcon className={iconClassName} />
+      </div>
+
+      <label
+        ref={sliderRef}
+        className={`relative z-10 ${
+          compact ? 'h-[12.5rem] w-8' : 'h-[16rem] w-9'
+        } cursor-ns-resize touch-none rounded-full focus-within:ring-2 focus-within:ring-[rgba(237,242,250,0.3)]`}
+        onMouseDown={handleSliderMouseDown}
+        onPointerCancel={stopSliderPointerDrag}
+        onPointerDown={handleSliderPointerDown}
+        onPointerMove={handleSliderPointerMove}
+        onPointerUp={stopSliderPointerDrag}
+      >
+        <span className="sr-only">Timeline zoom</span>
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 bg-center"
+          style={{
+            backgroundImage: 'radial-gradient(circle, rgba(237,242,250,0.28) 1.4px, transparent 1.6px)',
+            backgroundSize: '12px 12px',
+          }}
+        />
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 bg-center ${isDragging ? 'transition-none' : 'transition-[clip-path] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+          style={{
+            backgroundImage: 'radial-gradient(circle, rgba(237,242,250,0.92) 1.5px, transparent 1.7px)',
+            backgroundSize: '12px 12px',
+            clipPath: `inset(${(1 - progress) * 100}% 0 0 0)`,
+          }}
+        />
+        <span
+          className={`absolute left-1/2 grid ${thumbSizeClassName} ${thumbInteractiveSizeClassName} -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-[rgba(237,242,250,0.48)] bg-[rgba(237,242,250,0.95)] font-mono font-semibold text-[#0b0e14] shadow-[0_16px_32px_-22px_rgba(0,0,0,0.78)] ${isDragging ? 'scale-[1.04] transition-none' : 'transition-[top,width,height,min-width,padding,transform,box-shadow,font-size] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+          style={{top: `${thumbTopPercent}%`}}
+        >
+          <span className={`transition-opacity duration-200 group-hover/zoomrail:opacity-100 group-focus-within/zoomrail:opacity-100 ${isThumbExpanded ? 'opacity-100' : 'opacity-0'}`}>
+            {Math.round(zoom * 100)}%
+          </span>
+        </span>
+        <input
+          aria-label="Timeline zoom"
+          aria-orientation="vertical"
+          aria-valuetext={`${Math.round(zoom * 100)} percent`}
+          type="range"
+          min="0"
+          max="1"
+          step="0.001"
+          value={progress}
+          onBlur={() => setSliderActive(false)}
+          onChange={handleSliderChange}
+          onKeyDown={handleSliderKeyDown}
+          onPointerCancel={() => setSliderActive(false)}
+          onPointerDown={() => setSliderActive(true, true)}
+          onPointerUp={() => setSliderActive(false)}
+          className="pointer-events-none absolute inset-0 z-30 h-full w-full cursor-ns-resize touch-none opacity-0 focus-visible:outline-none"
+          style={{direction: 'rtl', writingMode: 'vertical-lr'}}
+        />
+      </label>
+
+      <div
+        aria-hidden="true"
+        className={`${compact ? 'h-6 w-6' : 'h-7 w-7'} relative z-10 inline-flex shrink-0 items-center justify-center opacity-70`}
+      >
+        <ZoomOutIcon className={iconClassName} />
+      </div>
+    </div>
+  );
+}
+
 function CompanyTypeIconBadge({
   className = '',
   company,
@@ -1567,6 +1327,97 @@ function CompanyTypeIconBadge({
       <ModelClassIcon classId={getPrimaryCompanyClass(company)} className="h-[1rem] w-[1rem]" />
     </span>
   );
+}
+
+function CompanyLogoBadge({
+  compact = false,
+  company,
+}: {
+  compact?: boolean;
+  company: Pick<ProcessedCompany, 'accent' | 'defaultClasses' | 'logoMark' | 'name' | 'productLines'>;
+}) {
+  const mark = company.logoMark;
+  const assetPath = mark ? ARTICLE_LOGO_ASSET_PATHS[mark] : undefined;
+  const isWideAsset = assetPath && isWideArticleLogoMark(mark);
+  const boxClassName = isWideAsset
+    ? compact
+      ? 'h-7 w-12 rounded-[0.72rem]'
+      : 'h-8 w-14 rounded-[0.82rem]'
+    : compact
+      ? 'h-7 w-7 rounded-[0.72rem]'
+      : 'h-8 w-8 rounded-[0.82rem]';
+  const assetClassName = isWideAsset
+    ? compact
+      ? 'relative h-[11px] w-9 object-contain'
+      : 'relative h-3 w-11 object-contain'
+    : compact
+      ? 'relative h-[18px] w-[18px] object-contain'
+      : 'relative h-5 w-5 object-contain';
+  const textSizeClassName = compact ? 'text-[10px]' : 'text-xs';
+
+  return (
+    <span
+      aria-label={`${company.name} logo`}
+      className={`${boxClassName} relative grid shrink-0 place-items-center overflow-hidden border border-white/10 ${
+        assetPath ? 'bg-[#f4f3ef]' : 'bg-[rgba(255,255,255,0.045)]'
+      } shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]`}
+      title={`${company.name} logo`}
+    >
+      {assetPath ? (
+        <img aria-hidden="true" alt="" className={assetClassName} src={getPublicAssetPath(assetPath)} />
+      ) : mark ? (
+        <>
+          <span
+            className="absolute inset-0 opacity-70"
+            style={{
+              background: `radial-gradient(circle at 28% 24%, ${toRgbaFromHex(company.accent, 0.35)}, transparent 48%)`,
+            }}
+          />
+          {renderArticleLogoMark(mark, company.accent, textSizeClassName)}
+        </>
+      ) : (
+        <CompanyTypeIconBadge className={compact ? 'h-4 w-4' : 'h-5 w-5'} company={company} />
+      )}
+    </span>
+  );
+}
+
+function renderArticleLogoMark(mark: ArticleLogoMark, accent: string, textSizeClassName: string) {
+  const sharedClassName = `relative font-semibold tracking-tight ${textSizeClassName}`;
+
+  if (mark === 'gpt' || mark === 'openai') {
+    return <span className={sharedClassName}>AI</span>;
+  }
+
+  if (mark === 'claude' || mark === 'anthropic') {
+    return <span className={sharedClassName}>C</span>;
+  }
+
+  if (mark === 'gemini' || mark === 'google') {
+    return <span className={sharedClassName}>G</span>;
+  }
+
+  if (mark === 'deepseek') {
+    return <span className={sharedClassName}>D</span>;
+  }
+
+  if (mark === 'sora') {
+    return <Clapperboard className="relative h-4 w-4" strokeWidth={1.8} />;
+  }
+
+  if (mark === 'figure') {
+    return <span className={sharedClassName}>F</span>;
+  }
+
+  if (mark === 'tesla') {
+    return <span className={sharedClassName}>T</span>;
+  }
+
+  if (mark === 'xai') {
+    return <span className={sharedClassName}>x</span>;
+  }
+
+  return <span className={sharedClassName} style={{color: accent}}>AI</span>;
 }
 
 function CompanyRailItem({
@@ -1646,7 +1497,7 @@ function CompanyRailItem({
       >
         <div className={`flex items-center ${compact ? 'gap-2' : 'gap-3'}`}>
           <GripVertical className="h-4 w-4 shrink-0 text-[var(--muted)]" strokeWidth={1.8} />
-          <CompanyTypeIconBadge className={compact ? 'h-7 w-7' : 'h-8 w-8'} company={company} />
+          <CompanyLogoBadge compact={compact} company={company} />
           <div className="min-w-0 flex-1">
             <p
               className={`truncate font-semibold tracking-tight text-[var(--ink)] ${
@@ -1824,19 +1675,23 @@ function ProductLineBranchConnectors({
 }
 
 function ProductLineTimelineLane({
+  activeArticleSlug,
   compact = false,
   company,
   companyIndex,
   currentGlobalDay,
   maxDays,
+  onModelSelect,
   productLine,
   productLineIndex,
 }: {
+  activeArticleSlug: string | null;
   compact?: boolean;
   company: ProcessedCompany;
   companyIndex: number;
   currentGlobalDay: number;
   maxDays: number;
+  onModelSelect: (slug: string) => void;
   productLine: ProcessedProductLine;
   productLineIndex: number;
 }) {
@@ -1885,6 +1740,7 @@ function ProductLineTimelineLane({
         const leftPercent = (release.globalDay / maxDays) * 100;
         const previousPercent = previousRelease ? (previousRelease.globalDay / maxDays) * 100 : leftPercent;
         const widthPercent = previousRelease ? leftPercent - previousPercent : 0;
+        const rangeWidthPercent = ((release.endGlobalDay - release.globalDay) / maxDays) * 100;
         const delay = companyIndex * 0.1 + productLineIndex * 0.05 + releaseIndex * 0.07;
         const isLatestInLine =
           productLine.latestRelease?.name === release.name && productLine.latestRelease?.date === release.date;
@@ -1893,6 +1749,9 @@ function ProductLineTimelineLane({
           : mixHexColor(company.accent, 255, 0.24);
         const labelBorderColor = toRgbaFromHex(company.accent, isLatestInLine ? 0.52 : 0.34);
         const labelBackground = isLatestInLine ? toRgbaFromHex(company.accent, 0.12) : undefined;
+        const isActiveArticle = activeArticleSlug === release.articleSlug;
+        const isGeneralEvent = release.eventKind === 'event';
+        const openActionLabel = isGeneralEvent ? 'Open event' : 'Open release';
 
         return (
           <React.Fragment key={`${company.id}-${productLine.id}-${release.name}-${release.date}`}>
@@ -1918,6 +1777,24 @@ function ProductLineTimelineLane({
               </motion.div>
             ) : null}
 
+            {release.endGlobalDay > release.globalDay ? (
+              <motion.div
+                initial={{opacity: 0, scaleX: 0}}
+                animate={{opacity: isLatestInLine ? 0.72 : 0.54, scaleX: 1}}
+                transition={{delay: delay + 0.04, duration: compact ? 0.48 : 0.54, ease: [0.22, 1, 0.36, 1]}}
+                className={`absolute top-1/2 z-10 origin-left -translate-y-1/2 rounded-full ${
+                  compact ? 'h-[7px]' : 'h-2'
+                }`}
+                style={{
+                  backgroundColor: company.accent,
+                  boxShadow: `0 0 18px color-mix(in srgb, ${company.accent} 34%, transparent)`,
+                  left: `${leftPercent}%`,
+                  minWidth: compact ? '8px' : '10px',
+                  width: `${rangeWidthPercent}%`,
+                }}
+              />
+            ) : null}
+
             <motion.div
               initial={{opacity: 0, scale: 0.78, y: compact ? 8 : 10}}
               animate={{opacity: 1, scale: 1, y: 0}}
@@ -1925,12 +1802,24 @@ function ProductLineTimelineLane({
               className="absolute top-1/2 z-20 -translate-x-1/2 -translate-y-1/2"
               style={{left: `${leftPercent}%`}}
             >
-              <div className="group relative cursor-default">
+              <button
+                type="button"
+                aria-current={isActiveArticle ? 'page' : undefined}
+                aria-label={`${openActionLabel} for ${release.name}, ${release.dateRangeLabel}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onModelSelect(release.articleSlug);
+                }}
+                onPointerDown={(event) => event.stopPropagation()}
+                className="group relative cursor-pointer text-left outline-none"
+              >
                 <div
-                  className={`${markerSizeClass} border-[3px] border-[var(--surface-strong)] transition duration-300 group-hover:scale-[1.22] ${markerShapeClass}`}
+                  className={`${markerSizeClass} border-[3px] border-[var(--surface-strong)] transition duration-300 group-hover:scale-[1.22] group-focus-visible:scale-[1.22] ${markerShapeClass}`}
                   style={{
                     backgroundColor: company.accent,
-                    boxShadow: isLatestInLine
+                    boxShadow: isActiveArticle
+                      ? `0 0 0 ${compact ? 6 : 7}px color-mix(in srgb, ${company.accent} 28%, transparent), 0 0 24px color-mix(in srgb, ${company.accent} 54%, transparent)`
+                      : isLatestInLine
                       ? `0 0 0 ${compact ? 4 : 5}px color-mix(in srgb, ${company.accent} 20%, transparent), 0 0 18px color-mix(in srgb, ${company.accent} 40%, transparent)`
                       : `0 0 0 4px color-mix(in srgb, ${company.accent} 11%, transparent)`,
                     filter: isLatestInLine ? 'saturate(1.35) brightness(1.08)' : undefined,
@@ -1953,17 +1842,17 @@ function ProductLineTimelineLane({
                 {!compact ? (
                   <div className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 opacity-0 transition duration-300 group-hover:opacity-100">
                     <div className="rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--ink)] shadow-[0_18px_38px_-24px_rgba(0,0,0,0.5)]">
-                      {productLine.shortLabel} / {release.dateLabel}
+                      {productLine.shortLabel} / {release.eventTypeShortLabel} / {release.dateRangeLabel}
                     </div>
                   </div>
                 ) : null}
-              </div>
+              </button>
             </motion.div>
           </React.Fragment>
         );
       })}
 
-      {productLine.latestRelease && currentGlobalDay > productLine.latestRelease.globalDay ? (
+      {productLine.latestRelease && currentGlobalDay > productLine.latestRelease.endGlobalDay ? (
         <>
           <motion.div
             initial={{opacity: 0, scaleX: 0}}
@@ -1978,10 +1867,10 @@ function ProductLineTimelineLane({
             }`}
             style={{
               backgroundColor: isHarnessLine ? harnessLineColor : undefined,
-              left: `${(productLine.latestRelease.globalDay / maxDays) * 100}%`,
+              left: `${(productLine.latestRelease.endGlobalDay / maxDays) * 100}%`,
               ['--quiet-flow-duration' as string]: `${compact ? 5.4 : 6.4}s`,
               ['--quiet-line-color' as string]: company.accent,
-              width: `${((currentGlobalDay - productLine.latestRelease.globalDay) / maxDays) * 100}%`,
+              width: `${((currentGlobalDay - productLine.latestRelease.endGlobalDay) / maxDays) * 100}%`,
             }}
           />
 
@@ -2004,17 +1893,21 @@ function ProductLineTimelineLane({
 }
 
 function CompanyTimelineGroup({
+  activeArticleSlug,
   compact = false,
   company,
   companyIndex,
   currentGlobalDay,
   maxDays,
+  onModelSelect,
 }: {
+  activeArticleSlug: string | null;
   compact?: boolean;
   company: ProcessedCompany;
   companyIndex: number;
   currentGlobalDay: number;
   maxDays: number;
+  onModelSelect: (slug: string) => void;
 }) {
   return (
     <div className="relative flex flex-col justify-center" style={{height: `${getCompanyGroupHeight(company, compact)}px`, gap: `${PRODUCT_LINE_GAP}px`}}>
@@ -2022,11 +1915,13 @@ function CompanyTimelineGroup({
       {company.productLines.map((productLine, productLineIndex) => (
         <React.Fragment key={`${company.id}-${productLine.id}`}>
           <ProductLineTimelineLane
+            activeArticleSlug={activeArticleSlug}
             compact={compact}
             company={company}
             companyIndex={companyIndex}
             currentGlobalDay={currentGlobalDay}
             maxDays={maxDays}
+            onModelSelect={onModelSelect}
             productLine={productLine}
             productLineIndex={productLineIndex}
           />
@@ -2100,7 +1995,7 @@ function CompanySummaryCard({
                 {company.latestRelease?.name ?? 'No releases'}
               </p>
               <p className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
-                {company.latestRelease?.dateLabel ?? 'Date unavailable'}
+                {company.latestRelease?.dateRangeLabel ?? 'Date unavailable'}
               </p>
             </div>
           </>
@@ -2114,6 +2009,276 @@ function CompanySummaryCard({
         />
       </div>
     </motion.div>
+  );
+}
+
+function getFallbackModelLogo(entry: ModelReleaseIndexEntry): ModelLogo {
+  const fallbackMark: ArticleLogoMark =
+    entry.companyLogoMark === 'openai'
+      ? 'gpt'
+      : entry.companyLogoMark === 'google'
+        ? 'gemini'
+        : entry.companyLogoMark === 'anthropic'
+          ? 'claude'
+          : entry.companyLogoMark;
+
+  return {
+    modelLabel: entry.name,
+    modelMark: fallbackMark,
+  };
+}
+
+function ArticleLogoGlyph({
+  accent,
+  label,
+  mark,
+  size,
+}: {
+  accent: string;
+  label: string;
+  mark: ArticleLogoMark;
+  size: 'large' | 'small';
+}) {
+  const isLarge = size === 'large';
+  const assetPath = ARTICLE_LOGO_ASSET_PATHS[mark];
+  const isWideAsset = assetPath && isWideArticleLogoMark(mark);
+  const boxClassName = isWideAsset
+    ? isLarge
+      ? 'h-16 w-28 rounded-[1.25rem]'
+      : 'h-11 w-20 rounded-[0.95rem]'
+    : isLarge
+      ? 'h-16 w-16 rounded-[1.25rem]'
+      : 'h-11 w-11 rounded-[0.95rem]';
+  const assetClassName = isWideAsset
+    ? isLarge
+      ? 'relative h-5 w-20 object-contain'
+      : 'relative h-3 w-14 object-contain'
+    : isLarge
+      ? 'relative h-10 w-10 object-contain'
+      : 'relative h-7 w-7 object-contain';
+  const textSizeClassName = isLarge ? 'text-lg' : 'text-sm';
+
+  return (
+    <span
+      aria-label={`${label} logo`}
+      className={`${boxClassName} relative grid shrink-0 place-items-center overflow-hidden border border-white/10 ${
+        assetPath ? 'bg-[#f4f3ef]' : 'bg-[rgba(255,255,255,0.045)]'
+      } shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]`}
+      title={`${label} logo`}
+    >
+      {!assetPath ? (
+        <span
+          className="absolute inset-0 opacity-70"
+          style={{
+            background: `radial-gradient(circle at 28% 24%, ${toRgbaFromHex(accent, 0.35)}, transparent 48%)`,
+          }}
+        />
+      ) : null}
+      {assetPath ? (
+        <img aria-hidden="true" alt="" className={assetClassName} src={getPublicAssetPath(assetPath)} />
+      ) : (
+        renderArticleLogoMark(mark, accent, textSizeClassName)
+      )}
+    </span>
+  );
+}
+
+function ArticleReleaseLink({
+  label,
+  onNavigate,
+  slug,
+  title,
+}: {
+  label: string;
+  onNavigate: (slug: string) => void;
+  slug: string | null;
+  title: string | null;
+}) {
+  if (!slug || !title) {
+    return (
+      <div className="rounded-[1rem] border border-[var(--edge)] px-4 py-3 text-sm text-[var(--muted)]">
+        {label}: none
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onNavigate(slug)}
+      className="group rounded-[1rem] border border-[var(--edge)] px-4 py-3 text-left transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.99]"
+    >
+      <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</span>
+      <span className="mt-1 flex items-center gap-2 text-sm font-semibold text-[var(--ink)]">
+        {title}
+        <ArrowRight className="h-3.5 w-3.5 transition duration-300 group-hover:translate-x-0.5" strokeWidth={1.8} />
+      </span>
+    </button>
+  );
+}
+
+function ArticleMediaFigure({media}: {media: ArticleMedia}) {
+  const [hasImageError, setHasImageError] = useState(false);
+
+  if (hasImageError) {
+    return null;
+  }
+
+  return (
+    <figure className="mt-7 overflow-hidden rounded-[1.25rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--soft-shadow)]">
+      <img
+        src={getPublicAssetPath(media.src)}
+        alt={media.alt}
+        className="w-full bg-black object-contain"
+        loading="lazy"
+        onError={() => setHasImageError(true)}
+      />
+      {media.caption ? (
+        <figcaption className="border-t border-[var(--edge)] px-4 py-3 text-xs leading-5 text-[var(--ink-soft)]">
+          {media.caption}
+        </figcaption>
+      ) : null}
+    </figure>
+  );
+}
+
+function ModelArticlePanel({
+  entry,
+  onBack,
+  onNavigate,
+  requestedSlug,
+}: {
+  entry: ModelReleaseIndexEntry | null;
+  onBack: () => void;
+  onNavigate: (slug: string) => void;
+  requestedSlug: string;
+}) {
+  const article = entry?.article ?? null;
+  const logo = entry ? (article?.logo ?? getFallbackModelLogo(entry)) : null;
+  const title = article?.title ?? entry?.name ?? 'Model not found';
+  const summary =
+    article?.summary ??
+    (entry
+      ? `${entry.name} is tracked as a ${entry.eventTypeLabel.toLowerCase()} from ${entry.companyName} in the ${entry.productLineLabel} line.`
+      : `No timeline entry exists for ${requestedSlug}.`);
+
+  return (
+    <motion.aside
+      key="model-article-panel"
+      initial={{opacity: 0, x: 72}}
+      animate={{opacity: 1, x: 0}}
+      exit={{opacity: 0, x: 72}}
+      transition={{duration: 0.38, ease: [0.22, 1, 0.36, 1]}}
+      className="fixed inset-y-0 right-0 z-40 w-full overflow-y-auto border-l border-[var(--edge-strong)] bg-[rgba(8,11,16,0.98)] shadow-[0_34px_100px_-42px_rgba(0,0,0,0.9)] backdrop-blur-xl md:w-[min(760px,58vw)]"
+    >
+      <article className="min-h-full px-5 py-5 md:px-8 md:py-8">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--edge)] px-4 text-sm font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+          >
+            <ArrowLeft className="h-4 w-4" strokeWidth={1.8} />
+            Timeline
+          </button>
+
+          {entry ? (
+            <span className="inline-flex items-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface)] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">
+              <CalendarDays className="h-3.5 w-3.5" strokeWidth={1.8} />
+              {entry.dateRangeLabel}
+            </span>
+          ) : null}
+        </div>
+
+        {entry && logo ? (
+          <div className="mt-9 flex items-start gap-4">
+            <ArticleLogoGlyph accent={entry.accent} label={logo.modelLabel} mark={logo.modelMark} size="large" />
+            <ArticleLogoGlyph accent={entry.accent} label={entry.companyName} mark={entry.companyLogoMark} size="small" />
+          </div>
+        ) : null}
+
+        <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">
+          {article?.eyebrow ?? entry?.eventTypeLabel ?? 'Unknown route'}
+        </p>
+        <h1 className="mt-3 max-w-[12ch] text-4xl leading-none tracking-tighter text-[var(--ink)] md:text-6xl">
+          {title}
+        </h1>
+        <p className="mt-5 max-w-[68ch] text-base leading-8 text-[var(--ink-soft)] md:text-lg">
+          {article?.dek ?? summary}
+        </p>
+
+        {article?.media ? <ArticleMediaFigure media={article.media} /> : null}
+
+        {entry ? (
+          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            {(article?.facts ?? [
+              {label: 'Company', value: entry.companyName},
+              {label: 'Product line', value: entry.productLineLabel},
+              {label: entry.eventKind === 'event' ? 'Event date' : 'Release date', value: entry.dateRangeLabel},
+              {label: 'Type', value: entry.eventTypeLabel},
+            ]).map((fact) => (
+              <div key={`${fact.label}-${fact.value}`} className="border-t border-[var(--edge)] pt-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{fact.label}</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--ink)]">{fact.value}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <section className="mt-9 border-t border-[var(--edge)] pt-7">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[var(--ink)]">
+            <BookOpen className="h-4 w-4" strokeWidth={1.8} />
+            Summary
+          </div>
+          <p className="mt-4 text-base leading-8 text-[var(--ink-soft)]">{summary}</p>
+          {article?.impact ? <p className="mt-4 text-base leading-8 text-[var(--ink-soft)]">{article.impact}</p> : null}
+        </section>
+
+        {article?.sections.map((section) => (
+          <section key={section.heading} className="mt-8 border-t border-[var(--edge)] pt-7">
+            <h2 className="text-xl font-semibold tracking-tight text-[var(--ink)]">{section.heading}</h2>
+            <div className="mt-4 space-y-4">
+              {section.body.map((paragraph) => (
+                <p key={paragraph} className="text-base leading-8 text-[var(--ink-soft)]">
+                  {paragraph}
+                </p>
+              ))}
+            </div>
+          </section>
+        ))}
+
+        {article?.sources.length ? (
+          <section className="mt-8 border-t border-[var(--edge)] pt-7">
+            <h2 className="text-xl font-semibold tracking-tight text-[var(--ink)]">Sources</h2>
+            <div className="mt-4 space-y-2">
+              {article.sources.map((source) => (
+                <a
+                  key={source.url}
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between gap-3 rounded-[1rem] border border-[var(--edge)] px-4 py-3 text-sm text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]"
+                >
+                  <span>{source.label}</span>
+                  <ExternalLink className="h-4 w-4 shrink-0" strokeWidth={1.8} />
+                </a>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {entry ? (
+          <div className="mt-8 grid gap-3 border-t border-[var(--edge)] pt-7 sm:grid-cols-2">
+            <ArticleReleaseLink label="Previous" onNavigate={onNavigate} slug={entry.previousSlug} title={entry.previousName} />
+            <ArticleReleaseLink label="Next" onNavigate={onNavigate} slug={entry.nextSlug} title={entry.nextName} />
+          </div>
+        ) : (
+          <div className="mt-8 rounded-[1.1rem] border border-[var(--edge)] bg-[var(--surface)] p-5">
+            <p className="text-sm leading-6 text-[var(--ink-soft)]">This route does not match a known model or event entry.</p>
+          </div>
+        )}
+      </article>
+    </motion.aside>
   );
 }
 
@@ -3815,6 +3980,7 @@ type CompanyMoveHandler = (companyId: string, direction: CompanyMoveDirection) =
 type CompanyReorderHandler = (sourceCompanyId: string, targetCompanyId: string) => void;
 
 type DesktopTimelineExperienceProps = {
+  activeArticleSlug: string | null;
   boardView: BoardView;
   currentGlobalDay: number;
   draggedCompanyId: string | null;
@@ -3823,6 +3989,7 @@ type DesktopTimelineExperienceProps = {
   hiddenCompanyCount: number;
   handleZoomChange: ZoomHandler;
   isPanning: boolean;
+  isZoomSliderActive: boolean;
   latestCompany: ProcessedCompany | null;
   maxDays: number;
   minZoom: number;
@@ -3835,7 +4002,9 @@ type DesktopTimelineExperienceProps = {
   onCompanyHide: (companyId: string) => void;
   onCompanyMove: CompanyMoveHandler;
   onCompanyReorder: CompanyReorderHandler;
+  onModelSelect: (slug: string) => void;
   onShowHiddenCompanies: () => void;
+  onZoomSliderActiveChange: (isActive: boolean) => void;
   processedCompanies: ProcessedCompany[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   stopPanning: TimelinePointerHandler;
@@ -3846,12 +4015,14 @@ type DesktopTimelineExperienceProps = {
 };
 
 type MobileTimelineExperienceProps = {
+  activeArticleSlug: string | null;
   boardView: BoardView;
   currentGlobalDay: number;
   draggedCompanyId: string | null;
   handleZoomChange: ZoomHandler;
   latestCompany: ProcessedCompany | null;
   hiddenCompanyCount: number;
+  isZoomSliderActive: boolean;
   minZoom: number;
   maxZoom: number;
   maxDays: number;
@@ -3863,7 +4034,9 @@ type MobileTimelineExperienceProps = {
   onCompanyHide: (companyId: string) => void;
   onCompanyMove: CompanyMoveHandler;
   onCompanyReorder: CompanyReorderHandler;
+  onModelSelect: (slug: string) => void;
   onShowHiddenCompanies: () => void;
+  onZoomSliderActiveChange: (isActive: boolean) => void;
   processedCompanies: ProcessedCompany[];
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   timelineWidth: number;
@@ -3872,6 +4045,7 @@ type MobileTimelineExperienceProps = {
 };
 
 function DesktopTimelineExperience({
+  activeArticleSlug,
   boardView,
   currentGlobalDay,
   draggedCompanyId,
@@ -3880,6 +4054,7 @@ function DesktopTimelineExperience({
   hiddenCompanyCount,
   handleZoomChange,
   isPanning,
+  isZoomSliderActive,
   latestCompany,
   maxDays,
   minZoom,
@@ -3892,7 +4067,9 @@ function DesktopTimelineExperience({
   onCompanyHide,
   onCompanyMove,
   onCompanyReorder,
+  onModelSelect,
   onShowHiddenCompanies,
+  onZoomSliderActiveChange,
   processedCompanies,
   scrollContainerRef,
   stopPanning,
@@ -3902,6 +4079,7 @@ function DesktopTimelineExperience({
   zoom,
 }: DesktopTimelineExperienceProps) {
   const timelineMinHeight = getTimelineMinHeight(processedCompanies);
+  const shouldFreezeTimelineSizing = isPanning || isZoomSliderActive;
 
   return (
     <>
@@ -3919,7 +4097,7 @@ function DesktopTimelineExperience({
               </h1>
               <p className="max-w-[68ch] text-base leading-relaxed text-[var(--ink-soft)] md:text-lg">
                 {boardView.isDefault
-                  ? 'Explore important AI milestones across frontier models, open systems, generative media, coding tools, and the companies shaping them.'
+                  ? 'Explore important AI milestones across frontier models, open systems, generative media, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.'
                   : boardView.isEmpty
                     ? 'Turn on one or more product lines to compose the timeline.'
                   : boardView.isComposite
@@ -3931,73 +4109,36 @@ function DesktopTimelineExperience({
             <div className="border-l border-[var(--edge-strong)] pl-5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Reading notes</p>
               <p className="mt-4 max-w-[42ch] text-sm leading-7 text-[var(--ink-soft)]">
-                Zoom into dense stretches, drag the field to travel, and read the dashed extensions as time since each
-                product line&apos;s latest release. Dates stay absolute, so concurrency and dry spells remain legible.
+                Drag the field to pan across dense stretches, then hold and use the mouse wheel to zoom around the
+                pointer. Dates stay absolute, so concurrency and dry spells remain legible.
               </p>
+              {hiddenCompanyCount > 0 ? (
+                <div className="mt-5">
+                  <SurfaceButton label="Show hidden companies" onClick={onShowHiddenCompanies}>
+                    <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
+                    <span className="hidden sm:inline">Companies</span>
+                  </SurfaceButton>
+                </div>
+              ) : null}
             </div>
           </div>
         </motion.div>
       </section>
 
       <section className="mx-auto max-w-[1540px] px-5 pb-8 md:px-8">
+        <div className="relative pr-16">
+          <div
+            className="absolute right-[calc(100%+1rem)] top-0 z-40 hidden [--category-expanded-width:min(260px,max(74px,calc((100vw-1540px)/2+16px)))] lg:flex max-[1699px]:left-0 max-[1699px]:right-auto max-[1699px]:[--category-expanded-width:260px]"
+          >
+            {modelExplorer}
+          </div>
+
         <motion.section
           initial={{opacity: 0, y: 24}}
           animate={{opacity: 1, y: 0}}
           transition={{duration: 0.9, delay: 0.14, ease: [0.22, 1, 0.36, 1]}}
-          className="timeline-fluid-obstacle overflow-hidden rounded-[2.4rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
+          className="timeline-fluid-obstacle min-w-0 overflow-hidden rounded-[2.4rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
         >
-          <div className="border-b border-[var(--edge)] px-5 py-5 md:px-7">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Timeline field</p>
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-[var(--muted)]">
-                  <span className="inline-flex items-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1.5 shadow-[var(--soft-shadow)]">
-                    <DragIcon className="h-4 w-4" />
-                    Drag sideways to pan, up or down to zoom
-                  </span>
-                  <span className="inline-flex items-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1.5 text-[var(--ink-soft)] shadow-[var(--soft-shadow)]">
-                    <Layers3 className="h-4 w-4" strokeWidth={1.8} />
-                    {boardView.label}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 lg:justify-self-end">
-                {modelExplorer}
-
-                <SurfaceButton
-                  label="Zoom out"
-                  onClick={() => handleZoomChange((current) => getSteppedZoom(current, -ZOOM_PROGRESS_STEP, minZoom, maxZoom))}
-                >
-                  <ZoomOutIcon className="h-4 w-4" />
-                </SurfaceButton>
-
-                <div className="inline-flex h-11 min-w-20 items-center justify-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-4 font-mono text-sm text-[var(--ink-soft)] shadow-[var(--soft-shadow)]">
-                  {Math.round(zoom * 100)}%
-                </div>
-
-                <SurfaceButton
-                  label="Zoom in"
-                  onClick={() => handleZoomChange((current) => getSteppedZoom(current, ZOOM_PROGRESS_STEP, minZoom, maxZoom))}
-                >
-                  <ZoomInIcon className="h-4 w-4" />
-                </SurfaceButton>
-
-                <SurfaceButton label="Reset zoom" onClick={() => handleZoomChange(() => minZoom)}>
-                  <ResetIcon className="h-4 w-4" />
-                  <span className="hidden sm:inline">Reset</span>
-                </SurfaceButton>
-
-                {hiddenCompanyCount > 0 ? (
-                  <SurfaceButton label="Show hidden companies" onClick={onShowHiddenCompanies}>
-                    <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
-                    <span className="hidden sm:inline">Companies</span>
-                  </SurfaceButton>
-                ) : null}
-              </div>
-            </div>
-          </div>
-
           <div className="relative">
             {processedCompanies.length === 0 ? (
               <div className="absolute bottom-0 left-[320px] right-0 top-0 z-20 flex items-center justify-center px-6">
@@ -4041,14 +4182,15 @@ function DesktopTimelineExperience({
               onPointerMove={handlePointerMove}
               onPointerUp={stopPanning}
               onPointerCancel={stopPanning}
+              onLostPointerCapture={stopPanning}
             >
               <div
-                className={`relative ${isPanning ? 'transition-none' : 'transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+                className={`relative ${shouldFreezeTimelineSizing ? 'transition-none' : 'transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
                 style={{minWidth: `${timelineWidth + LABEL_RAIL_WIDTH}px`}}
               >
                 <div style={{paddingLeft: `${LABEL_RAIL_WIDTH}px`}}>
                   <div
-                    className={`relative pb-14 ${isPanning ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+                    className={`relative pb-14 ${shouldFreezeTimelineSizing ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
                     style={{width: `${timelineWidth}px`, minHeight: `${timelineMinHeight}px`}}
                   >
                     <div className="pointer-events-none absolute inset-0">
@@ -4093,10 +4235,12 @@ function DesktopTimelineExperience({
                         {processedCompanies.map((company, companyIndex) => (
                           <React.Fragment key={`${company.id}-timeline-group`}>
                             <CompanyTimelineGroup
+                              activeArticleSlug={activeArticleSlug}
                               company={company}
                               companyIndex={companyIndex}
                               currentGlobalDay={currentGlobalDay}
                               maxDays={maxDays}
+                              onModelSelect={onModelSelect}
                             />
                           </React.Fragment>
                         ))}
@@ -4108,6 +4252,15 @@ function DesktopTimelineExperience({
             </div>
           </div>
         </motion.section>
+        <TimelineZoomRail
+          className="right-0 top-1/2 -translate-y-1/2"
+          maxZoom={maxZoom}
+          minZoom={minZoom}
+          onSliderActiveChange={onZoomSliderActiveChange}
+          onZoomChange={handleZoomChange}
+          zoom={zoom}
+        />
+        </div>
       </section>
 
       <section className="mx-auto max-w-[1540px] px-5 pb-16 md:px-8 md:pb-20">
@@ -4144,12 +4297,14 @@ function DesktopTimelineExperience({
 }
 
 function MobileTimelineExperience({
+  activeArticleSlug,
   boardView,
   currentGlobalDay,
   draggedCompanyId,
   handleZoomChange,
-  latestCompany,
   hiddenCompanyCount,
+  isZoomSliderActive,
+  latestCompany,
   minZoom,
   maxZoom,
   maxDays,
@@ -4161,7 +4316,9 @@ function MobileTimelineExperience({
   onCompanyHide,
   onCompanyMove,
   onCompanyReorder,
+  onModelSelect,
   onShowHiddenCompanies,
+  onZoomSliderActiveChange,
   processedCompanies,
   scrollContainerRef,
   timelineWidth,
@@ -4185,7 +4342,7 @@ function MobileTimelineExperience({
             </h1>
             <p className="text-sm leading-7 text-[var(--ink-soft)]">
               {boardView.isDefault
-                ? 'Explore important AI milestones across frontier models, open systems, generative media, coding tools, and the companies shaping them.'
+                ? 'Explore important AI milestones across frontier models, open systems, generative media, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.'
                 : boardView.isEmpty
                   ? 'Turn on one or more product lines to compose the mobile timeline.'
                 : boardView.isComposite
@@ -4204,7 +4361,6 @@ function MobileTimelineExperience({
               <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">{boardView.label}</p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              {modelExplorer}
               {hiddenCompanyCount > 0 ? (
                 <SurfaceButton label="Show hidden companies" onClick={onShowHiddenCompanies}>
                   <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
@@ -4217,55 +4373,15 @@ function MobileTimelineExperience({
       </section>
 
       <section className="mx-auto max-w-[760px] px-4 pb-6">
+        <div className="mb-4">{modelExplorer}</div>
+
+        <div className="relative pr-14">
         <motion.section
           initial={{opacity: 0, y: 20}}
           animate={{opacity: 1, y: 0}}
           transition={{duration: 0.8, delay: 0.1, ease: [0.22, 1, 0.36, 1]}}
           className="timeline-fluid-obstacle overflow-hidden rounded-[1.9rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
         >
-          <div className="border-b border-[var(--edge)] px-4 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Timeline field</p>
-            <div className="mt-3 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.14em] text-[var(--muted)]">
-              <span>Swipe horizontally to move</span>
-              <span className="font-mono">{Math.round(zoom * 100)}%</span>
-            </div>
-
-            <div className="mt-3 flex items-center gap-2">
-              <SurfaceButton
-                label="Zoom out"
-                onClick={() => handleZoomChange((current) => getSteppedZoom(current, -ZOOM_PROGRESS_STEP, minZoom, maxZoom))}
-              >
-                <ZoomOutIcon className="h-4 w-4" />
-              </SurfaceButton>
-
-              <SurfaceButton label="Reset zoom" onClick={() => handleZoomChange(() => minZoom)}>
-                <ResetIcon className="h-4 w-4" />
-              </SurfaceButton>
-
-              <SurfaceButton
-                label="Zoom in"
-                onClick={() => handleZoomChange((current) => getSteppedZoom(current, ZOOM_PROGRESS_STEP, minZoom, maxZoom))}
-              >
-                <ZoomInIcon className="h-4 w-4" />
-              </SurfaceButton>
-            </div>
-
-            <label className="mt-4 block">
-              <span className="sr-only">Canvas zoom</span>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.001"
-                value={getZoomProgress(zoom, minZoom, maxZoom)}
-                onChange={(event) =>
-                  handleZoomChange(() => getZoomFromProgress(Number(event.target.value), minZoom, maxZoom))
-                }
-                className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[var(--edge)] accent-[var(--ink)]"
-              />
-            </label>
-          </div>
-
           <div className="relative">
             {processedCompanies.length === 0 ? (
               <div className="absolute bottom-0 left-[196px] right-0 top-0 z-20 flex items-center justify-center px-3">
@@ -4306,12 +4422,12 @@ function MobileTimelineExperience({
               style={{minHeight: `${timelineMinHeight}px`}}
             >
               <div
-                className="relative transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                className={`relative ${isZoomSliderActive ? 'transition-none' : 'transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
                 style={{minWidth: `${timelineWidth + MOBILE_LABEL_RAIL_WIDTH}px`}}
               >
                 <div style={{paddingLeft: `${MOBILE_LABEL_RAIL_WIDTH}px`}}>
                   <div
-                    className="relative pb-10 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                    className={`relative pb-10 ${isZoomSliderActive ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
                     style={{width: `${timelineWidth}px`, minHeight: `${timelineMinHeight}px`}}
                   >
                     <div className="pointer-events-none absolute inset-0">
@@ -4356,11 +4472,13 @@ function MobileTimelineExperience({
                         {processedCompanies.map((company, companyIndex) => (
                           <React.Fragment key={`${company.id}-mobile-timeline-group`}>
                             <CompanyTimelineGroup
+                              activeArticleSlug={activeArticleSlug}
                               compact
                               company={company}
                               companyIndex={companyIndex}
                               currentGlobalDay={currentGlobalDay}
                               maxDays={maxDays}
+                              onModelSelect={onModelSelect}
                             />
                           </React.Fragment>
                         ))}
@@ -4372,6 +4490,16 @@ function MobileTimelineExperience({
             </div>
           </div>
         </motion.section>
+        <TimelineZoomRail
+          compact
+          className="right-0 top-1/2 -translate-y-1/2"
+          maxZoom={maxZoom}
+          minZoom={minZoom}
+          onSliderActiveChange={onZoomSliderActiveChange}
+          onZoomChange={handleZoomChange}
+          zoom={zoom}
+        />
+        </div>
       </section>
 
       <section className="mx-auto max-w-[760px] px-4 pb-16">
@@ -4402,10 +4530,12 @@ export default function App() {
   const [zoom, setZoom] = useState(DEFAULT_DESKTOP_ZOOM);
   const [mobileZoom, setMobileZoom] = useState(DEFAULT_MOBILE_ZOOM);
   const [isPanning, setIsPanning] = useState(false);
+  const [isZoomSliderActive, setIsZoomSliderActive] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [draggedCompanyId, setDraggedCompanyId] = useState<string | null>(null);
   const [hiddenCompanyIds, setHiddenCompanyIds] = useState<string[]>([]);
   const [companyOrderIds, setCompanyOrderIds] = useState<string[]>(() => companies.map((company) => company.id));
+  const [route, setRoute] = useState<AppRoute>(() => getCurrentAppRoute());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const mobileScrollContainerRef = useRef<HTMLDivElement>(null);
   const desktopPointerOffsetXRef = useRef<number | null>(null);
@@ -4413,18 +4543,20 @@ export default function App() {
   const hasPositionedInitialMobileView = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
   const dragFrameRef = useRef<number | null>(null);
+  const isZoomSliderActiveRef = useRef(false);
+  const timelineWheelHandlerRef = useRef<(event: WheelEvent) => void>(() => undefined);
+  const removeWheelCaptureListenerRef = useRef<(() => void) | null>(null);
   const latestDragPointRef = useRef<{
     clientX: number;
     clientY: number;
   } | null>(null);
   const panStateRef = useRef({
-    hasPassedZoomDeadzone: false,
     lastX: 0,
-    lastY: 0,
-    startY: 0,
-    zoomReferenceProgress: 0,
   });
   const [viewportWidths, setViewportWidths] = useState({desktop: 0, mobile: 0});
+  const activeArticleSlug = route.kind === 'model' ? route.slug : null;
+  const activeArticleEntry = activeArticleSlug ? (modelReleaseIndexBySlug[activeArticleSlug] ?? null) : null;
+  const isArticleOpen = route.kind === 'model';
 
   const boardView = useMemo(() => getBoardView(selectedPresetIds), [selectedPresetIds]);
   const visibleCompanies = useMemo(() => getVisibleCompanies(companies, selectedPresetIds), [selectedPresetIds]);
@@ -4474,6 +4606,39 @@ export default function App() {
     const timeout = window.setTimeout(() => setIsReady(true), 120);
     return () => window.clearTimeout(timeout);
   }, []);
+
+  useEffect(() => {
+    const updateRoute = () => setRoute(getCurrentAppRoute());
+
+    updateRoute();
+    window.addEventListener('hashchange', updateRoute);
+
+    return () => window.removeEventListener('hashchange', updateRoute);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      removeWheelCaptureListenerRef.current?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeArticleEntry) {
+      return;
+    }
+
+    setSelectedPresetIds((currentIds) => {
+      const missingPresetIds = activeArticleEntry.presets.filter((presetId) => !currentIds.includes(presetId));
+
+      if (missingPresetIds.length === 0) {
+        return currentIds;
+      }
+
+      return [...currentIds, ...missingPresetIds];
+    });
+
+    setHiddenCompanyIds((currentIds) => currentIds.filter((companyId) => companyId !== activeArticleEntry.companyId));
+  }, [activeArticleEntry]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 768px)');
@@ -4616,11 +4781,14 @@ export default function App() {
     setCompanyOrderIds((currentIds) => moveVisibleCompanyId(currentIds, displayedCompanyIds, companyId, direction));
   };
 
+  const navigateToModelSlug = (slug: string) => {
+    window.location.hash = `#/models/${encodeURIComponent(slug)}`;
+  };
+
   const explorerProps = {
     boardView,
     isOpen: isExplorerOpen,
     onClearAll: clearAllPresets,
-    onClose: () => setIsExplorerOpen(false),
     onPresetToggle: togglePreset,
     onReset: resetPreset,
     onSelectAll: selectAllPresets,
@@ -4628,6 +4796,11 @@ export default function App() {
     presetStats,
     selectedPresetIds,
   };
+
+  const handleZoomSliderActiveChange = useCallback((isActive: boolean) => {
+    isZoomSliderActiveRef.current = isActive;
+    setIsZoomSliderActive((current) => (current === isActive ? current : isActive));
+  }, []);
 
   const handleZoomChange = (updater: (zoomLevel: number) => number) => {
     const container = scrollContainerRef.current;
@@ -4639,7 +4812,7 @@ export default function App() {
         ? getTimelineAnchorRatio(container.scrollLeft, anchorOffsetX, LABEL_RAIL_WIDTH, timelineWidth)
         : null;
 
-    startTransition(() => {
+    const applyZoomChange = () => {
       setZoom((previousZoom) => {
         const nextZoom = Number(clampNumber(updater(previousZoom), desktopMinZoom, DESKTOP_MAX_ZOOM).toFixed(3));
         const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
@@ -4665,7 +4838,14 @@ export default function App() {
 
         return nextZoom;
       });
-    });
+    };
+
+    if (isZoomSliderActiveRef.current || activePointerIdRef.current !== null) {
+      applyZoomChange();
+      return;
+    }
+
+    startTransition(applyZoomChange);
   };
 
   const handleMobileZoomChange = (updater: (zoomLevel: number) => number) => {
@@ -4676,7 +4856,7 @@ export default function App() {
         ? getTimelineAnchorRatio(container.scrollLeft, anchorOffsetX, MOBILE_LABEL_RAIL_WIDTH, mobileTimelineWidth)
         : null;
 
-    startTransition(() => {
+    const applyMobileZoomChange = () => {
       setMobileZoom((previousZoom) => {
         const nextZoom = Number(clampNumber(updater(previousZoom), mobileMinZoom, MOBILE_MAX_ZOOM).toFixed(3));
         const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
@@ -4702,7 +4882,43 @@ export default function App() {
 
         return nextZoom;
       });
-    });
+    };
+
+    if (isZoomSliderActiveRef.current) {
+      applyMobileZoomChange();
+      return;
+    }
+
+    startTransition(applyMobileZoomChange);
+  };
+
+  timelineWheelHandlerRef.current = (event: WheelEvent) => {
+    if (activePointerIdRef.current === null || !scrollContainerRef.current) {
+      return;
+    }
+
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+
+    if (event.deltaY === 0) {
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    desktopPointerOffsetXRef.current = clampNumber(event.clientX - containerRect.left, 0, container.clientWidth);
+
+    const normalizedDeltaY =
+      event.deltaMode === 1
+        ? event.deltaY * 16
+        : event.deltaMode === 2
+          ? event.deltaY * container.clientHeight
+          : event.deltaY;
+
+    handleZoomChange((current) =>
+      getSteppedZoom(current, -normalizedDeltaY * WHEEL_ZOOM_PROGRESS_PER_PIXEL, desktopMinZoom, DESKTOP_MAX_ZOOM),
+    );
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -4716,14 +4932,18 @@ export default function App() {
 
     activePointerIdRef.current = event.pointerId;
     panStateRef.current = {
-      hasPassedZoomDeadzone: false,
       lastX: event.clientX,
-      lastY: event.clientY,
-      startY: event.clientY,
-      zoomReferenceProgress: getZoomProgress(zoom, desktopMinZoom, DESKTOP_MAX_ZOOM),
     };
 
     container.setPointerCapture(event.pointerId);
+    removeWheelCaptureListenerRef.current?.();
+
+    const handleCapturedWheel = (wheelEvent: WheelEvent) => timelineWheelHandlerRef.current(wheelEvent);
+    window.addEventListener('wheel', handleCapturedWheel, {capture: true, passive: false});
+    removeWheelCaptureListenerRef.current = () => {
+      window.removeEventListener('wheel', handleCapturedWheel, true);
+    };
+
     flushSync(() => setIsPanning(true));
     event.preventDefault();
   };
@@ -4747,66 +4967,9 @@ export default function App() {
     desktopPointerOffsetXRef.current = pointerOffsetX;
 
     const deltaX = latestDragPoint.clientX - panStateRef.current.lastX;
-    let zoomDeltaY = latestDragPoint.clientY - panStateRef.current.lastY;
-
-    if (!panStateRef.current.hasPassedZoomDeadzone) {
-      const totalZoomDeltaY = latestDragPoint.clientY - panStateRef.current.startY;
-
-      if (Math.abs(totalZoomDeltaY) <= DRAG_ZOOM_DEADZONE_PX) {
-        zoomDeltaY = 0;
-      } else {
-        zoomDeltaY = Math.sign(totalZoomDeltaY) * (Math.abs(totalZoomDeltaY) - DRAG_ZOOM_DEADZONE_PX);
-        panStateRef.current.hasPassedZoomDeadzone = true;
-      }
-    }
-
-    if (!panStateRef.current.hasPassedZoomDeadzone) {
-      zoomDeltaY = 0;
-    }
-
-    const currentGestureZoom = Number(
-      getZoomFromProgress(panStateRef.current.zoomReferenceProgress, desktopMinZoom, DESKTOP_MAX_ZOOM).toFixed(3),
-    );
-    const nextZoom = Number(
-      clampNumber(
-        getZoomFromProgress(
-          panStateRef.current.zoomReferenceProgress - zoomDeltaY * DRAG_ZOOM_PROGRESS_PER_PIXEL,
-          desktopMinZoom,
-          DESKTOP_MAX_ZOOM,
-        ),
-        desktopMinZoom,
-        DESKTOP_MAX_ZOOM,
-      ).toFixed(3),
-    );
-
-    // Horizontal panning correction.
-    const targetScrollLeftBeforeZoom = container.scrollLeft - deltaX;
-    container.scrollLeft = targetScrollLeftBeforeZoom;
-
-    const currentTimelineWidth = Math.max(Math.round(baseTimelineWidth * currentGestureZoom), 1);
-    const anchorRatio = getTimelineAnchorRatio(
-      container.scrollLeft,
-      pointerOffsetX,
-      LABEL_RAIL_WIDTH,
-      currentTimelineWidth,
-    );
-    const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
-
-    if (nextZoom !== currentGestureZoom) {
-      flushSync(() => setZoom(nextZoom));
-
-      container.scrollLeft = getScrollLeftForTimelineAnchor(
-        anchorRatio,
-        pointerOffsetX,
-        LABEL_RAIL_WIDTH,
-        nextTimelineWidth,
-      );
-
-      panStateRef.current.zoomReferenceProgress = getZoomProgress(nextZoom, desktopMinZoom, DESKTOP_MAX_ZOOM);
-    }
+    container.scrollLeft -= deltaX;
 
     panStateRef.current.lastX = latestDragPoint.clientX;
-    panStateRef.current.lastY = latestDragPoint.clientY;
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -4837,6 +5000,8 @@ export default function App() {
 
     activePointerIdRef.current = null;
     latestDragPointRef.current = null;
+    removeWheelCaptureListenerRef.current?.();
+    removeWheelCaptureListenerRef.current = null;
 
     if (dragFrameRef.current !== null) {
       window.cancelAnimationFrame(dragFrameRef.current);
@@ -4872,66 +5037,113 @@ export default function App() {
     <div className="relative isolate min-h-[100dvh] overflow-hidden bg-[var(--page-bg)] text-[var(--ink)] selection:bg-emerald-500/25 selection:text-[var(--ink)]">
       <AuroraBackdrop />
 
-      <div className="relative z-10 md:hidden">
-        <MobileTimelineExperience
-          boardView={boardView}
-          currentGlobalDay={currentGlobalDay}
-          draggedCompanyId={draggedCompanyId}
-          handleZoomChange={handleMobileZoomChange}
-          hiddenCompanyCount={hiddenCompanyCount}
-          latestCompany={latestCompany}
-          minZoom={mobileMinZoom}
-          maxZoom={MOBILE_MAX_ZOOM}
-          maxDays={maxDays}
-          maxSummaryQuietDays={maxSummaryQuietDays}
-          modelExplorer={<ModelClassExplorer {...explorerProps} isOverlayEnabled={!isDesktopViewport} />}
-          monthTicks={monthTicks}
-          onCompanyDragEnd={() => setDraggedCompanyId(null)}
-          onCompanyDragStart={setDraggedCompanyId}
-          onCompanyHide={hideCompany}
-          onCompanyMove={moveCompany}
-          onCompanyReorder={reorderCompany}
-          onShowHiddenCompanies={showHiddenCompanies}
-          processedCompanies={timelineData.processedCompanies}
-          scrollContainerRef={mobileScrollContainerRef}
-          timelineWidth={mobileTimelineWidth}
-          yearTicks={yearTicks}
-          zoom={mobileZoom}
-        />
-      </div>
+      <motion.div
+        animate={
+          isArticleOpen
+            ? isDesktopViewport
+              ? {opacity: 0.46, scale: 0.94, x: -260}
+              : {opacity: 0, scale: 0.98, x: -48}
+            : {opacity: 1, scale: 1, x: 0}
+        }
+        transition={{duration: 0.42, ease: [0.22, 1, 0.36, 1]}}
+        className={`relative z-10 origin-left ${isArticleOpen && !isDesktopViewport ? 'pointer-events-none' : ''}`}
+        aria-hidden={isArticleOpen && !isDesktopViewport}
+      >
+        <div className="md:hidden">
+          <MobileTimelineExperience
+            activeArticleSlug={activeArticleSlug}
+            boardView={boardView}
+            currentGlobalDay={currentGlobalDay}
+            draggedCompanyId={draggedCompanyId}
+            handleZoomChange={handleMobileZoomChange}
+            hiddenCompanyCount={hiddenCompanyCount}
+            isZoomSliderActive={isZoomSliderActive}
+            latestCompany={latestCompany}
+            minZoom={mobileMinZoom}
+            maxZoom={MOBILE_MAX_ZOOM}
+            maxDays={maxDays}
+            maxSummaryQuietDays={maxSummaryQuietDays}
+            modelExplorer={<ModelClassExplorer {...explorerProps} variant="panel" />}
+            monthTicks={monthTicks}
+            onCompanyDragEnd={() => setDraggedCompanyId(null)}
+            onCompanyDragStart={setDraggedCompanyId}
+            onCompanyHide={hideCompany}
+            onCompanyMove={moveCompany}
+            onCompanyReorder={reorderCompany}
+            onModelSelect={navigateToModelSlug}
+            onShowHiddenCompanies={showHiddenCompanies}
+            onZoomSliderActiveChange={handleZoomSliderActiveChange}
+            processedCompanies={timelineData.processedCompanies}
+            scrollContainerRef={mobileScrollContainerRef}
+            timelineWidth={mobileTimelineWidth}
+            yearTicks={yearTicks}
+            zoom={mobileZoom}
+          />
+        </div>
 
-      <div className="relative z-10 hidden md:block">
-        <DesktopTimelineExperience
-          boardView={boardView}
-          currentGlobalDay={currentGlobalDay}
-          draggedCompanyId={draggedCompanyId}
-          handlePointerDown={handlePointerDown}
-          handlePointerMove={handlePointerMove}
-          handleZoomChange={handleZoomChange}
-          hiddenCompanyCount={hiddenCompanyCount}
-          isPanning={isPanning}
-          latestCompany={latestCompany}
-          maxDays={maxDays}
-          minZoom={desktopMinZoom}
-          maxZoom={DESKTOP_MAX_ZOOM}
-          maxSummaryQuietDays={maxSummaryQuietDays}
-          modelExplorer={<ModelClassExplorer {...explorerProps} isOverlayEnabled={isDesktopViewport} />}
-          monthTicks={monthTicks}
-          onCompanyDragEnd={() => setDraggedCompanyId(null)}
-          onCompanyDragStart={setDraggedCompanyId}
-          onCompanyHide={hideCompany}
-          onCompanyMove={moveCompany}
-          onCompanyReorder={reorderCompany}
-          onShowHiddenCompanies={showHiddenCompanies}
-          processedCompanies={timelineData.processedCompanies}
-          scrollContainerRef={scrollContainerRef}
-          stopPanning={stopPanning}
-          summaryCompanies={summaryCompanies}
-          timelineWidth={timelineWidth}
-          yearTicks={yearTicks}
-          zoom={zoom}
-        />
-      </div>
+        <div className="hidden md:block">
+          <DesktopTimelineExperience
+            activeArticleSlug={activeArticleSlug}
+            boardView={boardView}
+            currentGlobalDay={currentGlobalDay}
+            draggedCompanyId={draggedCompanyId}
+            handlePointerDown={handlePointerDown}
+            handlePointerMove={handlePointerMove}
+            handleZoomChange={handleZoomChange}
+            hiddenCompanyCount={hiddenCompanyCount}
+            isPanning={isPanning}
+            isZoomSliderActive={isZoomSliderActive}
+            latestCompany={latestCompany}
+            maxDays={maxDays}
+            minZoom={desktopMinZoom}
+            maxZoom={DESKTOP_MAX_ZOOM}
+            maxSummaryQuietDays={maxSummaryQuietDays}
+            modelExplorer={<ModelClassExplorer {...explorerProps} variant="rail" />}
+            monthTicks={monthTicks}
+            onCompanyDragEnd={() => setDraggedCompanyId(null)}
+            onCompanyDragStart={setDraggedCompanyId}
+            onCompanyHide={hideCompany}
+            onCompanyMove={moveCompany}
+            onCompanyReorder={reorderCompany}
+            onModelSelect={navigateToModelSlug}
+            onShowHiddenCompanies={showHiddenCompanies}
+            onZoomSliderActiveChange={handleZoomSliderActiveChange}
+            processedCompanies={timelineData.processedCompanies}
+            scrollContainerRef={scrollContainerRef}
+            stopPanning={stopPanning}
+            summaryCompanies={summaryCompanies}
+            timelineWidth={timelineWidth}
+            yearTicks={yearTicks}
+            zoom={zoom}
+          />
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {isArticleOpen ? (
+          <motion.button
+            key="article-click-away"
+            type="button"
+            aria-label="Return to timeline"
+            tabIndex={-1}
+            initial={{opacity: 0}}
+            animate={{opacity: 1}}
+            exit={{opacity: 0}}
+            transition={{duration: 0.18, ease: [0.22, 1, 0.36, 1]}}
+            onClick={navigateToTimeline}
+            className="fixed inset-0 z-30 hidden cursor-pointer bg-transparent md:block"
+          />
+        ) : null}
+
+        {isArticleOpen ? (
+          <ModelArticlePanel
+            entry={activeArticleEntry}
+            onBack={navigateToTimeline}
+            onNavigate={navigateToModelSlug}
+            requestedSlug={activeArticleSlug ?? ''}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
