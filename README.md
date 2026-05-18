@@ -1,22 +1,25 @@
 # AI Model Release Timeline
 
-![AI Model Release Timeline screenshot](./timelineScreenshot_4_1_2026.png)
+![AI Model Release Timeline screenshot](./timelineScreenshot_5_18_2026.png)
 
 A shareable web app that maps major AI foundation model releases, coding harnesses, creative systems, events, and robotics milestones across providers onto one chronological timeline.
 
 Live site: https://kvick-games.github.io/AI_Model_Timeline_Website/
 
-## Overview
+## Features
 
 The app presents model launches on a single horizontal timeline so you can compare release cadence across companies and product lines at a glance. It includes:
 
-- company rows that expand into compact product-line lanes when multiple selected lines are active
-- product-line filters for frontier LLMs, open-source LLMs, coding harnesses, events, image generation, video generation, 3D generation, and robotics
-- month and year guides across the full timeline, with room for earlier 2020s milestones
-- zoom controls for dense sections of the chart
-- gap labels showing the number of days between releases
-- optional multi-day event ranges for livestreams, conferences, and other events that span more than one date
-- a live "Today" marker to show time since the latest release
+- provider rows that expand into compact product-line lanes when multiple selected lines are active
+- filter groups for frontier LLMs, open-source systems, Mistral, coding harnesses, creative generation, events, robotics, and vehicle autonomy
+- draggable, pannable, and zoomable timeline navigation for dense release windows
+- month and year guides across the full timeline, plus a live "Today" marker
+- gap labels showing the number of days between releases or events
+- multi-day event ranges for livestreams, conferences, showcases, and other dated industry moments
+- article panels for notable releases and events, with source links, official logo marks, and event-specific calendar icons
+- current Cursor Composer coverage, including Composer 1, 1.5, 2, 2.5, and the Cursor / SpaceXAI partnership event
+- official provider logos for OpenAI, Anthropic, Google, xAI, Figure, Tesla, and Cursor
+- grayscale shader treatment behind the timeline widget so the background art stays readable under the board
 
 ## Tech stack
 
