@@ -11,7 +11,7 @@ Live site: https://kvick-games.github.io/AI_Model_Timeline_Website/
 The app presents model launches on a single horizontal timeline so you can compare release cadence across companies and product lines at a glance. It includes:
 
 - provider rows that expand into compact product-line lanes when multiple selected lines are active
-- filter groups for frontier LLMs, open-source systems, Mistral, coding harnesses, creative generation, events, robotics, and vehicle autonomy
+- filter groups for frontier LLMs, open-source systems, Mistral, coding harnesses, creative generation including audio, events, robotics, and vehicle autonomy
 - draggable, pannable, and zoomable timeline navigation for dense release windows
 - month and year guides across the full timeline, plus a live "Today" marker
 - gap labels showing the number of days between releases or events

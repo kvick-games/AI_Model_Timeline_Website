@@ -24,23 +24,104 @@
 }
 
 html {
-  background:
-    radial-gradient(circle at top left, rgba(19, 154, 116, 0.12), transparent 24%),
-    radial-gradient(circle at top right, rgba(45, 110, 216, 0.11), transparent 22%),
-    linear-gradient(180deg, #04060a 0%, #070a0f 48%, #0a0e14 100%);
+  background: var(--page-bg);
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
   color: var(--ink);
-  background: transparent;
+  background: var(--page-bg);
+  height: 100%;
   min-height: 100vh;
+  overflow: hidden;
 }
 
-body::before {
-  content: "";
+#root {
+  background: var(--page-bg);
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Scales with the world canvas (e.g. product-line badges on the rail). */
+.timeline-map-label {
+  font-size: calc(var(--label-size, 12) * var(--map-zoom, 1) * 1px);
+  transition: none !important;
+}
+
+/* Fixed screen size — counter-scales world zoom so UI stays constant while panning/zooming. */
+.timeline-map-screen-label {
+  font-size: calc(var(--label-size, 12) * 1px);
+  transition: none !important;
+}
+
+.timeline-map-screen-fixed {
+  pointer-events: auto;
+  transform: scale(calc(1 / var(--map-zoom, 1)));
+  transform-origin: center center;
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+.timeline-pin-marker-stack {
+  isolation: isolate;
+}
+
+.timeline-pin-selection-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  border: 2px solid color-mix(in srgb, var(--pin-accent, #8b97ab) 78%, #edf2fa);
+  background: color-mix(in srgb, var(--pin-accent, #8b97ab) 14%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--pin-accent, #8b97ab) 32%, transparent),
+    0 0 18px color-mix(in srgb, var(--pin-accent, #8b97ab) 62%, transparent),
+    0 0 36px color-mix(in srgb, var(--pin-accent, #8b97ab) 34%, transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: timeline-pin-selection-pulse 2.4s ease-in-out infinite;
+}
+
+.timeline-pin-selection-ring--compact {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-width: 1.5px;
+}
+
+.timeline-pin-marker--selected {
+  z-index: 1;
+}
+
+.timeline-pin-label--selected {
+  font-weight: 700;
+}
+
+@keyframes timeline-pin-selection-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  50% {
+    opacity: 0.82;
+    transform: translate(-50%, -50%) scale(1.14);
+  }
+}
+
+body::before,
+body::after {
+  content: none;
   position: fixed;
   inset: 0;
   pointer-events: none;
+}
+
+body::before {
   background-image:
     linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
@@ -53,7 +134,11 @@ body::before {
   position: fixed;
   inset: 0;
   min-height: 100dvh;
-  background: #05070b;
+  background:
+    radial-gradient(ellipse at 48% 46%, rgba(23, 37, 54, 0.24), transparent 42rem),
+    radial-gradient(ellipse at 16% 18%, rgba(11, 88, 76, 0.08), transparent 34rem),
+    radial-gradient(ellipse at 88% 78%, rgba(122, 88, 44, 0.055), transparent 38rem),
+    #05070b;
   overflow: hidden;
   pointer-events: none;
   z-index: 0;
@@ -61,8 +146,50 @@ body::before {
   contain: strict;
 }
 
+.aurora-backdrop::before,
 .aurora-backdrop::after {
-  content: none;
+  content: "";
+  position: absolute;
+  inset: -18%;
+  pointer-events: none;
+}
+
+.aurora-backdrop::before {
+  background:
+    radial-gradient(ellipse at 48% 50%, rgba(70, 91, 113, 0.16), transparent 31%),
+    radial-gradient(ellipse at 44% 48%, rgba(42, 95, 91, 0.09), transparent 22%),
+    radial-gradient(ellipse at 56% 54%, rgba(132, 101, 58, 0.06), transparent 20%);
+  filter: blur(22px);
+  opacity: 0.58;
+  transform: rotate(-14deg) scale(1.18);
+  animation: galaxy-band-drift 42s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+.aurora-backdrop::after {
+  background-image:
+    radial-gradient(circle, rgba(230, 238, 247, 0.14) 0 0.7px, transparent 1.05px),
+    radial-gradient(circle, rgba(218, 198, 152, 0.1) 0 0.55px, transparent 0.95px);
+  background-position:
+    0 0,
+    27px 41px;
+  background-size:
+    92px 92px,
+    137px 137px;
+  mask-image: radial-gradient(ellipse at center, black 16%, rgba(0, 0, 0, 0.72) 48%, transparent 86%);
+  opacity: 0.32;
+}
+
+@keyframes galaxy-band-drift {
+  0% {
+    opacity: 0.48;
+    transform: rotate(-16deg) translate3d(-1.5%, -0.8%, 0) scale(1.14);
+  }
+
+  100% {
+    opacity: 0.64;
+    transform: rotate(-11deg) translate3d(1.6%, 1%, 0) scale(1.2);
+  }
 }
 
 .aurora-canvas {
@@ -73,6 +200,31 @@ body::before {
   width: 100%;
   pointer-events: none;
   z-index: 1;
+}
+
+.timeline-tail-fade {
+  position: absolute;
+  bottom: -116px;
+  right: -260px;
+  top: -116px;
+  z-index: 34;
+  width: 460px;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(5, 7, 11, 0) 0%,
+      rgba(5, 7, 11, 0) 34%,
+      rgba(5, 7, 11, 0.58) 68%,
+      var(--page-bg) 100%
+    );
+}
+
+.timeline-tail-fade--compact {
+  bottom: -84px;
+  right: -172px;
+  top: -84px;
+  width: 312px;
 }
 
 @keyframes signal-pulse {
@@ -123,15 +275,71 @@ body::before {
   will-change: background-position;
 }
 
+.timeline-border-sheen {
+  isolation: isolate;
+}
+
+.timeline-border-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    115deg,
+    transparent 32%,
+    rgba(237, 242, 250, 0.05) 42%,
+    rgba(237, 242, 250, 0.48) 50%,
+    rgba(237, 242, 250, 0.05) 58%,
+    transparent 68%
+  );
+  background-size: 260% 100%;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: timeline-border-sheen-sweep 6.4s ease-in-out infinite;
+  animation-delay: var(--border-sheen-delay, 0s);
+}
+
+@keyframes timeline-border-sheen-sweep {
+  0%,
+  100% {
+    background-position: 115% 0;
+    opacity: 0.55;
+  }
+
+  50% {
+    background-position: -15% 0;
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .quiet-extension-flow {
     animation: none;
+  }
+
+  .aurora-backdrop::before {
+    animation: none;
+  }
+
+  .timeline-border-sheen::after {
+    animation: none;
+    background-position: 50% 0;
+    opacity: 0.42;
   }
 }
 
 @media (max-width: 767px) {
   .aurora-backdrop {
-    opacity: 0.9;
+    opacity: 0.86;
   }
 
   .aurora-canvas {

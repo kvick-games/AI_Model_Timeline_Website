@@ -1,10 +1,11 @@
-import React, {startTransition, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {flushSync} from 'react-dom';
 import {
   ArrowDown,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  AudioLines,
   BookOpen,
   Box,
   Bot,
@@ -15,13 +16,15 @@ import {
   ChevronDown,
   Clapperboard,
   Code2,
+  Eye,
+  EyeOff,
   ExternalLink,
   Globe2,
-  GripVertical,
   Image as ImageIcon,
   Layers3,
   RotateCcw,
   SlidersHorizontal,
+  Sparkles,
   X,
 } from 'lucide-react';
 import {AnimatePresence, motion} from 'motion/react';
@@ -29,13 +32,14 @@ import {
   companies,
   DEFAULT_PRESET_ID,
   DEFAULT_SELECTED_PRESET_IDS,
+  filterPresetGroups,
   formatTimelineDate,
   formatTimelineDateRange,
   getReleaseEventType,
   getReleaseSlug,
+  getReleaseTags,
   modelPresets,
   parseTimelineDate,
-  presetGroups,
 } from './data/timeline';
 import {modelReleaseIndexBySlug} from './data/releaseIndex';
 import type {
@@ -62,14 +66,292 @@ type BoardView = {
   label: string;
 };
 
+type CompanySortMode = 'significance' | 'latest' | 'alphabetical';
+type SignificanceDisplayLimit = 5 | 10 | 20 | 'all';
+
+const DEFAULT_SIGNIFICANCE_DISPLAY_LIMIT: SignificanceDisplayLimit = 5;
+const SIGNIFICANCE_DISPLAY_LIMITS: SignificanceDisplayLimit[] = [5, 10, 20, 'all'];
+
+function setsMatch<T>(left: T[], right: T[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const rightSet = new Set(right);
+  return left.every((value) => rightSet.has(value));
+}
+
+function getCompanyLatestReleaseTimestamp(company: CompanyRecord) {
+  return company.productLines.reduce((latestTimestamp, productLine) => {
+    const lineLatest = productLine.releases.reduce((lineTimestamp, release) => {
+      const releaseTimestamp = parseTimelineDate(release.date).getTime();
+      return Number.isNaN(releaseTimestamp) ? lineTimestamp : Math.max(lineTimestamp, releaseTimestamp);
+    }, 0);
+
+    return Math.max(latestTimestamp, lineLatest);
+  }, 0);
+}
+
+function getPresetSignificanceBase(presetId: PresetId) {
+  switch (presetId) {
+    case 'llms':
+      return 82;
+    case 'open-source':
+      return 78;
+    case 'coding-harnesses':
+      return 74;
+    case 'video-generation':
+      return 68;
+    case 'audio-generation':
+      return 66;
+    case 'image-generation':
+      return 64;
+    case 'robotics':
+      return 62;
+    case 'vehicle-autonomy':
+      return 58;
+    case '3d-generation':
+      return 54;
+    case 'events':
+      return 42;
+    default:
+      return 50;
+  }
+}
+
+function getEventTypeSignificanceBonus(eventTypeId: string) {
+  switch (eventTypeId) {
+    case 'model-release':
+      return 5;
+    case 'coding-harness-release':
+      return 4;
+    case 'product-launch':
+      return 3;
+    case 'research-release':
+      return 3;
+    case 'deployment':
+      return 2;
+    case 'partnership':
+      return 1;
+    case 'announcement':
+    case 'public-demo':
+    case 'livestream':
+      return 0;
+    default:
+      return -2;
+  }
+}
+
+function getRecencySignificanceBonus(releaseEndGlobalDay: number, currentGlobalDay: number) {
+  const ageDays = currentGlobalDay - releaseEndGlobalDay;
+
+  if (ageDays < 0) {
+    return 2;
+  }
+
+  if (ageDays <= 60) {
+    return 12;
+  }
+
+  if (ageDays <= 180) {
+    return 9;
+  }
+
+  if (ageDays <= 365) {
+    return 6;
+  }
+
+  if (ageDays <= 730) {
+    return 3;
+  }
+
+  return 0;
+}
+
+function getReleaseSignificanceScore(
+  company: CompanyRecord,
+  productLine: ProductLineRecord,
+  release: ReleaseRecord,
+  currentGlobalDay: number,
+) {
+  const releaseDate = parseTimelineDate(release.date);
+  const releaseEndDate = release.endDate ? parseTimelineDate(release.endDate) : releaseDate;
+  const releaseEndGlobalDay = Number.isNaN(releaseEndDate.getTime())
+    ? 0
+    : Math.round((releaseEndDate.getTime() - START_DATE.getTime()) / DAY_MS);
+  const releasePresets = getReleasePresets(company, productLine, release);
+  const releaseTags = getReleaseTags(company, productLine, release);
+  const eventType = getReleaseEventType(release);
+  const presetBase = releasePresets.reduce(
+    (score, presetId) => Math.max(score, getPresetSignificanceBase(presetId)),
+    40,
+  );
+  const tagBonus =
+    (releaseTags.includes('ai-race-core') ? 10 : 0) +
+    (releaseTags.includes('major-release') ? 5 : 0);
+  const companyRankBonus = Math.max(0, 7 - (company.raceRank ?? 8));
+  const score =
+    presetBase +
+    tagBonus +
+    companyRankBonus +
+    getEventTypeSignificanceBonus(eventType.id) +
+    getRecencySignificanceBonus(releaseEndGlobalDay, currentGlobalDay);
+
+  return clampNumber(Math.round(score), 1, 100);
+}
+
+function getProductLineSignificanceScore(
+  company: CompanyRecord,
+  productLine: ProductLineRecord,
+  currentGlobalDay: number,
+) {
+  return productLine.releases.reduce(
+    (score, release) => Math.max(score, getReleaseSignificanceScore(company, productLine, release, currentGlobalDay)),
+    0,
+  );
+}
+
+function getCompanySignificanceScore(company: CompanyRecord, currentGlobalDay: number) {
+  return company.productLines.reduce(
+    (score, productLine) =>
+      Math.max(score, getProductLineSignificanceScore(company, productLine, currentGlobalDay)),
+    0,
+  );
+}
+
+function sortCompaniesByMode(data: CompanyRecord[], sortMode: CompanySortMode, currentGlobalDay: number) {
+  const sortedCompanies = [...data];
+
+  if (sortMode === 'significance') {
+    sortedCompanies.sort(
+      (left, right) =>
+        getCompanySignificanceScore(right, currentGlobalDay) - getCompanySignificanceScore(left, currentGlobalDay) ||
+        (left.raceRank ?? 999) - (right.raceRank ?? 999) ||
+        left.name.localeCompare(right.name),
+    );
+    return sortedCompanies;
+  }
+
+  if (sortMode === 'latest') {
+    sortedCompanies.sort(
+      (left, right) =>
+        getCompanyLatestReleaseTimestamp(right) - getCompanyLatestReleaseTimestamp(left) ||
+        left.name.localeCompare(right.name),
+    );
+    return sortedCompanies;
+  }
+
+  sortedCompanies.sort((left, right) => left.name.localeCompare(right.name));
+  return sortedCompanies;
+}
+
 type Tick = {
   days: number;
   label: string | number;
 };
 
+type TimelineDayWindow = {
+  endDay: number;
+  startDay: number;
+};
+
+type ViewportSize = {
+  height: number;
+  width: number;
+};
+
+type CameraState = {
+  x: number;
+  y: number;
+};
+
+type CameraViewState = {
+  camera: CameraState;
+  zoom: number;
+};
+
+type ZoomInterpolationAnchor = {
+  viewportX: number;
+  viewportY: number;
+  worldX: number;
+  worldY: number;
+};
+
+type CameraInterpolationState = {
+  frameId: number | null;
+  lastFrameAt: number | null;
+  stiffness: number;
+  target: CameraViewState;
+  zoomAnchor: ZoomInterpolationAnchor | null;
+};
+
+type CameraTargetOptions = {
+  stiffness?: number;
+  zoomAnchor?: ZoomInterpolationAnchor | null;
+};
+
+type CanvasWorldLayout = {
+  contentCards: {
+    intro: {height: number; width: number; x: number; y: number};
+    latest: {height: number; width: number; x: number; y: number};
+    notes: {height: number; width: number; x: number; y: number};
+    summaries: {width: number; x: number; y: number};
+  };
+  initialCameraX: number;
+  initialCameraY: number;
+  railWidth: number;
+  timelineX: number;
+  timelineY: number;
+  worldHeight: number;
+  worldWidth: number;
+};
+
+type CompanyRowLayout = {
+  company: ProcessedCompany;
+  height: number;
+  index: number;
+  y: number;
+};
+
+type TimelineWorldBounds = {
+  maxX: number;
+  maxY: number;
+  minX: number;
+  minY: number;
+};
+
+type TimelineViewportInsets = {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+};
+
+type TimelineJumpTarget =
+  | {kind: 'bounds'; bounds: TimelineWorldBounds}
+  | {kind: 'day'; endGlobalDay?: number; globalDay: number}
+  | {
+      kind: 'release';
+      companyId: string;
+      endGlobalDay?: number;
+      globalDay: number;
+      productLineId: string;
+    }
+  | {kind: 'slug'; slug: string};
+
+type ProcessedReleaseMatch = {
+  company: ProcessedCompany;
+  productLineIndex: number;
+  release: ProcessedRelease;
+};
+
 const DAY_MS = 1000 * 60 * 60 * 24;
-const START_DATE = new Date('2020-01-01T00:00:00Z');
+const START_DATE = new Date('1998-01-01T00:00:00Z');
 const TIMELINE_PIXELS_PER_DAY = 2.24;
+const TIMELINE_MOTION_EASE = [0.22, 1, 0.36, 1] as const;
+const TIMELINE_FILTER_ENTER_TRANSITION = {duration: 0.34, ease: TIMELINE_MOTION_EASE};
+const TIMELINE_FILTER_EXIT_TRANSITION = {duration: 0.24, ease: TIMELINE_MOTION_EASE};
+const TIMELINE_LAYOUT_TRANSITION = {duration: 0.4, ease: TIMELINE_MOTION_EASE};
 const LABEL_RAIL_WIDTH = 320;
 const MOBILE_LABEL_RAIL_WIDTH = 196;
 const PAGE_BACKGROUND_HEX = '#05070b';
@@ -78,15 +360,56 @@ const MOBILE_COMPANY_MIN_HEIGHT = 80;
 const DESKTOP_PRODUCT_LINE_HEIGHT = 56;
 const MOBILE_PRODUCT_LINE_HEIGHT = 60;
 const PRODUCT_LINE_GAP = 8;
+const DESKTOP_TIMELINE_COMPANY_GAP = 44;
+const MOBILE_TIMELINE_COMPANY_GAP = 32;
+const DESKTOP_TIMELINE_TOP_PADDING = 96;
+const DESKTOP_TIMELINE_BOTTOM_PADDING = 56;
+const MOBILE_TIMELINE_TOP_PADDING = 80;
+const MOBILE_TIMELINE_BOTTOM_PADDING = 40;
 const DEFAULT_DESKTOP_ZOOM = 1;
 const DEFAULT_MOBILE_ZOOM = 1.05;
 const DESKTOP_MAX_ZOOM = 4;
 const MOBILE_MAX_ZOOM = 3.4;
-const ZOOM_PROGRESS_STEP = 0.12;
+const DESKTOP_CANVAS_WORLD_MARGIN_X = 420;
+const DESKTOP_CANVAS_WORLD_MARGIN_BOTTOM = 360;
+const DESKTOP_CANVAS_TIMELINE_X = 180;
+const DESKTOP_CANVAS_TIMELINE_Y = 300;
+const MOBILE_CANVAS_WORLD_MARGIN_X = 180;
+const MOBILE_CANVAS_WORLD_MARGIN_BOTTOM = 260;
+const MOBILE_CANVAS_TIMELINE_X = 112;
+const MOBILE_CANVAS_TIMELINE_Y = 380;
+const ZOOM_PROGRESS_STEP = 0.06;
 const SIGMOID_STEEPNESS = 6;
 const FIT_BUFFER_MULTIPLIER = 0.92;
-const WHEEL_ZOOM_PROGRESS_PER_PIXEL = 0.001;
-const ZOOM_SLIDER_KEYBOARD_STEP = 0.04;
+const WHEEL_ZOOM_PROGRESS_PER_PIXEL = 0.00025;
+const ZOOM_SLIDER_KEYBOARD_STEP = 0.025;
+const CAMERA_TARGET_INTERPOLATION_STIFFNESS = 18;
+const MODEL_FOCUS_CAMERA_INTERPOLATION_STIFFNESS = 8;
+const CAMERA_TARGET_SNAP_DISTANCE = 0.08;
+const CAMERA_TARGET_SNAP_ZOOM = 0.0006;
+const TIMELINE_RENDER_FUTURE_BUFFER_DAYS = 720;
+const TIMELINE_RENDER_PAST_BUFFER_DAYS = 720;
+const TIMELINE_RELEASE_RENDER_BUFFER_DAYS = 540;
+const TIMELINE_RELEASE_RENDER_CHUNK_DAYS = 120;
+const TIMELINE_TICK_PAST_BUFFER_DAYS = 90;
+const TIMELINE_TICK_FUTURE_BUFFER_DAYS = 180;
+const ARTICLE_FOCUS_MIN_BOUNDS_WIDTH = 420;
+const ARTICLE_FOCUS_MIN_BOUNDS_HEIGHT = 168;
+const TIMELINE_REGION_FOCUS_PADDING = 64;
+const TIMELINE_REGION_FOCUS_ZOOM_FACTOR = 0.88;
+const TIMELINE_REGION_FOCUS_MAX_ZOOM_DESKTOP = 1.65;
+const TIMELINE_REGION_FOCUS_MAX_ZOOM_MOBILE = 1.45;
+const TIMELINE_BACKGROUND_CLICK_MOVE_THRESHOLD_PX = 6;
+const DEFAULT_TIMELINE_FOCUS_INSETS: TimelineViewportInsets = {
+  bottom: 48,
+  left: 24,
+  right: 24,
+  top: 72,
+};
+const ARTICLE_PANEL_MAX_WIDTH = 760;
+const ARTICLE_PANEL_MAX_VIEWPORT_RATIO = 0.58;
+const ARTICLE_TIMELINE_FOCUS_CENTER_RATIO = 0.58;
+const DEFAULT_TIMELINE_FOCUS_ANCHOR = {x: 0.5, y: 0.46};
 
 const ARTICLE_LOGO_ASSET_PATHS: Partial<Record<ArticleLogoMark, string>> = {
   anthropic: 'logos/anthropic.svg',
@@ -147,6 +470,57 @@ function navigateToTimeline() {
 
   window.location.hash = '#/';
 }
+
+function isTimelineBackgroundPointerTarget(target: EventTarget): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (
+    target.closest(
+      'button, a, input, label, select, textarea, [data-row-focus-label], [data-timeline-pin]',
+    )
+  ) {
+    return false;
+  }
+
+  return Boolean(target.closest('[data-timeline-field]'));
+}
+
+function getTimelineDismissPointerTarget(
+  target: EventTarget,
+  clientPosition?: {clientX: number; clientY: number},
+): EventTarget {
+  if (clientPosition && typeof document !== 'undefined') {
+    const hitTarget = document.elementFromPoint(clientPosition.clientX, clientPosition.clientY);
+
+    if (hitTarget) {
+      return hitTarget;
+    }
+  }
+
+  return target;
+}
+
+function tryDismissTimelineArticleOnBackgroundClick(
+  target: EventTarget,
+  activeArticleSlug: string | null,
+  onDismissArticle: () => void,
+  clientPosition?: {clientX: number; clientY: number},
+) {
+  if (!activeArticleSlug) {
+    return;
+  }
+
+  const hitTarget = getTimelineDismissPointerTarget(target, clientPosition);
+
+  if (!isTimelineBackgroundPointerTarget(hitTarget)) {
+    return;
+  }
+
+  onDismissArticle();
+}
+
 function formatUtcDate(date: Date, options: Intl.DateTimeFormatOptions) {
   return date.toLocaleDateString('en-US', {
     timeZone: 'UTC',
@@ -240,6 +614,7 @@ function getReleasePresets(
 
 function getBoardView(selectedPresetIds: PresetId[]): BoardView {
   const selectedPresets = modelPresets.filter((preset) => selectedPresetIds.includes(preset.id));
+  const isDefaultFilters = setsMatch(selectedPresetIds, DEFAULT_SELECTED_PRESET_IDS);
 
   if (selectedPresets.length === 0) {
     return {
@@ -247,7 +622,17 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
       isComposite: true,
       isDefault: false,
       isEmpty: true,
-      label: 'No lines selected',
+      label: 'No filters selected',
+    };
+  }
+
+  if (isDefaultFilters) {
+    return {
+      description: 'Foundation models, open-weight labs, and coding harness releases on the timeline.',
+      isComposite: true,
+      isDefault: true,
+      isEmpty: false,
+      label: 'LLMs · open source · coding',
     };
   }
 
@@ -257,7 +642,7 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
     return {
       description: preset.description,
       isComposite: false,
-      isDefault: preset.id === DEFAULT_PRESET_ID,
+      isDefault: false,
       isEmpty: false,
       label: preset.label,
     };
@@ -265,7 +650,7 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
 
   if (selectedPresets.length === modelPresets.length) {
     return {
-      description: 'Every tracked model, coding, creative, events, robotics, and vehicle-autonomy line is visible.',
+      description: 'Every tracked model, coding, creative-media, events, robotics, and vehicle-autonomy line is visible.',
       isComposite: true,
       isDefault: false,
       isEmpty: false,
@@ -282,7 +667,10 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
   };
 }
 
-function getVisibleCompanies(data: CompanyRecord[], selectedPresetIds: PresetId[]) {
+function getVisibleCompanies(
+  data: CompanyRecord[],
+  selectedPresetIds: PresetId[],
+) {
   if (selectedPresetIds.length === 0) {
     return [];
   }
@@ -320,7 +708,8 @@ function buildPresetStats(data: CompanyRecord[]) {
 }
 
 function getPrimaryCompanyClass(company: Pick<CompanyRecord, 'defaultClasses' | 'productLines'>): ModelClassId {
-  return company.productLines[0]?.classId ?? company.defaultClasses[0] ?? 'frontier-llms';
+  const primaryProductLine = company.productLines.find((productLine) => productLine.classId !== 'events') ?? company.productLines[0];
+  return primaryProductLine?.classId ?? company.defaultClasses[0] ?? 'frontier-llms';
 }
 
 function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number) {
@@ -344,7 +733,13 @@ function getCanonicalCompanyOrderIds(companyOrderIds: string[]) {
   return [...orderedIds, ...newCompanyIds];
 }
 
-function orderCompanies(data: CompanyRecord[], companyOrderIds: string[], hiddenCompanyIds: string[]) {
+function orderCompanies(
+  data: CompanyRecord[],
+  companyOrderIds: string[],
+  hiddenCompanyIds: string[],
+  sortMode: CompanySortMode,
+  currentGlobalDay: number,
+) {
   const companyById = new Map(data.map((company) => [company.id, company]));
   const hiddenCompanyIdSet = new Set(hiddenCompanyIds);
   const orderedCompanies = getCanonicalCompanyOrderIds(companyOrderIds)
@@ -353,7 +748,35 @@ function orderCompanies(data: CompanyRecord[], companyOrderIds: string[], hidden
   const orderedCompanyIdSet = new Set(orderedCompanies.map((company) => company.id));
   const newCompanies = data.filter((company) => !orderedCompanyIdSet.has(company.id));
 
-  return [...orderedCompanies, ...newCompanies].filter((company) => !hiddenCompanyIdSet.has(company.id));
+  return sortCompaniesByMode(
+    [...orderedCompanies, ...newCompanies].filter((company) => !hiddenCompanyIdSet.has(company.id)),
+    sortMode,
+    currentGlobalDay,
+  );
+}
+
+function getDisplayedCompanies(
+  data: CompanyRecord[],
+  displayLimit: SignificanceDisplayLimit,
+  requiredCompanyId?: string,
+) {
+  if (displayLimit === 'all') {
+    return data;
+  }
+
+  const limitedCompanies = data.slice(0, displayLimit);
+
+  if (!requiredCompanyId || limitedCompanies.some((company) => company.id === requiredCompanyId)) {
+    return limitedCompanies;
+  }
+
+  const requiredCompany = data.find((company) => company.id === requiredCompanyId);
+
+  if (!requiredCompany) {
+    return limitedCompanies;
+  }
+
+  return [...limitedCompanies, requiredCompany];
 }
 
 function reorderVisibleCompanyIds(
@@ -410,7 +833,7 @@ function moveVisibleCompanyId(
   return reorderVisibleCompanyIds(companyOrderIds, visibleCompanyIds, companyId, orderedVisibleCompanyIds[targetIndex]);
 }
 
-function buildTimelineData(data: CompanyRecord[]) {
+function buildTimelineData(data: CompanyRecord[], currentGlobalDay: number) {
   const invalidEntries: string[] = [];
 
   const processedCompanies = data.map<ProcessedCompany>((company) => {
@@ -419,6 +842,7 @@ function buildTimelineData(data: CompanyRecord[]) {
         ...release,
         classes: getReleaseClasses(company, productLine, release),
         presets: getReleasePresets(company, productLine, release),
+        tags: getReleaseTags(company, productLine, release),
       })).sort((left, right) => {
         const leftDate = parseTimelineDate(left.date).getTime();
         const rightDate = parseTimelineDate(right.date).getTime();
@@ -446,12 +870,13 @@ function buildTimelineData(data: CompanyRecord[]) {
           : Math.max(globalDay, Math.round((releaseEndDate.getTime() - START_DATE.getTime()) / DAY_MS));
         const gap = previousRelease ? globalDay - previousRelease.globalDay : 0;
         const eventType = getReleaseEventType(release);
+        const significanceScore = getReleaseSignificanceScore(company, productLine, release, currentGlobalDay);
 
         collection.push({
           ...release,
           articleSlug: getReleaseSlug(company.id, productLine.id, release),
-          dateLabel: formatTimelineDate(releaseDate),
-          dateRangeLabel: formatTimelineDateRange(release.date, release.endDate),
+          dateLabel: formatTimelineDate(releaseDate, undefined, release.datePrecision),
+          dateRangeLabel: formatTimelineDateRange(release.date, release.endDate, release.datePrecision),
           durationDays: endGlobalDay - globalDay + 1,
           endDateLabel: release.endDate ? formatTimelineDate(release.endDate) : undefined,
           endGlobalDay,
@@ -461,6 +886,7 @@ function buildTimelineData(data: CompanyRecord[]) {
           eventTypeShortLabel: eventType.shortLabel,
           globalDay,
           gap,
+          significanceScore,
         });
 
         return collection;
@@ -470,16 +896,26 @@ function buildTimelineData(data: CompanyRecord[]) {
       const totalGap = processedReleases.reduce((sum, release) => sum + release.gap, 0);
       const averageGap = processedReleases.length > 1 ? Math.round(totalGap / (processedReleases.length - 1)) : null;
       const firstRelease = processedReleases[0];
+      const significanceScore = processedReleases.reduce(
+        (score, release) => Math.max(score, release.significanceScore),
+        0,
+      );
 
       return {
         ...productLine,
         averageGap,
         latestRelease,
         releases: processedReleases,
+        significanceScore,
         startDay: firstRelease?.globalDay ?? 0,
         totalSpan: latestRelease && firstRelease ? latestRelease.endGlobalDay - firstRelease.globalDay : 0,
       };
-    });
+    }).sort(
+      (left, right) =>
+        right.significanceScore - left.significanceScore ||
+        (right.latestRelease?.globalDay ?? 0) - (left.latestRelease?.globalDay ?? 0) ||
+        left.label.localeCompare(right.label),
+    );
 
     const latestProductLine = [...processedProductLines]
       .filter((productLine) => productLine.latestRelease)
@@ -496,6 +932,10 @@ function buildTimelineData(data: CompanyRecord[]) {
       (sum, productLine) => sum + Math.max(productLine.releases.length - 1, 0),
       0,
     );
+    const significanceScore = processedProductLines.reduce(
+      (score, productLine) => Math.max(score, productLine.significanceScore),
+      0,
+    );
 
     return {
       ...company,
@@ -503,6 +943,7 @@ function buildTimelineData(data: CompanyRecord[]) {
       latestProductLine,
       latestRelease,
       productLines: processedProductLines,
+      significanceScore,
       startDay: firstRelease?.globalDay ?? 0,
       totalSpan: latestRelease && firstRelease ? latestRelease.endGlobalDay - firstRelease.globalDay : 0,
     };
@@ -526,13 +967,16 @@ function buildTimelineData(data: CompanyRecord[]) {
   };
 }
 
-function buildTicks(maxDays: number) {
+function buildTicks({endDay, startDay}: TimelineDayWindow) {
   const monthTicks: Tick[] = [];
   const yearTicks: Tick[] = [];
-  const endDate = new Date(START_DATE.getTime() + maxDays * DAY_MS);
-  const cursor = new Date(Date.UTC(START_DATE.getUTCFullYear(), START_DATE.getUTCMonth(), 1));
+  const safeStartDay = Math.floor(startDay);
+  const safeEndDay = Math.max(safeStartDay, Math.ceil(endDay));
+  const startDate = new Date(START_DATE.getTime() + safeStartDay * DAY_MS);
+  const endDate = new Date(START_DATE.getTime() + safeEndDay * DAY_MS);
+  const cursor = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), 1));
 
-  if (cursor.getTime() < START_DATE.getTime()) {
+  if (cursor.getTime() < startDate.getTime()) {
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
 
@@ -554,6 +998,122 @@ function buildTicks(maxDays: number) {
   return {monthTicks, yearTicks};
 }
 
+function getTimelineViewportDayWindow({
+  camera,
+  compact = false,
+  futureBufferDays = 0,
+  pastBufferDays = 0,
+  viewport,
+  zoom,
+}: {
+  camera: CameraState;
+  compact?: boolean;
+  futureBufferDays?: number;
+  pastBufferDays?: number;
+  viewport: ViewportSize;
+  zoom: number;
+}): TimelineDayWindow {
+  if (viewport.width <= 0) {
+    return {endDay: 0, startDay: 0};
+  }
+
+  const railWidth = compact ? MOBILE_LABEL_RAIL_WIDTH : LABEL_RAIL_WIDTH;
+  const timelineX = compact ? MOBILE_CANVAS_TIMELINE_X : DESKTOP_CANVAS_TIMELINE_X;
+  const safeZoom = Math.max(zoom, 0.001);
+  const visibleLeftWorldX = camera.x;
+  const visibleRightWorldX = camera.x + viewport.width / safeZoom;
+  const visibleStartDay = (visibleLeftWorldX - timelineX - railWidth) / TIMELINE_PIXELS_PER_DAY;
+  const visibleEndDay = (visibleRightWorldX - timelineX - railWidth) / TIMELINE_PIXELS_PER_DAY;
+  const startDay = Math.floor(visibleStartDay - pastBufferDays);
+  const endDay = Math.max(startDay + 30, Math.ceil(visibleEndDay + futureBufferDays));
+
+  return {endDay, startDay};
+}
+
+function getChunkedTimelineDayWindow(window: TimelineDayWindow, chunkDays = TIMELINE_RELEASE_RENDER_CHUNK_DAYS) {
+  const safeChunkDays = Math.max(1, chunkDays);
+
+  return {
+    endDay: Math.ceil(window.endDay / safeChunkDays) * safeChunkDays,
+    startDay: Math.floor(window.startDay / safeChunkDays) * safeChunkDays,
+  };
+}
+
+function getTimelineReleaseRenderWindow({
+  camera,
+  compact = false,
+  viewport,
+  zoom,
+}: {
+  camera: CameraState;
+  compact?: boolean;
+  viewport: ViewportSize;
+  zoom: number;
+}): TimelineDayWindow {
+  if (viewport.width <= 0) {
+    return {endDay: Number.POSITIVE_INFINITY, startDay: Number.NEGATIVE_INFINITY};
+  }
+
+  return getChunkedTimelineDayWindow(
+    getTimelineViewportDayWindow({
+      camera,
+      compact,
+      futureBufferDays: TIMELINE_RELEASE_RENDER_BUFFER_DAYS,
+      pastBufferDays: TIMELINE_RELEASE_RENDER_BUFFER_DAYS,
+      viewport,
+      zoom,
+    }),
+  );
+}
+
+function timelineDayWindowsMatch(left: TimelineDayWindow, right: TimelineDayWindow) {
+  return left.startDay === right.startDay && left.endDay === right.endDay;
+}
+
+function timelineDayRangesIntersect(
+  leftStartDay: number,
+  leftEndDay: number,
+  rightWindow: TimelineDayWindow,
+) {
+  return leftEndDay >= rightWindow.startDay && leftStartDay <= rightWindow.endDay;
+}
+
+function getProceduralTimelineRange({
+  camera,
+  compact = false,
+  minimumDays,
+  viewport,
+  zoom,
+}: {
+  camera: CameraState;
+  compact?: boolean;
+  minimumDays: number;
+  viewport: ViewportSize;
+  zoom: number;
+}): TimelineDayWindow {
+  const cameraWindow = getTimelineViewportDayWindow({
+    camera,
+    compact,
+    futureBufferDays: TIMELINE_RENDER_FUTURE_BUFFER_DAYS,
+    pastBufferDays: TIMELINE_RENDER_PAST_BUFFER_DAYS,
+    viewport,
+    zoom,
+  });
+
+  return {
+    endDay: Math.max(minimumDays, cameraWindow.endDay),
+    startDay: Math.min(0, cameraWindow.startDay),
+  };
+}
+
+function getTimelineDayOffsetPx(day: number, timelineStartDay: number) {
+  return (day - timelineStartDay) * TIMELINE_PIXELS_PER_DAY;
+}
+
+function getTimelineDurationWidthPx(startDay: number, endDay: number) {
+  return Math.max(0, (endDay - startDay) * TIMELINE_PIXELS_PER_DAY);
+}
+
 function getQuietDays(item: {latestRelease: ProcessedRelease | null}, currentGlobalDay: number) {
   return item.latestRelease ? Math.max(0, Math.floor(currentGlobalDay - item.latestRelease.endGlobalDay)) : 0;
 }
@@ -566,37 +1126,707 @@ function formatQuietDaysLabel(quietDays: number) {
   return `${quietDays} ${quietDays === 1 ? 'Day' : 'Days'} since last update`;
 }
 
-function getProductLineHeight(compact = false) {
-  return compact ? MOBILE_PRODUCT_LINE_HEIGHT : DESKTOP_PRODUCT_LINE_HEIGHT;
+function getScaledTimelineSpacing(value: number, verticalScale = 1) {
+  return Math.max(1, Math.round(value * verticalScale));
 }
 
-function getProductLineStackMetrics(lineCount: number, compact = false) {
+function getProductLineHeight(compact = false, verticalScale = 1) {
+  return getScaledTimelineSpacing(compact ? MOBILE_PRODUCT_LINE_HEIGHT : DESKTOP_PRODUCT_LINE_HEIGHT, verticalScale);
+}
+
+function getProductLineStackMetrics(lineCount: number, compact = false, verticalScale = 1) {
   const safeLineCount = Math.max(lineCount, 1);
-  const minHeight = compact ? MOBILE_COMPANY_MIN_HEIGHT : DESKTOP_COMPANY_MIN_HEIGHT;
-  const lineHeight = getProductLineHeight(compact);
-  const linesHeight = safeLineCount * lineHeight + Math.max(safeLineCount - 1, 0) * PRODUCT_LINE_GAP;
-  const groupHeight = Math.max(minHeight, linesHeight + (safeLineCount > 1 ? 16 : 0));
+  const minHeight = getScaledTimelineSpacing(compact ? MOBILE_COMPANY_MIN_HEIGHT : DESKTOP_COMPANY_MIN_HEIGHT, verticalScale);
+  const lineGap = getScaledTimelineSpacing(PRODUCT_LINE_GAP, verticalScale);
+  const lineHeight = getProductLineHeight(compact, verticalScale);
+  const linesHeight = safeLineCount * lineHeight + Math.max(safeLineCount - 1, 0) * lineGap;
+  const groupHeight = Math.max(minHeight, linesHeight + (safeLineCount > 1 ? getScaledTimelineSpacing(16, verticalScale) : 0));
 
   return {
     groupHeight,
+    lineGap,
     lineHeight,
     topOffset: Math.max(0, (groupHeight - linesHeight) / 2),
   };
 }
 
-function getCompanyGroupHeight(company: Pick<ProcessedCompany, 'productLines'>, compact = false) {
-  return getProductLineStackMetrics(company.productLines.length, compact).groupHeight;
+function getCompanyGroupHeight(company: Pick<ProcessedCompany, 'productLines'>, compact = false, verticalScale = 1) {
+  return getProductLineStackMetrics(company.productLines.length, compact, verticalScale).groupHeight;
 }
 
-function getProductLineCenterY(lineCount: number, productLineIndex: number, compact = false) {
-  const {lineHeight, topOffset} = getProductLineStackMetrics(lineCount, compact);
-  return topOffset + productLineIndex * (lineHeight + PRODUCT_LINE_GAP) + lineHeight / 2;
+function getProductLineCenterY(lineCount: number, productLineIndex: number, compact = false, verticalScale = 1) {
+  const {lineGap, lineHeight, topOffset} = getProductLineStackMetrics(lineCount, compact, verticalScale);
+  return topOffset + productLineIndex * (lineHeight + lineGap) + lineHeight / 2;
 }
 
-function getTimelineMinHeight(companiesToRender: ProcessedCompany[], compact = false) {
-  const rowsHeight = companiesToRender.reduce((sum, company) => sum + getCompanyGroupHeight(company, compact), 0);
-  const gapsHeight = Math.max(companiesToRender.length - 1, 0) * (compact ? 32 : 44);
-  return Math.max(compact ? 384 : 448, rowsHeight + gapsHeight + (compact ? 160 : 184));
+function getTimelineLayout(compact = false, verticalScale = 1) {
+  return {
+    bottomPadding: getScaledTimelineSpacing(compact ? MOBILE_TIMELINE_BOTTOM_PADDING : DESKTOP_TIMELINE_BOTTOM_PADDING, verticalScale),
+    companyGap: getScaledTimelineSpacing(compact ? MOBILE_TIMELINE_COMPANY_GAP : DESKTOP_TIMELINE_COMPANY_GAP, verticalScale),
+    topPadding: getScaledTimelineSpacing(compact ? MOBILE_TIMELINE_TOP_PADDING : DESKTOP_TIMELINE_TOP_PADDING, verticalScale),
+  };
+}
+
+function getTimelineMinHeight(companiesToRender: ProcessedCompany[], compact = false, verticalScale = 1) {
+  const layout = getTimelineLayout(compact, verticalScale);
+  const rowsHeight = companiesToRender.reduce((sum, company) => sum + getCompanyGroupHeight(company, compact, verticalScale), 0);
+  const gapsHeight = Math.max(companiesToRender.length - 1, 0) * layout.companyGap;
+  return Math.max(
+    getScaledTimelineSpacing(compact ? 384 : 448, verticalScale),
+    rowsHeight + gapsHeight + layout.topPadding + layout.bottomPadding + getScaledTimelineSpacing(compact ? 40 : 32, verticalScale),
+  );
+}
+
+function getCompanyRowLayouts(
+  companiesToRender: ProcessedCompany[],
+  compact = false,
+  verticalScale = 1,
+  layout = getTimelineLayout(compact, verticalScale),
+): CompanyRowLayout[] {
+  let nextY = layout.topPadding;
+
+  return companiesToRender.map((company, index) => {
+    const height = getCompanyGroupHeight(company, compact, verticalScale);
+    const rowLayout = {
+      company,
+      height,
+      index,
+      y: nextY,
+    };
+    nextY += height + layout.companyGap;
+    return rowLayout;
+  });
+}
+
+function getCanvasWorldLayout({
+  compact = false,
+  currentGlobalDay,
+  maxDays,
+  summaryCount,
+  timelineStartDay = 0,
+  timelineHeight,
+  timelineWidth,
+  viewport,
+}: {
+  compact?: boolean;
+  currentGlobalDay: number;
+  maxDays: number;
+  summaryCount: number;
+  timelineStartDay?: number;
+  timelineHeight: number;
+  timelineWidth: number;
+  viewport: ViewportSize;
+}): CanvasWorldLayout {
+  const safeViewportWidth = Math.max(viewport.width, compact ? 360 : 1024);
+  const safeViewportHeight = Math.max(viewport.height, compact ? 720 : 680);
+  const railWidth = compact ? MOBILE_LABEL_RAIL_WIDTH : LABEL_RAIL_WIDTH;
+  const timelineX = compact ? MOBILE_CANVAS_TIMELINE_X : DESKTOP_CANVAS_TIMELINE_X;
+  const timelineY = compact ? MOBILE_CANVAS_TIMELINE_Y : DESKTOP_CANVAS_TIMELINE_Y;
+  const marginX = compact ? MOBILE_CANVAS_WORLD_MARGIN_X : DESKTOP_CANVAS_WORLD_MARGIN_X;
+  const marginBottom = compact ? MOBILE_CANVAS_WORLD_MARGIN_BOTTOM : DESKTOP_CANVAS_WORLD_MARGIN_BOTTOM;
+  const currentDayWorldX = timelineX + railWidth + currentGlobalDay * TIMELINE_PIXELS_PER_DAY;
+  const initialCameraX = Math.max(0, currentDayWorldX - safeViewportWidth * (compact ? 0.78 : 0.72));
+  const introWidth = compact ? Math.min(390, Math.max(292, safeViewportWidth - 64)) : 720;
+  const notesWidth = compact ? Math.min(360, Math.max(280, safeViewportWidth - 56)) : 360;
+  const latestWidth = compact ? Math.min(420, Math.max(290, safeViewportWidth - 48)) : 520;
+  const summaryWidth = compact ? Math.min(620, Math.max(320, safeViewportWidth - 32)) : 1180;
+  const introX = Math.max(marginX * 0.34, initialCameraX + (compact ? 20 : safeViewportWidth * 0.24));
+  const introY = compact ? 0 : 4;
+  const initialCameraY = Math.max(
+    0,
+    Math.min(
+      timelineY - safeViewportHeight * (compact ? 0.28 : 0.24),
+      introY - (compact ? 18 : 24),
+    ),
+  );
+  const notesX = compact
+    ? introX + introWidth + 18
+    : Math.min(introX + introWidth + 28, initialCameraX + safeViewportWidth - notesWidth - 24);
+  const notesY = compact ? introY + 8 : introY + 8;
+  const latestX = introX;
+  const latestY = timelineY + timelineHeight + (compact ? 42 : 52);
+  const summaryX = introX;
+  const summaryY = latestY + (compact ? 132 : 118);
+  const summaryColumns = compact ? (safeViewportWidth >= 640 ? 2 : 1) : 4;
+  const summaryRows = Math.max(1, Math.ceil(Math.max(summaryCount, 1) / summaryColumns));
+  const summaryRowHeight = compact ? 172 : 224;
+  const summaryHeight = summaryRows * summaryRowHeight;
+  const timelineRightX = timelineX + railWidth + Math.max(maxDays, 0) * TIMELINE_PIXELS_PER_DAY;
+  const timelineLeftX = timelineX + timelineStartDay * TIMELINE_PIXELS_PER_DAY;
+  const worldWidth = Math.max(
+    timelineRightX + marginX,
+    timelineLeftX + timelineWidth + railWidth + marginX,
+    notesX + notesWidth + marginX,
+    summaryX + summaryWidth + marginX,
+    initialCameraX + safeViewportWidth + marginX,
+  );
+  const worldHeight = Math.max(
+    timelineY + timelineHeight + marginBottom,
+    summaryY + summaryHeight + marginBottom,
+    notesY + (compact ? 152 : 172) + marginBottom,
+    initialCameraY + safeViewportHeight + marginBottom,
+  );
+
+  return {
+    contentCards: {
+      intro: {height: compact ? 176 : 202, width: introWidth, x: introX, y: introY},
+      latest: {height: compact ? 96 : 74, width: latestWidth, x: latestX, y: latestY},
+      notes: {height: compact ? 142 : 170, width: notesWidth, x: notesX, y: notesY},
+      summaries: {width: summaryWidth, x: summaryX, y: summaryY},
+    },
+    initialCameraX,
+    initialCameraY,
+    railWidth,
+    timelineX,
+    timelineY,
+    worldHeight,
+    worldWidth,
+  };
+}
+
+function getInitialCamera(layout: CanvasWorldLayout): CameraState {
+  return {
+    x: layout.initialCameraX,
+    y: layout.initialCameraY,
+  };
+}
+
+function getDefaultCameraView(layout: CanvasWorldLayout, compact = false): CameraViewState {
+  return {
+    camera: getInitialCamera(layout),
+    zoom: compact ? DEFAULT_MOBILE_ZOOM : DEFAULT_DESKTOP_ZOOM,
+  };
+}
+
+function getMapZoomCssValue(zoom: number) {
+  return Number.isFinite(zoom) ? Math.max(0.001, zoom) : 1;
+}
+
+function getTimelineWorldTransform(camera: CameraState, zoom: number) {
+  return `translate3d(${-camera.x * zoom}px, ${-camera.y * zoom}px, 0) scale(${zoom})`;
+}
+
+function applyTimelineWorldTransform(
+  element: HTMLDivElement | null,
+  camera: CameraState,
+  zoom: number,
+) {
+  if (!element) {
+    return;
+  }
+
+  element.style.transform = getTimelineWorldTransform(camera, zoom);
+  element.style.setProperty('--map-zoom', String(getMapZoomCssValue(zoom)));
+}
+
+function getTimelineMapLabelStyle(baseFontSizePx: number) {
+  return {
+    ['--label-size' as string]: String(baseFontSizePx),
+  };
+}
+
+function expandBoundsToMinimumSize(
+  bounds: TimelineWorldBounds,
+  minWidth: number,
+  minHeight: number,
+): TimelineWorldBounds {
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const expandX = Math.max(0, (minWidth - width) / 2);
+  const expandY = Math.max(0, (minHeight - height) / 2);
+
+  return {
+    maxX: bounds.maxX + expandX,
+    maxY: bounds.maxY + expandY,
+    minX: bounds.minX - expandX,
+    minY: bounds.minY - expandY,
+  };
+}
+
+function findProcessedReleaseBySlug(
+  processedCompanies: ProcessedCompany[],
+  slug: string,
+): ProcessedReleaseMatch | null {
+  for (const company of processedCompanies) {
+    for (let productLineIndex = 0; productLineIndex < company.productLines.length; productLineIndex += 1) {
+      const productLine = company.productLines[productLineIndex];
+      const release = productLine.releases.find((entry) => entry.articleSlug === slug);
+
+      if (release) {
+        return {company, productLineIndex, release};
+      }
+    }
+  }
+
+  return null;
+}
+
+type TimelinePinNavDirection = 'down' | 'left' | 'right' | 'up';
+
+type TimelinePinNavTarget = {
+  slug: string;
+  x: number;
+  y: number;
+};
+
+const TIMELINE_PIN_NAV_PRIMARY_EPS = 6;
+const TIMELINE_PIN_NAV_SECONDARY_WEIGHT = 2.75;
+
+function collectTimelinePinNavTargets(
+  processedCompanies: ProcessedCompany[],
+  layout: CanvasWorldLayout,
+  compact: boolean,
+  verticalScale: number,
+): TimelinePinNavTarget[] {
+  const timelineLayout = getTimelineLayout(compact, verticalScale);
+  const rowLayouts = getCompanyRowLayouts(processedCompanies, compact, verticalScale, timelineLayout);
+  const rowByCompanyId = new Map(rowLayouts.map((row) => [row.company.id, row]));
+  const targets: TimelinePinNavTarget[] = [];
+
+  processedCompanies.forEach((company) => {
+    const row = rowByCompanyId.get(company.id);
+
+    if (!row) {
+      return;
+    }
+
+    company.productLines.forEach((productLine, productLineIndex) => {
+      productLine.releases.forEach((release) => {
+        targets.push({
+          slug: release.articleSlug,
+          x: layout.timelineX + layout.railWidth + release.globalDay * TIMELINE_PIXELS_PER_DAY,
+          y:
+            layout.timelineY +
+            row.y +
+            getProductLineCenterY(company.productLines.length, productLineIndex, compact, verticalScale),
+        });
+      });
+    });
+  });
+
+  return targets;
+}
+
+function getTimelinePinNavOrigin(
+  processedCompanies: ProcessedCompany[],
+  layout: CanvasWorldLayout,
+  compact: boolean,
+  verticalScale: number,
+  activeArticleSlug: string | null,
+  camera: CameraState,
+  zoom: number,
+  viewport: ViewportSize,
+): {x: number; y: number} {
+  if (activeArticleSlug) {
+    const match = findProcessedReleaseBySlug(processedCompanies, activeArticleSlug);
+
+    if (match) {
+      const rowLayouts = getCompanyRowLayouts(
+        processedCompanies,
+        compact,
+        verticalScale,
+        getTimelineLayout(compact, verticalScale),
+      );
+      const row = rowLayouts.find((entry) => entry.company.id === match.company.id);
+
+      if (row) {
+        return {
+          x: layout.timelineX + layout.railWidth + match.release.globalDay * TIMELINE_PIXELS_PER_DAY,
+          y:
+            layout.timelineY +
+            row.y +
+            getProductLineCenterY(match.company.productLines.length, match.productLineIndex, compact, verticalScale),
+        };
+      }
+    }
+  }
+
+  const safeZoom = Math.max(zoom, 0.001);
+
+  return {
+    x: camera.x + viewport.width / (2 * safeZoom),
+    y: camera.y + viewport.height / (2 * safeZoom),
+  };
+}
+
+function findNearestTimelinePinInDirection(
+  origin: {x: number; y: number},
+  targets: TimelinePinNavTarget[],
+  direction: TimelinePinNavDirection,
+  options?: {excludeSlug?: string | null; minPrimaryDistance?: number},
+): TimelinePinNavTarget | null {
+  const minPrimaryDistance = options?.minPrimaryDistance ?? TIMELINE_PIN_NAV_PRIMARY_EPS;
+  let bestTarget: TimelinePinNavTarget | null = null;
+  let bestScore = Infinity;
+  let bestDistance = Infinity;
+
+  targets.forEach((target) => {
+    if (options?.excludeSlug && target.slug === options.excludeSlug) {
+      return;
+    }
+
+    const dx = target.x - origin.x;
+    const dy = target.y - origin.y;
+    let primary = 0;
+    let secondary = 0;
+
+    if (direction === 'right') {
+      if (dx < minPrimaryDistance) {
+        return;
+      }
+
+      primary = dx;
+      secondary = Math.abs(dy);
+    } else if (direction === 'left') {
+      if (dx > -minPrimaryDistance) {
+        return;
+      }
+
+      primary = -dx;
+      secondary = Math.abs(dy);
+    } else if (direction === 'down') {
+      if (dy < minPrimaryDistance) {
+        return;
+      }
+
+      primary = dy;
+      secondary = Math.abs(dx);
+    } else {
+      if (dy > -minPrimaryDistance) {
+        return;
+      }
+
+      primary = -dy;
+      secondary = Math.abs(dx);
+    }
+
+    const score = secondary * TIMELINE_PIN_NAV_SECONDARY_WEIGHT + primary;
+    const distance = Math.hypot(dx, dy);
+
+    if (score < bestScore || (score === bestScore && distance < bestDistance)) {
+      bestTarget = target;
+      bestScore = score;
+      bestDistance = distance;
+    }
+  });
+
+  return bestTarget;
+}
+
+function getTimelinePinNavDirectionFromKey(key: string): TimelinePinNavDirection | null {
+  if (key === 'ArrowRight') {
+    return 'right';
+  }
+
+  if (key === 'ArrowLeft') {
+    return 'left';
+  }
+
+  if (key === 'ArrowDown') {
+    return 'down';
+  }
+
+  if (key === 'ArrowUp') {
+    return 'up';
+  }
+
+  return null;
+}
+
+function shouldIgnoreTimelinePinArrowNavigation(event: KeyboardEvent) {
+  if (event.altKey || event.ctrlKey || event.metaKey) {
+    return true;
+  }
+
+  const target = event.target;
+
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (target.closest('[aria-label="Timeline zoom controls"]')) {
+    return true;
+  }
+
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
+}
+
+function getTimelineReleaseWorldBounds({
+  compact = false,
+  layout,
+  productLineIndex,
+  release,
+  row,
+  verticalScale = 1,
+}: {
+  compact?: boolean;
+  layout: CanvasWorldLayout;
+  productLineIndex: number;
+  release: Pick<ProcessedRelease, 'endGlobalDay' | 'globalDay'>;
+  row: CompanyRowLayout;
+  verticalScale?: number;
+}): TimelineWorldBounds {
+  const lineHeight = getProductLineHeight(compact, verticalScale);
+  const centerY =
+    layout.timelineY +
+    row.y +
+    getProductLineCenterY(row.company.productLines.length, productLineIndex, compact, verticalScale);
+  const startX = layout.timelineX + layout.railWidth + release.globalDay * TIMELINE_PIXELS_PER_DAY;
+  const endX = layout.timelineX + layout.railWidth + release.endGlobalDay * TIMELINE_PIXELS_PER_DAY;
+  const markerPadding = compact ? 28 : 36;
+
+  return {
+    maxX: Math.max(startX, endX) + markerPadding,
+    maxY: centerY + lineHeight / 2 + 12,
+    minX: Math.min(startX, endX) - markerPadding,
+    minY: centerY - lineHeight / 2 - 12,
+  };
+}
+
+function getTimelineFocusInsets(
+  viewport: ViewportSize,
+  compact: boolean,
+  isArticleOpen: boolean,
+): TimelineViewportInsets {
+  if (!isArticleOpen) {
+    return DEFAULT_TIMELINE_FOCUS_INSETS;
+  }
+
+  if (compact) {
+    return {bottom: 40, left: 16, right: 16, top: 64};
+  }
+
+  return {
+    bottom: 48,
+    left: 100,
+    right: Math.min(ARTICLE_PANEL_MAX_WIDTH, Math.round(viewport.width * ARTICLE_PANEL_MAX_VIEWPORT_RATIO)),
+    top: 72,
+  };
+}
+
+function getArticleTimelineFocusAnchor(
+  viewport: ViewportSize,
+  insets: TimelineViewportInsets,
+): {x: number; y: number} {
+  const articlePanelWidth = Math.min(
+    ARTICLE_PANEL_MAX_WIDTH,
+    Math.round(viewport.width * ARTICLE_PANEL_MAX_VIEWPORT_RATIO),
+  );
+  const timelineAreaWidth = viewport.width - articlePanelWidth;
+  const timelineViewportCenterX = timelineAreaWidth * ARTICLE_TIMELINE_FOCUS_CENTER_RATIO;
+  const availW = Math.max(
+    1,
+    viewport.width - insets.left - insets.right - TIMELINE_REGION_FOCUS_PADDING * 2,
+  );
+  const anchorX = clampNumber(
+    (timelineViewportCenterX - insets.left - TIMELINE_REGION_FOCUS_PADDING) / availW,
+    0.42,
+    0.68,
+  );
+
+  return {x: anchorX, y: DEFAULT_TIMELINE_FOCUS_ANCHOR.y};
+}
+
+function getCameraViewForTimelineRegion({
+  anchor,
+  bounds,
+  focusMaxZoom,
+  insets,
+  layout,
+  maxZoom,
+  minZoom,
+  viewport,
+}: {
+  anchor: {x: number; y: number};
+  bounds: TimelineWorldBounds;
+  focusMaxZoom: number;
+  insets: TimelineViewportInsets;
+  layout: CanvasWorldLayout;
+  maxZoom: number;
+  minZoom: number;
+  viewport: ViewportSize;
+}): CameraViewState | null {
+  if (viewport.width <= 0 || viewport.height <= 0) {
+    return null;
+  }
+
+  const availW = Math.max(
+    1,
+    viewport.width - insets.left - insets.right - TIMELINE_REGION_FOCUS_PADDING * 2,
+  );
+  const availH = Math.max(
+    1,
+    viewport.height - insets.top - insets.bottom - TIMELINE_REGION_FOCUS_PADDING * 2,
+  );
+  const boundsW = Math.max(bounds.maxX - bounds.minX, 1);
+  const boundsH = Math.max(bounds.maxY - bounds.minY, 1);
+  const fitZoom =
+    Math.min(availW / boundsW, availH / boundsH) * FIT_BUFFER_MULTIPLIER * TIMELINE_REGION_FOCUS_ZOOM_FACTOR;
+  const nextZoom = Number(clampNumber(fitZoom, minZoom, Math.min(maxZoom, focusMaxZoom)).toFixed(3));
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+  const anchorScreenX = insets.left + TIMELINE_REGION_FOCUS_PADDING + availW * anchor.x;
+  const anchorScreenY = insets.top + TIMELINE_REGION_FOCUS_PADDING + availH * anchor.y;
+  const maxCameraX = Math.max(0, layout.worldWidth - viewport.width / nextZoom);
+  const maxCameraY = Math.max(0, layout.worldHeight - viewport.height / nextZoom);
+
+  return {
+    camera: {
+      x: clampNumber(centerX - anchorScreenX / nextZoom, 0, maxCameraX),
+      y: clampNumber(centerY - anchorScreenY / nextZoom, 0, maxCameraY),
+    },
+    zoom: nextZoom,
+  };
+}
+
+function resolveTimelineJumpTarget(
+  target: TimelineJumpTarget,
+  processedCompanies: ProcessedCompany[],
+  layout: CanvasWorldLayout,
+  timelineHeight: number,
+  compact = false,
+  verticalScale = 1,
+): TimelineWorldBounds | null {
+  if (target.kind === 'bounds') {
+    return target.bounds;
+  }
+
+  const timelineLayout = getTimelineLayout(compact, verticalScale);
+  const rowLayouts = getCompanyRowLayouts(processedCompanies, compact, verticalScale, timelineLayout);
+
+  if (target.kind === 'slug') {
+    const match = findProcessedReleaseBySlug(processedCompanies, target.slug);
+
+    if (!match) {
+      return null;
+    }
+
+    const row = rowLayouts.find((entry) => entry.company.id === match.company.id);
+
+    if (!row) {
+      return null;
+    }
+
+    const bounds = getTimelineReleaseWorldBounds({
+      compact,
+      layout,
+      productLineIndex: match.productLineIndex,
+      release: match.release,
+      row,
+      verticalScale,
+    });
+
+    return expandBoundsToMinimumSize(bounds, ARTICLE_FOCUS_MIN_BOUNDS_WIDTH, ARTICLE_FOCUS_MIN_BOUNDS_HEIGHT);
+  }
+
+  if (target.kind === 'release') {
+    const row = rowLayouts.find((entry) => entry.company.id === target.companyId);
+
+    if (!row) {
+      return null;
+    }
+
+    const productLineIndex = row.company.productLines.findIndex((line) => line.id === target.productLineId);
+
+    if (productLineIndex < 0) {
+      return null;
+    }
+
+    const bounds = getTimelineReleaseWorldBounds({
+      compact,
+      layout,
+      productLineIndex,
+      release: {
+        endGlobalDay: target.endGlobalDay ?? target.globalDay,
+        globalDay: target.globalDay,
+      },
+      row,
+      verticalScale,
+    });
+
+    return expandBoundsToMinimumSize(bounds, ARTICLE_FOCUS_MIN_BOUNDS_WIDTH, ARTICLE_FOCUS_MIN_BOUNDS_HEIGHT);
+  }
+
+  const startX = layout.timelineX + layout.railWidth + target.globalDay * TIMELINE_PIXELS_PER_DAY;
+  const endGlobalDay = target.endGlobalDay ?? target.globalDay;
+  const endX = layout.timelineX + layout.railWidth + endGlobalDay * TIMELINE_PIXELS_PER_DAY;
+  const centerY = layout.timelineY + timelineHeight * 0.44;
+  const bandHeight = compact ? 100 : 120;
+
+  return expandBoundsToMinimumSize(
+    {
+      maxX: Math.max(startX, endX) + 40,
+      maxY: centerY + bandHeight / 2,
+      minX: Math.min(startX, endX) - 40,
+      minY: centerY - bandHeight / 2,
+    },
+    ARTICLE_FOCUS_MIN_BOUNDS_WIDTH,
+    ARTICLE_FOCUS_MIN_BOUNDS_HEIGHT,
+  );
+}
+
+function getZoomWorldAnchor(
+  camera: CameraState,
+  zoom: number,
+  viewportX: number,
+  viewportY: number,
+): Pick<ZoomInterpolationAnchor, 'worldX' | 'worldY'> {
+  const safeZoom = Math.max(zoom, 0.001);
+
+  return {
+    worldX: camera.x + viewportX / safeZoom,
+    worldY: camera.y + viewportY / safeZoom,
+  };
+}
+
+function getCameraForZoomWorldAnchor(
+  worldX: number,
+  worldY: number,
+  viewportX: number,
+  viewportY: number,
+  zoom: number,
+): CameraState {
+  const safeZoom = Math.max(zoom, 0.001);
+
+  return {
+    x: worldX - viewportX / safeZoom,
+    y: worldY - viewportY / safeZoom,
+  };
+}
+
+function resolveZoomInterpolationAnchor({
+  anchorX,
+  anchorY,
+  camera,
+  existingAnchor,
+  zoom,
+}: {
+  anchorX: number;
+  anchorY: number;
+  camera: CameraState;
+  existingAnchor: ZoomInterpolationAnchor | null;
+  zoom: number;
+}): ZoomInterpolationAnchor {
+  if (
+    existingAnchor &&
+    existingAnchor.viewportX === anchorX &&
+    existingAnchor.viewportY === anchorY
+  ) {
+    return existingAnchor;
+  }
+
+  const {worldX, worldY} = getZoomWorldAnchor(camera, zoom, anchorX, anchorY);
+
+  return {
+    viewportX: anchorX,
+    viewportY: anchorY,
+    worldX,
+    worldY,
+  };
+}
+
+function lerpNumber(start: number, end: number, progress: number) {
+  return start + (end - start) * progress;
 }
 
 function clampNumber(value: number, min: number, max: number) {
@@ -651,24 +1881,6 @@ function getFitZoom(viewportWidth: number, railWidth: number, baseTimelineWidth:
   return clampNumber((availableWidth / baseTimelineWidth) * FIT_BUFFER_MULTIPLIER, 0.08, 1);
 }
 
-function getTimelineAnchorRatio(scrollLeft: number, anchorOffsetX: number, railWidth: number, timelineWidth: number) {
-  if (timelineWidth <= 0) {
-    return 0;
-  }
-
-  const timelineOffset = clampNumber(scrollLeft + anchorOffsetX - railWidth, 0, timelineWidth);
-  return timelineOffset / timelineWidth;
-}
-
-function getScrollLeftForTimelineAnchor(
-  anchorRatio: number,
-  anchorOffsetX: number,
-  railWidth: number,
-  timelineWidth: number,
-) {
-  return railWidth + anchorRatio * timelineWidth - anchorOffsetX;
-}
-
 function ZoomInIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
@@ -709,6 +1921,10 @@ function ModelClassIcon({classId, className}: {classId: ModelClassId; className?
     return <Clapperboard className={iconClassName} strokeWidth={1.8} />;
   }
 
+  if (classId === 'audio-generation') {
+    return <AudioLines className={iconClassName} strokeWidth={1.8} />;
+  }
+
   if (classId === '3d-generation') {
     return <Box className={iconClassName} strokeWidth={1.8} />;
   }
@@ -732,233 +1948,273 @@ function ModelClassIcon({classId, className}: {classId: ModelClassId; className?
   return <Layers3 className={iconClassName} strokeWidth={1.8} />;
 }
 
-type ModelClassExplorerProps = {
+type TimelineFilterSortPanelProps = {
   boardView: BoardView;
   className?: string;
+  companySortMode: CompanySortMode;
   isOpen: boolean;
   onClearAll: () => void;
+  onCompanySortModeChange: (sortMode: CompanySortMode) => void;
   onPresetToggle: (presetId: PresetId) => void;
   onReset: () => void;
   onSelectAll: () => void;
+  onSignificanceDisplayLimitChange: (limit: SignificanceDisplayLimit) => void;
   onToggle: () => void;
   presetStats: Record<PresetId, {providerCount: number; releaseCount: number}>;
   selectedPresetIds: PresetId[];
+  significanceDisplayLimit: SignificanceDisplayLimit;
+  totalMatchedCompanyCount: number;
   variant?: 'panel' | 'rail';
+  visibleCompanyCount: number;
 };
 
-function ModelClassExplorer({
+function TimelineFilterSortPanel({
   boardView,
   className = '',
+  companySortMode,
   isOpen,
   onClearAll,
+  onCompanySortModeChange,
   onPresetToggle,
   onReset,
   onSelectAll,
+  onSignificanceDisplayLimitChange,
   onToggle,
   presetStats,
   selectedPresetIds,
+  significanceDisplayLimit,
+  totalMatchedCompanyCount,
   variant = 'panel',
-}: ModelClassExplorerProps) {
-  const selectedCount = selectedPresetIds.length;
+  visibleCompanyCount,
+}: TimelineFilterSortPanelProps) {
+  const selectedPresetCount = selectedPresetIds.length;
+  const selectedFilterCount = selectedPresetCount;
   const isRail = variant === 'rail';
   const isCollapsedRail = isRail && !isOpen;
-  const rootClassName = `${isRail ? (isOpen ? 'w-[var(--category-expanded-width,260px)]' : 'w-[74px]') : 'w-full'} timeline-fluid-obstacle overflow-hidden rounded-[1.6rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--soft-shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isCollapsedRail ? 'cursor-pointer hover:bg-[var(--surface-strong)]' : ''} ${className}`;
+  const rootClassName = `${isRail ? (isOpen ? 'w-[var(--category-expanded-width,286px)]' : 'w-[74px]') : 'w-full'} timeline-fluid-obstacle overflow-hidden rounded-[1.6rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--soft-shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isCollapsedRail ? 'cursor-pointer hover:bg-[var(--surface-strong)]' : ''} ${className}`;
+
+  const renderToggleButton = ({
+    buttonKey,
+    description,
+    icon,
+    isSelected,
+    meta,
+    onClick,
+    title,
+  }: {
+    buttonKey: string;
+    description: string;
+    icon?: React.ReactNode;
+    isSelected: boolean;
+    meta: string;
+    onClick: () => void;
+    title: string;
+  }) => (
+    <button
+      key={buttonKey}
+      type="button"
+      title={title}
+      disabled={!isOpen}
+      onClick={onClick}
+      className={`flex h-11 w-full items-center gap-2 rounded-[0.85rem] border px-2.5 text-left transition duration-300 active:scale-[0.99] ${
+        isSelected
+          ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
+          : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+      }`}
+    >
+      {icon ?? <Sparkles className="h-4 w-4 shrink-0 text-[var(--ink)]" strokeWidth={1.8} />}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-semibold tracking-tight text-[var(--ink)]">{description}</span>
+        <span className="mt-0.5 block truncate font-mono text-[9px] uppercase tracking-[0.11em] text-[var(--muted)]">{meta}</span>
+      </span>
+      <span
+        className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+          isSelected ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]' : 'border-[var(--edge)] text-transparent'
+        }`}
+      >
+        <Check className="h-3 w-3" strokeWidth={2} />
+      </span>
+    </button>
+  );
+
+  const sortOptions: {id: CompanySortMode; label: string}[] = [
+    {id: 'significance', label: 'AI significance'},
+    {id: 'latest', label: 'Latest release'},
+    {id: 'alphabetical', label: 'A–Z'},
+  ];
+  const selectedSortLabel = sortOptions.find((option) => option.id === companySortMode)?.label ?? 'Significance';
+  const selectedSortSummary = companySortMode === 'significance' ? 'score' : selectedSortLabel;
 
   return (
-    <aside
-      className={rootClassName}
-      onClick={isCollapsedRail ? onToggle : undefined}
-    >
+    <aside className={rootClassName} onClick={isCollapsedRail ? onToggle : undefined}>
       <button
         type="button"
         aria-expanded={isOpen}
-        aria-label="Choose timeline categories"
+        aria-label="Timeline filter and sort controls"
         onClick={(event) => {
           event.stopPropagation();
           onToggle();
         }}
         className={`flex w-full items-center gap-3 text-left transition duration-300 hover:bg-[var(--surface-strong)] active:scale-[0.99] ${
-          isOpen
-            ? isRail
-              ? 'justify-between border-b border-[var(--edge)] px-3 py-3'
-              : 'justify-between border-b border-[var(--edge)] px-4 py-4'
-            : 'justify-center px-0 py-4'
+          isOpen ? 'justify-between border-b border-[var(--edge)] px-3 py-3' : 'justify-center px-0 py-4'
         }`}
       >
-        <span
-          className={`inline-flex shrink-0 items-center justify-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] text-[var(--ink)] shadow-[var(--soft-shadow)] ${
-            isRail && isOpen ? 'h-8 w-8' : 'h-10 w-10'
-          }`}
-        >
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] text-[var(--ink)] shadow-[var(--soft-shadow)]">
           <SlidersHorizontal className="h-4 w-4" strokeWidth={1.8} />
         </span>
         {isOpen ? (
           <span className="min-w-0 flex-1">
-            <span className={`block font-semibold uppercase text-[var(--muted)] ${isRail ? 'text-[9px] tracking-[0.16em]' : 'text-[10px] tracking-[0.2em]'}`}>
-              {isRail ? 'Categories' : 'Timeline categories'}
-            </span>
+            <span className="block text-[9px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Filters</span>
             <span className="mt-1 block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{boardView.label}</span>
-            <span className={`mt-1 block font-mono uppercase text-[var(--muted)] ${isRail ? 'text-[9px] tracking-[0.12em]' : 'text-[10px] tracking-[0.14em]'}`}>
-              {isRail ? `${selectedCount}/${modelPresets.length} active` : `${selectedCount} of ${modelPresets.length} lines active`}
+            <span className="mt-1 block font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--muted)]">
+              {visibleCompanyCount}/{totalMatchedCompanyCount} rows · sort {selectedSortSummary}
             </span>
           </span>
         ) : (
           <span className="sr-only">{boardView.label}</span>
         )}
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-[var(--ink-soft)] transition duration-300 ${isOpen ? 'rotate-180' : isRail ? '-rotate-90' : ''}`}
+          className={`h-4 w-4 shrink-0 text-[var(--ink-soft)] transition duration-300 ${isOpen ? 'rotate-180' : '-rotate-90'}`}
           strokeWidth={1.8}
         />
       </button>
 
       <div
-        data-category-panel
+        data-filter-panel
         aria-hidden={!isOpen}
         className={`overflow-hidden transition-[max-height,opacity] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-          isOpen ? (isRail ? 'max-h-[520px] opacity-100' : 'max-h-[560px] opacity-100') : 'max-h-0 opacity-0'
+          isOpen ? 'max-h-[620px] opacity-100' : 'max-h-0 opacity-0'
         }`}
         style={{pointerEvents: isOpen ? 'auto' : 'none'}}
       >
-            <motion.div
-              initial={false}
-              animate={{y: isOpen ? 0 : -10}}
-              transition={{duration: 0.34, ease: [0.16, 1, 0.3, 1]}}
-              className={`${isRail ? 'max-h-[min(520px,calc(100dvh-20rem))]' : 'max-h-[min(560px,calc(100dvh-12rem))]'} overflow-y-auto px-3 py-3`}
+        <motion.div
+          initial={false}
+          animate={{y: isOpen ? 0 : -10}}
+          transition={{duration: 0.34, ease: [0.16, 1, 0.3, 1]}}
+          className="max-h-[min(620px,calc(100dvh-18rem))] overflow-y-auto px-3 py-3"
+        >
+          <div className="space-y-3">
+            {filterPresetGroups.map((group) => (
+              <div key={group.label}>
+                <p className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">{group.label}</p>
+                <div className="space-y-1.5">
+                  {group.presetIds.map((presetId) => {
+                    const preset = modelPresets.find((candidate) => candidate.id === presetId);
+
+                    if (!preset) {
+                      return null;
+                    }
+
+                    const stats = presetStats[preset.id];
+
+                    return renderToggleButton({
+                      buttonKey: preset.id,
+                      description: preset.label,
+                      icon: <ModelClassIcon classId={preset.classId} className="h-4 w-4 shrink-0 text-[var(--ink)]" />,
+                      isSelected: selectedPresetIds.includes(preset.id),
+                      meta: `${stats.providerCount}c / ${stats.releaseCount}r`,
+                      onClick: () => onPresetToggle(preset.id),
+                      title: preset.description,
+                    });
+                  })}
+                </div>
+              </div>
+            ))}
+
+            <div className="border-t border-[var(--edge)] pt-3">
+              <p className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Sorting settings</p>
+              <div className="grid grid-cols-1 gap-1.5">
+                {sortOptions.map((option) => {
+                  const isActive = companySortMode === option.id;
+
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      disabled={!isOpen}
+                      onClick={() => onCompanySortModeChange(option.id)}
+                      className={`flex h-9 w-full items-center justify-between rounded-[0.85rem] border px-2.5 text-left text-xs font-semibold tracking-tight transition duration-300 active:scale-[0.99] ${
+                        isActive
+                          ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] text-[var(--ink)]'
+                          : 'border-[var(--edge)] text-[var(--ink-soft)] hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                      }`}
+                    >
+                      {option.label}
+                      <span
+                        className={`h-2.5 w-2.5 rounded-full border ${
+                          isActive ? 'border-[var(--ink)] bg-[var(--ink)]' : 'border-[var(--edge)] bg-transparent'
+                        }`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="mb-1.5 mt-3 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Displayed rows</p>
+              <div className="grid grid-cols-4 gap-1.5">
+                {SIGNIFICANCE_DISPLAY_LIMITS.map((limit) => {
+                  const isActive = significanceDisplayLimit === limit;
+                  const label = limit === 'all' ? 'All' : String(limit);
+
+                  return (
+                    <button
+                      key={String(limit)}
+                      type="button"
+                      disabled={!isOpen}
+                      onClick={() => onSignificanceDisplayLimitChange(limit)}
+                      className={`h-8 rounded-[0.85rem] border px-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] transition duration-300 active:scale-[0.99] ${
+                        isActive
+                          ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] text-[var(--ink)]'
+                          : 'border-[var(--edge)] text-[var(--ink-soft)] hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              disabled={!isOpen}
+              onClick={onSelectAll}
+              title="Select all category filters"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] px-2 text-[11px] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
             >
-              <div className={isRail ? 'space-y-3' : 'space-y-4'}>
-                {presetGroups.map((group) => (
-                  <div key={group.label}>
-                    <p className={`${isRail ? 'mb-1.5 text-[9px] tracking-[0.15em]' : 'mb-2 text-[10px] tracking-[0.18em]'} px-1 font-semibold uppercase text-[var(--muted)]`}>
-                      {group.label}
-                    </p>
-                    <div className={isRail ? 'space-y-1.5' : 'space-y-2'}>
-                      {group.presetIds.map((presetId) => {
-                        const preset = modelPresets.find((candidate) => candidate.id === presetId);
-
-                        if (!preset) {
-                          return null;
-                        }
-
-                        const isSelected = selectedPresetIds.includes(preset.id);
-                        const stats = presetStats[preset.id];
-
-                        if (isRail) {
-                          return (
-                            <button
-                              key={preset.id}
-                              type="button"
-                              title={preset.description}
-                              disabled={!isOpen}
-                              onClick={() => onPresetToggle(preset.id)}
-                              className={`flex h-11 w-full items-center gap-2 rounded-[0.85rem] border px-2.5 text-left transition duration-300 active:scale-[0.99] ${
-                                isSelected
-                                  ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
-                                  : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
-                              }`}
-                            >
-                              <ModelClassIcon classId={preset.classId} className="h-4 w-4 shrink-0 text-[var(--ink)]" />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-xs font-semibold tracking-tight text-[var(--ink)]">
-                                  {preset.label}
-                                </span>
-                                <span className="mt-0.5 block truncate font-mono text-[9px] uppercase tracking-[0.11em] text-[var(--muted)]">
-                                  {stats.providerCount}c / {stats.releaseCount}r
-                                </span>
-                              </span>
-                              <span
-                                className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
-                                  isSelected
-                                    ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]'
-                                    : 'border-[var(--edge)] text-transparent'
-                                }`}
-                              >
-                                <Check className="h-3 w-3" strokeWidth={2} />
-                              </span>
-                            </button>
-                          );
-                        }
-
-                        return (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            disabled={!isOpen}
-                            onClick={() => onPresetToggle(preset.id)}
-                            className={`grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-[0.95rem] border p-3 text-left transition duration-300 active:scale-[0.99] ${
-                              isSelected
-                                ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)]'
-                                : 'border-[var(--edge)] bg-transparent hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
-                            }`}
-                          >
-                            <span className="grid min-w-0 grid-cols-[1.2rem_minmax(0,1fr)] gap-2.5">
-                              <ModelClassIcon classId={preset.classId} className="mt-0.5 h-4.5 w-4.5 text-[var(--ink)]" />
-                              <span className="min-w-0">
-                                <span className="block truncate text-sm font-semibold tracking-tight text-[var(--ink)]">
-                                  {preset.label}
-                                </span>
-                                <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">{preset.description}</span>
-                                <span className="mt-2 block font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
-                                  {stats.providerCount} companies / {stats.releaseCount} releases
-                                </span>
-                              </span>
-                            </span>
-
-                            <span
-                              className={`mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full border ${
-                                isSelected
-                                  ? 'border-[var(--edge-strong)] bg-[var(--ink)] text-[var(--page-bg)]'
-                                  : 'border-[var(--edge)] text-transparent'
-                              }`}
-                            >
-                              <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className={`${isRail ? 'mt-3 gap-1.5' : 'mt-4 gap-2'} grid grid-cols-3`}>
-                <button
-                  type="button"
-                  disabled={!isOpen}
-                  onClick={onSelectAll}
-                  title="Select all categories"
-                  className={`${isRail ? 'h-8 px-2 text-[11px]' : 'h-10 px-3 text-xs'} inline-flex items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]`}
-                >
-                  <Layers3 className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  All
-                </button>
-                <button
-                  type="button"
-                  disabled={!isOpen}
-                  onClick={onClearAll}
-                  title="Clear categories"
-                  className={`${isRail ? 'h-8 px-2 text-[11px]' : 'h-10 px-3 text-xs'} inline-flex items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]`}
-                >
-                  <X className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  disabled={!isOpen}
-                  onClick={onReset}
-                  title="Reset categories"
-                  className={`${isRail ? 'h-8 px-2 text-[11px]' : 'h-10 px-3 text-xs'} inline-flex items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]`}
-                >
-                  <RotateCcw className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
-                  Reset
-                </button>
-              </div>
-            </motion.div>
+              <Layers3 className="h-3.5 w-3.5" strokeWidth={1.8} />
+              All
+            </button>
+            <button
+              type="button"
+              disabled={!isOpen}
+              onClick={onClearAll}
+              title="Clear filters"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] px-2 text-[11px] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+            >
+              <X className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+              Clear
+            </button>
+            <button
+              type="button"
+              disabled={!isOpen}
+              onClick={onReset}
+              title="Reset filters and sort"
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] px-2 text-[11px] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+            >
+              <RotateCcw className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+              Reset
+            </button>
+          </div>
+        </motion.div>
       </div>
 
       <AnimatePresence initial={false}>
         {!isOpen && isRail ? (
           <motion.div
-            key="category-rail"
+            key="filter-rail"
             initial={{opacity: 0, y: 8}}
             animate={{opacity: 1, y: 0}}
             exit={{opacity: 0, y: 8}}
@@ -966,10 +2222,10 @@ function ModelClassExplorer({
             className="flex flex-col items-center gap-3 px-2 pb-5"
           >
             <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]" style={{writingMode: 'vertical-rl'}}>
-              Categories
+              Filters
             </span>
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] font-mono text-[10px] text-[var(--ink-soft)]">
-              {selectedCount}
+              {selectedFilterCount}
             </span>
           </motion.div>
         ) : null}
@@ -978,21 +2234,33 @@ function ModelClassExplorer({
   );
 }
 
+/** @deprecated Use TimelineFilterSortPanel */
+function ModelClassExplorer(props: TimelineFilterSortPanelProps) {
+  return <TimelineFilterSortPanel {...props} />;
+}
+
 function SurfaceButton({
   children,
   label,
   onClick,
+  pressed,
 }: {
   children: React.ReactNode;
   label: string;
   onClick: () => void;
+  pressed?: boolean;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
+      aria-pressed={pressed}
       onClick={onClick}
-      className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface)] px-4 text-sm font-medium text-[var(--ink-soft)] shadow-[var(--soft-shadow)] transition duration-300 hover:-translate-y-[1px] hover:border-[var(--edge-strong)] hover:bg-[var(--surface-strong)] active:translate-y-0 active:scale-[0.98]"
+      className={`inline-flex h-11 items-center justify-center gap-2 rounded-full border px-4 text-sm font-medium shadow-[var(--soft-shadow)] transition duration-300 hover:-translate-y-[1px] hover:border-[var(--edge-strong)] hover:bg-[var(--surface-strong)] active:translate-y-0 active:scale-[0.98] ${
+        pressed
+          ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] text-[var(--ink)]'
+          : 'border-[var(--edge)] bg-[var(--surface)] text-[var(--ink-soft)]'
+      }`}
     >
       {children}
     </button>
@@ -1429,144 +2697,6 @@ function renderArticleLogoMark(mark: ArticleLogoMark, accent: string, textSizeCl
   return <span className={sharedClassName} style={{color: accent}}>AI</span>;
 }
 
-function CompanyRailItem({
-  compact = false,
-  draggedCompanyId,
-  isFirst,
-  isLast,
-  company,
-  onDragEnd,
-  onDragStart,
-  onHide,
-  onMove,
-  onReorder,
-}: {
-  compact?: boolean;
-  draggedCompanyId: string | null;
-  isFirst: boolean;
-  isLast: boolean;
-  company: ProcessedCompany;
-  onDragEnd: () => void;
-  onDragStart: (companyId: string) => void;
-  onHide: (companyId: string) => void;
-  onMove: CompanyMoveHandler;
-  onReorder: CompanyReorderHandler;
-}) {
-  const isDragging = draggedCompanyId === company.id;
-  const canDrop = Boolean(draggedCompanyId && draggedCompanyId !== company.id);
-  const groupHeight = getCompanyGroupHeight(company, compact);
-  const lineSummary = company.productLines.map((productLine) => productLine.shortLabel).join(' / ');
-  const actionClassName =
-    'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-transparent text-[var(--muted)] transition duration-200 hover:border-[var(--edge)] hover:bg-[var(--surface-strong)] hover:text-[var(--ink)] disabled:pointer-events-none disabled:opacity-30';
-
-  const handleButtonClick = (event: React.MouseEvent<HTMLButtonElement>, action: () => void) => {
-    event.stopPropagation();
-    action();
-  };
-
-  return (
-    <motion.div
-      layout
-      className="group/rail pointer-events-auto flex items-center"
-      style={{height: `${groupHeight}px`}}
-    >
-      <div
-        draggable
-        onDragEnd={onDragEnd}
-        onDragOver={(event) => {
-          if (!canDrop) {
-            return;
-          }
-
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
-        }}
-        onDragStart={(event) => {
-          event.dataTransfer.effectAllowed = 'move';
-          event.dataTransfer.setData('text/plain', company.id);
-          onDragStart(company.id);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          const sourceCompanyId = event.dataTransfer.getData('text/plain') || draggedCompanyId;
-
-          if (sourceCompanyId) {
-            onReorder(sourceCompanyId, company.id);
-          }
-
-          onDragEnd();
-        }}
-        className={`relative w-full cursor-grab rounded-[0.95rem] border px-3 py-2 transition duration-200 active:cursor-grabbing ${
-          isDragging
-            ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] opacity-55'
-            : canDrop
-              ? 'border-[var(--edge)] bg-[rgba(255,255,255,0.02)] hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
-              : 'border-transparent bg-transparent hover:border-[var(--edge)] hover:bg-[var(--surface)]'
-        }`}
-      >
-        <div className={`flex items-center ${compact ? 'gap-2' : 'gap-3'}`}>
-          <GripVertical className="h-4 w-4 shrink-0 text-[var(--muted)]" strokeWidth={1.8} />
-          <CompanyLogoBadge compact={compact} company={company} />
-          <div className="min-w-0 flex-1">
-            <p
-              className={`truncate font-semibold tracking-tight text-[var(--ink)] ${
-                compact ? 'text-[12px] leading-[1.2]' : 'text-sm'
-              }`}
-            >
-              {company.name}
-            </p>
-            <p className={`mt-1 truncate font-mono uppercase tracking-[0.14em] text-[var(--muted)] ${compact ? 'text-[8px]' : 'text-[9px]'}`}>
-              {lineSummary}
-            </p>
-          </div>
-
-          <div
-            className={`shrink-0 items-center gap-0.5 transition duration-200 ${
-              compact
-                ? 'flex'
-                : 'absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-full border border-[var(--edge)] bg-[rgba(10,13,19,0.96)] px-1 py-1 shadow-[var(--soft-shadow)] group-hover/rail:flex group-focus-within/rail:flex'
-            }`}
-          >
-            {!compact ? (
-              <>
-                <button
-                  type="button"
-                  aria-label={`Move ${company.name} up`}
-                  className={actionClassName}
-                  disabled={isFirst}
-                  onClick={(event) => handleButtonClick(event, () => onMove(company.id, 'up'))}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  <ArrowUp className="h-3.5 w-3.5" strokeWidth={1.8} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Move ${company.name} down`}
-                  className={actionClassName}
-                  disabled={isLast}
-                  onClick={(event) => handleButtonClick(event, () => onMove(company.id, 'down'))}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  <ArrowDown className="h-3.5 w-3.5" strokeWidth={1.8} />
-                </button>
-              </>
-            ) : null}
-            <button
-              type="button"
-              aria-label={`Hide ${company.name}`}
-              className={`${actionClassName} hover:border-[rgba(255,255,255,0.16)] hover:text-[var(--ink)]`}
-              onClick={(event) => handleButtonClick(event, () => onHide(company.id))}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
-              <X className="h-3.5 w-3.5" strokeWidth={1.9} />
-            </button>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
 function getMarkerShapeClass(markerShape: ProductMarkerShape) {
   if (markerShape === 'square') {
     return 'rounded-[5px]';
@@ -1579,20 +2709,46 @@ function getMarkerShapeClass(markerShape: ProductMarkerShape) {
   return 'rounded-full';
 }
 
-function getProductLineBranchGeometry({
-  compact,
-  maxDays,
+function isBranchableProductLine(productLine: ProcessedProductLine) {
+  return productLine.classId !== 'events';
+}
+
+function getBranchSourceLine(
+  productLines: ProcessedProductLine[],
+  targetProductLineIndex: number,
+): {productLine: ProcessedProductLine; productLineIndex: number} | null {
+  const targetLine = productLines[targetProductLineIndex];
+
+  if (!targetLine || !isBranchableProductLine(targetLine)) {
+    return null;
+  }
+
+  const sourceProductLineIndex = productLines.findIndex(isBranchableProductLine);
+
+  if (sourceProductLineIndex < 0 || sourceProductLineIndex === targetProductLineIndex) {
+    return null;
+  }
+
+  const sourceProductLine = productLines[sourceProductLineIndex];
+
+  if (!sourceProductLine) {
+    return null;
+  }
+
+  return {
+    productLine: sourceProductLine,
+    productLineIndex: sourceProductLineIndex,
+  };
+}
+
+function getProductLineBranchEndOffsetPx({
   primaryLine,
   productLine,
-  productLineIndex,
-  productLineCount,
+  timelineStartDay,
 }: {
-  compact: boolean;
-  maxDays: number;
   primaryLine: ProcessedProductLine;
   productLine: ProcessedProductLine;
-  productLineIndex: number;
-  productLineCount: number;
+  timelineStartDay: number;
 }) {
   if (primaryLine.releases.length === 0 || productLine.releases.length === 0) {
     return null;
@@ -1601,86 +2757,8 @@ function getProductLineBranchGeometry({
   const primaryStartDay = primaryLine.releases[0]?.globalDay ?? 0;
   const targetRelease =
     productLine.releases.find((release) => release.globalDay >= primaryStartDay) ?? productLine.releases[0];
-  const sourceRelease =
-    [...primaryLine.releases].reverse().find((release) => release.globalDay <= targetRelease.globalDay) ??
-    primaryLine.releases[0];
 
-  let endX = clampNumber((targetRelease.globalDay / maxDays) * 100, 0, 100);
-  let startX = clampNumber((sourceRelease.globalDay / maxDays) * 100, 0, 100);
-  const minimumBranchSpan = compact ? 7.25 : 10.5;
-
-  if (endX < startX + minimumBranchSpan) {
-    startX = clampNumber(endX - minimumBranchSpan, 0, 100);
-  }
-
-  const sourceY = getProductLineCenterY(productLineCount, 0, compact);
-  const targetY = getProductLineCenterY(productLineCount, productLineIndex, compact);
-  const xSpan = Math.max(endX - startX, minimumBranchSpan);
-  const controlOffset = clampNumber(xSpan * 0.5, compact ? 3.25 : 4.25, compact ? 7 : 10.5);
-
-  return {
-    endX,
-    path: `M ${startX.toFixed(3)} ${sourceY.toFixed(3)} C ${(startX + controlOffset).toFixed(3)} ${sourceY.toFixed(3)}, ${(endX - controlOffset).toFixed(3)} ${targetY.toFixed(3)}, ${endX.toFixed(3)} ${targetY.toFixed(3)}`,
-  };
-}
-
-function ProductLineBranchConnectors({
-  compact = false,
-  company,
-  maxDays,
-}: {
-  compact?: boolean;
-  company: ProcessedCompany;
-  maxDays: number;
-}) {
-  if (company.productLines.length < 2) {
-    return null;
-  }
-
-  const primaryLine = company.productLines[0];
-  const groupHeight = getCompanyGroupHeight(company, compact);
-  const branchStroke = mixHexColors(company.accent, PAGE_BACKGROUND_HEX, compact ? 0.5 : 0.46);
-  const branchPaths = company.productLines.slice(1).map((productLine, offsetIndex) => ({
-    geometry: getProductLineBranchGeometry({
-      compact,
-      maxDays,
-      primaryLine,
-      productLine,
-      productLineCount: company.productLines.length,
-      productLineIndex: offsetIndex + 1,
-    }),
-    id: productLine.id,
-  }));
-
-  return (
-    <svg
-      aria-hidden="true"
-      className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-visible"
-      preserveAspectRatio="none"
-      viewBox={`0 0 100 ${groupHeight}`}
-    >
-      {branchPaths.map((branch, index) =>
-        branch.geometry ? (
-          <motion.path
-            key={`${company.id}-${branch.id}-branch`}
-            animate={{opacity: compact ? 0.68 : 0.76}}
-            d={branch.geometry.path}
-            fill="none"
-            initial={{opacity: 0}}
-            stroke={branchStroke}
-            strokeLinecap="round"
-            strokeWidth={compact ? 1.9 : 2.25}
-            transition={{
-              delay: company.id === 'xai' ? 0.16 + index * 0.06 : 0.1 + index * 0.05,
-              duration: compact ? 0.42 : 0.48,
-              ease: [0.22, 1, 0.36, 1],
-            }}
-            vectorEffect="non-scaling-stroke"
-          />
-        ) : null,
-      )}
-    </svg>
-  );
+  return getTimelineDayOffsetPx(targetRelease.globalDay, timelineStartDay);
 }
 
 function ProductLineTimelineLane({
@@ -1693,6 +2771,9 @@ function ProductLineTimelineLane({
   onModelSelect,
   productLine,
   productLineIndex,
+  renderWindow,
+  timelineStartDay,
+  verticalScale = 1,
 }: {
   activeArticleSlug: string | null;
   compact?: boolean;
@@ -1703,54 +2784,84 @@ function ProductLineTimelineLane({
   onModelSelect: (slug: string) => void;
   productLine: ProcessedProductLine;
   productLineIndex: number;
+  renderWindow: TimelineDayWindow;
+  timelineStartDay: number;
+  verticalScale?: number;
 }) {
-  const lineHeight = getProductLineHeight(compact);
+  const lineHeight = getProductLineHeight(compact, verticalScale);
   const isHarnessLine = productLine.classId === 'coding-harnesses';
   const harnessLineColor = mixHexColors(company.accent, PAGE_BACKGROUND_HEX, 0.34);
   const markerShapeClass = getMarkerShapeClass(productLine.markerShape);
   const markerSizeClass = compact ? 'h-3.5 w-3.5' : 'h-4 w-4';
-  const releaseLabelClass = compact
-    ? 'absolute left-3 top-0 origin-bottom-left -translate-y-1 -rotate-[22deg] whitespace-nowrap rounded-[0.7rem] border px-1.5 py-0.5 text-[10px] font-bold tracking-[0.01em] shadow-[var(--soft-shadow)] backdrop-blur-sm'
-    : 'absolute left-4 top-0 origin-bottom-left -translate-y-2 -rotate-[28deg] whitespace-nowrap rounded-[0.8rem] border bg-[var(--surface-strong)] px-2 py-1 text-[12px] font-bold tracking-[0.015em] shadow-[var(--soft-shadow)] backdrop-blur-sm transition duration-300 group-hover:-translate-y-3 group-hover:bg-[var(--surface)]';
-  const primaryLine = company.productLines[0];
-  const branchGeometry =
-    productLineIndex > 0 && primaryLine
-      ? getProductLineBranchGeometry({
-          compact,
-          maxDays,
-          primaryLine,
+  const releaseLabelShellClass = compact
+    ? 'absolute left-3 top-0 origin-bottom-left -translate-y-1 -rotate-[22deg]'
+    : 'absolute left-4 top-0 origin-bottom-left -translate-y-2 -rotate-[28deg] transition duration-300 group-hover:-translate-y-3';
+  const releaseLabelBodyClass = compact
+    ? 'timeline-map-screen-label whitespace-nowrap rounded-[0.7rem] border px-1.5 py-0.5 font-bold tracking-[0.01em] shadow-[var(--soft-shadow)] backdrop-blur-sm'
+    : 'timeline-map-screen-label whitespace-nowrap rounded-[0.8rem] border bg-[var(--surface-strong)] px-2 py-1 font-bold tracking-[0.015em] shadow-[var(--soft-shadow)] backdrop-blur-sm group-hover:bg-[var(--surface)]';
+  const releaseLabelFontSize = compact ? 10 : 12;
+  const branchSource = getBranchSourceLine(company.productLines, productLineIndex);
+  const trackStartOffsetPx =
+    branchSource
+      ? getProductLineBranchEndOffsetPx({
+          primaryLine: branchSource.productLine,
           productLine,
-          productLineCount: company.productLines.length,
-          productLineIndex,
-        })
-      : null;
-  const trackStartPercent = branchGeometry?.endX ?? 0;
+          timelineStartDay,
+        }) ?? 0
+      : 0;
 
   return (
-    <div className="relative z-10 shrink-0" style={{height: `${lineHeight}px`}}>
+    <motion.div
+      initial={{opacity: 0}}
+      animate={{opacity: 1}}
+      exit={{opacity: 0, transition: TIMELINE_FILTER_EXIT_TRANSITION}}
+      transition={{
+        opacity: TIMELINE_FILTER_ENTER_TRANSITION,
+      }}
+      className="relative z-10 shrink-0"
+      style={{height: `${lineHeight}px`}}
+    >
       <div
         className="absolute right-0 top-1/2 h-px -translate-y-1/2 bg-[var(--track-line)]"
-        style={{left: `${trackStartPercent}%`}}
+        style={{left: `${trackStartOffsetPx}px`}}
       />
       <div className="pointer-events-none absolute left-2 top-1/2 z-10 -translate-y-1/2">
         <span
-          className={`inline-flex items-center gap-1.5 rounded-full border bg-[rgba(10,13,19,0.88)] px-2 py-1 font-mono uppercase tracking-[0.13em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)] backdrop-blur-sm ${
-            compact ? 'text-[8px]' : 'text-[9px]'
-          }`}
-          style={{borderColor: toRgbaFromHex(company.accent, 0.28)}}
+          className="timeline-map-label inline-flex items-center gap-1.5 rounded-full border bg-[rgba(10,13,19,0.88)] px-2 py-1 font-mono uppercase tracking-[0.13em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)] backdrop-blur-sm"
+          style={{
+            borderColor: toRgbaFromHex(company.accent, 0.28),
+            ...getTimelineMapLabelStyle(compact ? 8 : 9),
+          }}
         >
           <ModelClassIcon classId={productLine.classId} className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
           {productLine.shortLabel}
         </span>
       </div>
 
-      {productLine.releases.map((release, releaseIndex) => {
+      <AnimatePresence initial={false} mode="popLayout">
+        {productLine.releases.map((release, releaseIndex) => {
         const previousRelease = productLine.releases[releaseIndex - 1];
-        const leftPercent = (release.globalDay / maxDays) * 100;
-        const previousPercent = previousRelease ? (previousRelease.globalDay / maxDays) * 100 : leftPercent;
-        const widthPercent = previousRelease ? leftPercent - previousPercent : 0;
-        const rangeWidthPercent = ((release.endGlobalDay - release.globalDay) / maxDays) * 100;
-        const delay = companyIndex * 0.1 + productLineIndex * 0.05 + releaseIndex * 0.07;
+        const isActiveArticle = activeArticleSlug === release.articleSlug;
+        const isReleaseVisible =
+          isActiveArticle ||
+          timelineDayRangesIntersect(release.globalDay, release.endGlobalDay, renderWindow);
+        const isConnectorVisible =
+          Boolean(previousRelease) &&
+          timelineDayRangesIntersect(previousRelease?.globalDay ?? release.globalDay, release.globalDay, renderWindow);
+        const isRangeVisible =
+          release.endGlobalDay > release.globalDay &&
+          timelineDayRangesIntersect(release.globalDay, release.endGlobalDay, renderWindow);
+
+        if (!isReleaseVisible && !isConnectorVisible && !isRangeVisible) {
+          return null;
+        }
+
+        const leftOffsetPx = getTimelineDayOffsetPx(release.globalDay, timelineStartDay);
+        const previousOffsetPx = previousRelease
+          ? getTimelineDayOffsetPx(previousRelease.globalDay, timelineStartDay)
+          : leftOffsetPx;
+        const connectorWidthPx = previousRelease ? Math.max(0, leftOffsetPx - previousOffsetPx) : 0;
+        const rangeWidthPx = getTimelineDurationWidthPx(release.globalDay, release.endGlobalDay);
         const isLatestInLine =
           productLine.latestRelease?.name === release.name && productLine.latestRelease?.date === release.date;
         const labelTextColor = isLatestInLine
@@ -1758,148 +2869,211 @@ function ProductLineTimelineLane({
           : mixHexColor(company.accent, 255, 0.24);
         const labelBorderColor = toRgbaFromHex(company.accent, isLatestInLine ? 0.52 : 0.34);
         const labelBackground = isLatestInLine ? toRgbaFromHex(company.accent, 0.12) : undefined;
-        const isActiveArticle = activeArticleSlug === release.articleSlug;
         const isGeneralEvent = release.eventKind === 'event';
         const openActionLabel = isGeneralEvent ? 'Open event' : 'Open release';
 
         return (
-          <React.Fragment key={`${company.id}-${productLine.id}-${release.name}-${release.date}`}>
-            {previousRelease ? (
+          <motion.div
+            key={release.articleSlug}
+            initial={{opacity: 0, scale: 0.84}}
+            animate={{opacity: 1, scale: 1}}
+            exit={{opacity: 0, scale: 0.84}}
+            transition={{
+              opacity: TIMELINE_FILTER_ENTER_TRANSITION,
+              scale: TIMELINE_FILTER_ENTER_TRANSITION,
+            }}
+            className="absolute inset-0"
+          >
+            {previousRelease && isConnectorVisible ? (
               <motion.div
                 initial={{opacity: 0, scaleX: 0}}
                 animate={{opacity: isHarnessLine ? 0.72 : 0.58, scaleX: 1}}
-                transition={{delay, duration: compact ? 0.65 : 0.72, ease: [0.22, 1, 0.36, 1]}}
+                transition={TIMELINE_FILTER_ENTER_TRANSITION}
                 className={`absolute top-1/2 -translate-y-1/2 origin-left ${isHarnessLine ? 'h-px' : 'h-[2px]'}`}
                 style={{
                   backgroundColor: isHarnessLine ? harnessLineColor : company.accent,
-                  left: `${previousPercent}%`,
-                  width: `${widthPercent}%`,
+                  left: `${previousOffsetPx}px`,
+                  width: `${connectorWidthPx}px`,
                 }}
               >
-                <div
-                  className={`absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2 py-1 font-mono uppercase tracking-[0.1em] text-[var(--muted)] shadow-[var(--soft-shadow)] ${
-                    compact ? 'text-[9px]' : 'text-[10px]'
-                  }`}
-                >
-                  {release.gap}d
+                <div className="absolute left-1/2 top-3 -translate-x-1/2">
+                  <div className="timeline-map-screen-fixed">
+                    <div
+                      className="timeline-map-screen-label rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2 py-1 font-mono uppercase tracking-[0.1em] text-[var(--ink)] shadow-[var(--soft-shadow)]"
+                      style={getTimelineMapLabelStyle(compact ? 9 : 10)}
+                    >
+                      {release.gap}d
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             ) : null}
 
-            {release.endGlobalDay > release.globalDay ? (
+            {isRangeVisible ? (
               <motion.div
                 initial={{opacity: 0, scaleX: 0}}
                 animate={{opacity: isLatestInLine ? 0.72 : 0.54, scaleX: 1}}
-                transition={{delay: delay + 0.04, duration: compact ? 0.48 : 0.54, ease: [0.22, 1, 0.36, 1]}}
+                transition={TIMELINE_FILTER_ENTER_TRANSITION}
                 className={`absolute top-1/2 z-10 origin-left -translate-y-1/2 rounded-full ${
                   compact ? 'h-[7px]' : 'h-2'
                 }`}
                 style={{
                   backgroundColor: company.accent,
                   boxShadow: `0 0 18px color-mix(in srgb, ${company.accent} 34%, transparent)`,
-                  left: `${leftPercent}%`,
+                  left: `${leftOffsetPx}px`,
                   minWidth: compact ? '8px' : '10px',
-                  width: `${rangeWidthPercent}%`,
+                  width: `${rangeWidthPx}px`,
                 }}
               />
             ) : null}
 
-            <motion.div
-              initial={{opacity: 0, scale: 0.78, y: compact ? 8 : 10}}
-              animate={{opacity: 1, scale: 1, y: 0}}
-              transition={{delay: delay + 0.08, duration: compact ? 0.42 : 0.48, type: 'spring', stiffness: 120, damping: 18}}
-              className="absolute top-1/2 z-20 -translate-x-1/2 -translate-y-1/2"
-              style={{left: `${leftPercent}%`}}
-            >
-              <button
-                type="button"
-                aria-current={isActiveArticle ? 'page' : undefined}
-                aria-label={`${openActionLabel} for ${release.name}, ${release.dateRangeLabel}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onModelSelect(release.articleSlug);
+            {isReleaseVisible ? (
+              <motion.div
+                initial={{opacity: 0, scale: 0.82, y: compact ? 6 : 8}}
+                animate={{opacity: 1, scale: 1, y: 0}}
+                exit={{opacity: 0, scale: 0.82, y: compact ? 6 : 8}}
+                transition={{
+                  opacity: TIMELINE_FILTER_ENTER_TRANSITION,
+                  scale: TIMELINE_FILTER_ENTER_TRANSITION,
+                  y: TIMELINE_FILTER_ENTER_TRANSITION,
                 }}
-                onPointerDown={(event) => event.stopPropagation()}
-                className="group relative cursor-pointer text-left outline-none"
+                className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 ${isActiveArticle ? 'z-30' : 'z-20'}`}
+                style={{left: `${leftOffsetPx}px`}}
               >
-                <div
-                  className={`${markerSizeClass} border-[3px] border-[var(--surface-strong)] transition duration-300 group-hover:scale-[1.22] group-focus-visible:scale-[1.22] ${markerShapeClass}`}
-                  style={{
-                    backgroundColor: company.accent,
-                    boxShadow: isActiveArticle
-                      ? `0 0 0 ${compact ? 6 : 7}px color-mix(in srgb, ${company.accent} 28%, transparent), 0 0 24px color-mix(in srgb, ${company.accent} 54%, transparent)`
-                      : isLatestInLine
-                      ? `0 0 0 ${compact ? 4 : 5}px color-mix(in srgb, ${company.accent} 20%, transparent), 0 0 18px color-mix(in srgb, ${company.accent} 40%, transparent)`
-                      : `0 0 0 4px color-mix(in srgb, ${company.accent} 11%, transparent)`,
-                    filter: isLatestInLine ? 'saturate(1.35) brightness(1.08)' : undefined,
-                  }}
-                />
-
-                <div
-                  className={releaseLabelClass}
-                  style={{
-                    backgroundColor: labelBackground,
-                    borderColor: labelBorderColor,
-                    color: labelTextColor,
-                    textShadow: isLatestInLine ? '0 1px 12px rgba(0, 0, 0, 0.5)' : '0 1px 10px rgba(0, 0, 0, 0.38)',
-                    filter: isLatestInLine ? 'saturate(1.18)' : undefined,
-                  }}
-                >
-                  {release.name}
-                </div>
-
-                {!compact ? (
-                  <div className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 opacity-0 transition duration-300 group-hover:opacity-100">
-                    <div className="rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--ink)] shadow-[0_18px_38px_-24px_rgba(0,0,0,0.5)]">
-                      {productLine.shortLabel} / {release.eventTypeShortLabel} / {release.dateRangeLabel}
+                <div className="overflow-visible">
+                    <button
+                      type="button"
+                      data-timeline-pin
+                      aria-current={isActiveArticle ? 'page' : undefined}
+                      aria-label={`${openActionLabel} for ${release.name}, ${release.dateRangeLabel}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onModelSelect(release.articleSlug);
+                      }}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      className={`group relative block size-0 overflow-visible cursor-pointer text-left outline-none ${isActiveArticle ? 'timeline-pin--selected' : ''}`}
+                    >
+                    <div className="timeline-pin-marker-stack relative z-0 size-0 shrink-0">
+                      {isActiveArticle ? (
+                        <span
+                          aria-hidden="true"
+                          className={`timeline-pin-selection-ring ${compact ? 'timeline-pin-selection-ring--compact' : ''}`}
+                          style={{['--pin-accent' as string]: company.accent}}
+                        />
+                      ) : null}
+                      <div
+                        className={`${markerSizeClass} absolute left-0 top-1/2 z-[1] -translate-x-1/2 -translate-y-1/2 border-[3px] border-[var(--surface-strong)] transition duration-300 ${markerShapeClass} ${
+                          isActiveArticle
+                            ? 'timeline-pin-marker--selected scale-[1.18]'
+                            : 'group-hover:scale-[1.22] group-focus-visible:scale-[1.22]'
+                        }`}
+                        style={{
+                          backgroundColor: company.accent,
+                          boxShadow: isActiveArticle
+                            ? `0 0 0 ${compact ? 3 : 4}px rgba(237, 242, 250, 0.92), 0 0 0 ${compact ? 7 : 8}px color-mix(in srgb, ${company.accent} 48%, transparent)`
+                            : isLatestInLine
+                              ? `0 0 0 ${compact ? 4 : 5}px color-mix(in srgb, ${company.accent} 20%, transparent), 0 0 18px color-mix(in srgb, ${company.accent} 40%, transparent)`
+                              : `0 0 0 4px color-mix(in srgb, ${company.accent} 11%, transparent)`,
+                          filter: isActiveArticle
+                            ? 'saturate(1.45) brightness(1.14)'
+                            : isLatestInLine
+                              ? 'saturate(1.35) brightness(1.08)'
+                              : undefined,
+                        }}
+                      />
                     </div>
-                  </div>
-                ) : null}
-              </button>
-            </motion.div>
-          </React.Fragment>
+
+                    <div className={`${releaseLabelShellClass} z-[2]`}>
+                      <div
+                        className={`${releaseLabelBodyClass} ${isActiveArticle ? 'timeline-pin-label--selected' : ''}`}
+                        style={{
+                          backgroundColor: isActiveArticle
+                            ? 'var(--surface-strong)'
+                            : labelBackground,
+                          borderColor: isActiveArticle
+                            ? toRgbaFromHex(company.accent, 0.88)
+                            : labelBorderColor,
+                          borderWidth: isActiveArticle ? (compact ? 2 : 2) : undefined,
+                          color: isActiveArticle ? mixHexColor(company.accent, 255, 0.06) : labelTextColor,
+                          boxShadow: isActiveArticle
+                            ? `0 0 0 1px color-mix(in srgb, ${company.accent} 55%, transparent)`
+                            : undefined,
+                          textShadow: isActiveArticle
+                            ? '0 1px 14px rgba(0, 0, 0, 0.62)'
+                            : isLatestInLine
+                              ? '0 1px 12px rgba(0, 0, 0, 0.5)'
+                              : '0 1px 10px rgba(0, 0, 0, 0.38)',
+                          filter: isActiveArticle
+                            ? 'saturate(1.28)'
+                            : isLatestInLine
+                              ? 'saturate(1.18)'
+                              : undefined,
+                          ...getTimelineMapLabelStyle(releaseLabelFontSize),
+                        }}
+                      >
+                        {release.name}
+                      </div>
+                    </div>
+
+                    {!compact ? (
+                      <div className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 opacity-0 transition duration-300 group-hover:opacity-100">
+                        <div
+                          className="timeline-map-screen-label rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 font-mono uppercase tracking-[0.12em] text-[var(--ink)] shadow-[0_18px_38px_-24px_rgba(0,0,0,0.5)]"
+                          style={getTimelineMapLabelStyle(10)}
+                        >
+                          {productLine.shortLabel} / {release.eventTypeShortLabel} / {release.dateRangeLabel}
+                        </div>
+                      </div>
+                    ) : null}
+                    </button>
+                </div>
+              </motion.div>
+            ) : null}
+          </motion.div>
         );
       })}
+      </AnimatePresence>
 
-      {productLine.latestRelease && currentGlobalDay > productLine.latestRelease.endGlobalDay ? (
+      {productLine.latestRelease &&
+      currentGlobalDay > productLine.latestRelease.endGlobalDay &&
+      timelineDayRangesIntersect(productLine.latestRelease.endGlobalDay, currentGlobalDay, renderWindow) ? (
         <>
           <motion.div
             initial={{opacity: 0, scaleX: 0}}
             animate={{opacity: isHarnessLine ? 0.48 : 0.42, scaleX: 1}}
-            transition={{
-              delay: companyIndex * 0.14 + productLineIndex * 0.06 + productLine.releases.length * 0.07,
-              duration: compact ? 0.75 : 0.8,
-              ease: [0.22, 1, 0.36, 1],
-            }}
+            transition={TIMELINE_FILTER_ENTER_TRANSITION}
             className={`absolute top-1/2 origin-left -translate-y-1/2 ${
               isHarnessLine ? 'h-px' : 'quiet-extension-flow h-[2px]'
             }`}
             style={{
               backgroundColor: isHarnessLine ? harnessLineColor : undefined,
-              left: `${(productLine.latestRelease.endGlobalDay / maxDays) * 100}%`,
+              left: `${getTimelineDayOffsetPx(productLine.latestRelease.endGlobalDay, timelineStartDay)}px`,
               ['--quiet-flow-duration' as string]: `${compact ? 5.4 : 6.4}s`,
               ['--quiet-line-color' as string]: company.accent,
-              width: `${((currentGlobalDay - productLine.latestRelease.endGlobalDay) / maxDays) * 100}%`,
+              width: `${getTimelineDurationWidthPx(productLine.latestRelease.endGlobalDay, currentGlobalDay)}px`,
             }}
           />
 
           <div
             className="absolute top-1/2 z-0 -translate-y-1/2 pl-3"
-            style={{left: `${(currentGlobalDay / maxDays) * 100}%`}}
+            style={{left: `${getTimelineDayOffsetPx(currentGlobalDay, timelineStartDay)}px`}}
           >
-            <div
-              className={`rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 font-mono uppercase tracking-[0.14em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)] ${
-                compact ? 'text-[9px]' : 'text-[10px]'
-              }`}
-            >
-              +{getQuietDays(productLine, currentGlobalDay)}d
+            <div className="timeline-map-screen-fixed">
+              <div
+                className="timeline-map-screen-label rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 font-mono uppercase tracking-[0.14em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)]"
+                style={getTimelineMapLabelStyle(compact ? 9 : 10)}
+              >
+                +{getQuietDays(productLine, currentGlobalDay)}d
+              </div>
             </div>
           </div>
         </>
       ) : null}
-    </div>
+    </motion.div>
   );
 }
+
+const MemoizedProductLineTimelineLane = React.memo(ProductLineTimelineLane);
 
 function CompanyTimelineGroup({
   activeArticleSlug,
@@ -1908,7 +3082,12 @@ function CompanyTimelineGroup({
   companyIndex,
   currentGlobalDay,
   maxDays,
+  onCompanyBlur,
+  onCompanyFocus,
   onModelSelect,
+  renderWindow,
+  timelineStartDay,
+  verticalScale = 1,
 }: {
   activeArticleSlug: string | null;
   compact?: boolean;
@@ -1916,14 +3095,60 @@ function CompanyTimelineGroup({
   companyIndex: number;
   currentGlobalDay: number;
   maxDays: number;
+  onCompanyBlur?: () => void;
+  onCompanyFocus?: (companyId: string) => void;
   onModelSelect: (slug: string) => void;
+  renderWindow: TimelineDayWindow;
+  timelineStartDay: number;
+  verticalScale?: number;
 }) {
+  const {lineGap} = getProductLineStackMetrics(company.productLines.length, compact, verticalScale);
+  const focusCompany = () => onCompanyFocus?.(company.id);
+  const blurCompany = () => onCompanyBlur?.();
+
   return (
-    <div className="relative flex flex-col justify-center" style={{height: `${getCompanyGroupHeight(company, compact)}px`, gap: `${PRODUCT_LINE_GAP}px`}}>
-      <ProductLineBranchConnectors compact={compact} company={company} maxDays={maxDays} />
-      {company.productLines.map((productLine, productLineIndex) => (
-        <React.Fragment key={`${company.id}-${productLine.id}`}>
-          <ProductLineTimelineLane
+    <motion.div
+      initial={{opacity: 0}}
+      animate={{opacity: 1}}
+      exit={{opacity: 0, transition: TIMELINE_FILTER_EXIT_TRANSITION}}
+      transition={{
+        opacity: TIMELINE_FILTER_ENTER_TRANSITION,
+      }}
+      className="relative flex flex-col justify-center"
+      onClick={(event) => {
+        const target = event.target;
+
+        if (
+          target instanceof Element &&
+          target.closest('button, a, input, label, select, textarea, [data-row-focus-label]')
+        ) {
+          return;
+        }
+
+        focusCompany();
+      }}
+      onMouseEnter={focusCompany}
+      onMouseLeave={blurCompany}
+      onPointerEnter={(event) => {
+        if (event.pointerType === 'touch') {
+          return;
+        }
+
+        focusCompany();
+      }}
+      onPointerLeave={(event) => {
+        if (event.pointerType === 'touch') {
+          return;
+        }
+
+        blurCompany();
+      }}
+      style={{height: `${getCompanyGroupHeight(company, compact, verticalScale)}px`, gap: `${lineGap}px`}}
+    >
+      <AnimatePresence initial={false} mode="popLayout">
+        {company.productLines.map((productLine, productLineIndex) => (
+          <MemoizedProductLineTimelineLane
+            key={`${company.id}-${productLine.id}`}
             activeArticleSlug={activeArticleSlug}
             compact={compact}
             company={company}
@@ -1933,12 +3158,46 @@ function CompanyTimelineGroup({
             onModelSelect={onModelSelect}
             productLine={productLine}
             productLineIndex={productLineIndex}
+            renderWindow={renderWindow}
+            timelineStartDay={timelineStartDay}
+            verticalScale={verticalScale}
           />
-        </React.Fragment>
-      ))}
-    </div>
+        ))}
+      </AnimatePresence>
+    </motion.div>
   );
 }
+
+function companyIncludesArticleSlug(company: ProcessedCompany, articleSlug: string | null) {
+  if (!articleSlug) {
+    return false;
+  }
+
+  return company.productLines.some((productLine) =>
+    productLine.releases.some((release) => release.articleSlug === articleSlug),
+  );
+}
+
+const MemoizedCompanyTimelineGroup = React.memo(
+  CompanyTimelineGroup,
+  (previous, next) => {
+    const previousHasActiveArticle = companyIncludesArticleSlug(previous.company, previous.activeArticleSlug);
+    const nextHasActiveArticle = companyIncludesArticleSlug(next.company, next.activeArticleSlug);
+
+    return (
+      previous.compact === next.compact &&
+      previous.company === next.company &&
+      previous.companyIndex === next.companyIndex &&
+      previous.currentGlobalDay === next.currentGlobalDay &&
+      previous.maxDays === next.maxDays &&
+      previous.timelineStartDay === next.timelineStartDay &&
+      previous.verticalScale === next.verticalScale &&
+      timelineDayWindowsMatch(previous.renderWindow, next.renderWindow) &&
+      previousHasActiveArticle === nextHasActiveArticle &&
+      (!previousHasActiveArticle || previous.activeArticleSlug === next.activeArticleSlug)
+    );
+  },
+);
 
 function CompanySummaryCard({
   compact = false,
@@ -1960,9 +3219,15 @@ function CompanySummaryCard({
   return (
     <motion.div
       key={`${company.id}-${compact ? 'mobile' : 'desktop'}-summary`}
-      initial={{opacity: 0, y: compact ? 16 : 18}}
+      layout
+      initial={{opacity: 0, y: compact ? 12 : 14}}
       animate={{opacity: 1, y: 0}}
-      transition={{delay: (compact ? 0.16 : 0.2) + index * 0.06, duration: compact ? 0.46 : 0.55, ease: [0.22, 1, 0.36, 1]}}
+      exit={{opacity: 0, y: compact ? 12 : 14}}
+      transition={{
+        layout: TIMELINE_LAYOUT_TRANSITION,
+        opacity: TIMELINE_FILTER_ENTER_TRANSITION,
+        y: TIMELINE_FILTER_ENTER_TRANSITION,
+      }}
       className={`rounded-[1.6rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--soft-shadow)] ${
         compact ? 'p-4' : 'p-4'
       }`}
@@ -1970,14 +3235,17 @@ function CompanySummaryCard({
       <div className="min-w-0">
         <div className="flex items-center gap-3">
           <CompanyTypeIconBadge className="h-7 w-7" company={company} />
-          <p className="truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{company.name}</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold tracking-tight text-[var(--ink)]">{company.name}</p>
+            <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.13em] text-[var(--muted)]">
+              AI significance {company.significanceScore}
+            </p>
+          </div>
         </div>
 
         {hasMultipleLines ? (
           <div className="mt-3 space-y-2">
             {company.productLines.map((productLine) => {
-              const lineQuietDays = getQuietDays(productLine, currentGlobalDay);
-
               return (
                 <div key={`${company.id}-${productLine.id}-summary-line`} className="min-w-0 rounded-[0.85rem] border border-[var(--edge)] bg-[rgba(255,255,255,0.02)] px-3 py-2">
                   <div className="flex items-center justify-between gap-3">
@@ -1986,7 +3254,7 @@ function CompanySummaryCard({
                       <span className="truncate">{productLine.shortLabel}</span>
                     </span>
                     <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
-                      {lineQuietDays}d
+                      {productLine.significanceScore}
                     </span>
                   </div>
                   <p className="mt-1 truncate text-sm text-[var(--ink-soft)]">{productLine.latestRelease?.name ?? 'No releases'}</p>
@@ -2020,6 +3288,8 @@ function CompanySummaryCard({
     </motion.div>
   );
 }
+
+const MemoizedCompanySummaryCard = React.memo(CompanySummaryCard);
 
 function getFallbackModelLogo(entry: ModelReleaseIndexEntry): ModelLogo {
   const fallbackMark: ArticleLogoMark =
@@ -2911,7 +4181,11 @@ void main() {
 `;
 
 const FLUID_RENDER_FRAGMENT_SHADER = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 
 uniform vec2 uResolution;
 uniform vec2 uFluidTexel;
@@ -2961,6 +4235,44 @@ float hash21(vec2 p) {
   return fract(p.x * p.y);
 }
 
+float triangularNoise(vec2 pixel, vec2 seed) {
+  vec2 seededPixel = pixel + seed * 4096.0;
+  float a = hash21(seededPixel);
+  float b = hash21(seededPixel * 1.37 + seed.yx * 4096.0 + 17.0);
+  return a + b - 1.0;
+}
+
+float isotropicHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float isotropicTriangularNoise(vec2 pixel, vec2 seed) {
+  vec2 seededPixel = pixel + seed * 8192.0;
+  float a = isotropicHash(seededPixel);
+  float b = isotropicHash(seededPixel + vec2(19.19, 73.13));
+  return a + b - 1.0;
+}
+
+float blueDitherNoise(vec2 pixel, vec4 seed, float time) {
+  float frame = floor(time * 12.0);
+  vec2 p = pixel + vec2(frame * 19.37, frame * 47.11);
+  vec2 r0 = mat2(0.8660254, -0.5, 0.5, 0.8660254) * p;
+  vec2 r1 = mat2(0.6087614, 0.7933533, -0.7933533, 0.6087614) * (p + seed.zw * 113.0);
+  vec2 e0 = vec2(0.9238795, 0.3826834);
+  vec2 e1 = vec2(-0.3826834, 0.9238795);
+  float center = isotropicTriangularNoise(r0, seed.xy) * 0.62 + isotropicTriangularNoise(r1, seed.zw) * 0.38;
+  float neighborMean = 0.0;
+  neighborMean += isotropicTriangularNoise(r0 + e0, seed.zw);
+  neighborMean += isotropicTriangularNoise(r0 - e0, seed.wz);
+  neighborMean += isotropicTriangularNoise(r0 + e1, seed.yw);
+  neighborMean += isotropicTriangularNoise(r0 - e1, seed.zy);
+  neighborMean *= 0.25;
+
+  return clamp((center - neighborMean) * 1.38, -1.0, 1.0);
+}
+
 float valueNoise(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
@@ -2970,6 +4282,17 @@ float valueNoise(vec2 p) {
   float c = hash21(i + vec2(0.0, 1.0));
   float d = hash21(i + vec2(1.0, 1.0));
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float filmGrain(vec2 pixel, vec4 seed, float time) {
+  float frame = floor(time * 8.0);
+  vec2 p = pixel + vec2(frame * 37.0, frame * 17.0);
+  float coarse = valueNoise(p / 32.0 + seed.xy * 83.0) - 0.5;
+  float mid = valueNoise(p / 13.0 + seed.zw * 131.0) - 0.5;
+  float fine = triangularNoise(p + vec2(29.0, 71.0), vec2(seed.y, seed.x)) * 0.5;
+  float blue = blueDitherNoise(p, seed, time) * 0.5;
+
+  return clamp(coarse * 0.58 + mid * 0.3 + fine * 0.08 + blue * 0.08, -0.5, 0.5) * 2.0;
 }
 
 float fbm(vec2 p) {
@@ -3034,9 +4357,36 @@ float debugSideEmitter(vec2 uv, float originX, float centerY, float strength, fl
   return baseDot * 1.2 + ring * 1.05 + column * strength * 0.72 + guide * (0.18 + strength * 0.26);
 }
 
+vec2 rotate2d(vec2 p, float angle) {
+  float s = sin(angle);
+  float c = cos(angle);
+  return mat2(c, -s, s, c) * p;
+}
+
+float starLayer(vec2 uv, float scale, float threshold, float size, float time) {
+  vec2 cell = uv * scale;
+  vec2 id = floor(cell);
+  vec2 local = fract(cell) - 0.5;
+  vec2 offset = vec2(hash21(id + 13.2), hash21(id + 47.7)) - 0.5;
+  float seed = hash21(id + 91.4);
+  float star = 1.0 - smoothstep(0.0, size, length(local - offset * 0.38));
+  float twinkle = 0.72 + 0.28 * sin(time * (0.34 + seed * 0.42) + seed * 6.28318);
+  return star * step(threshold, seed) * twinkle;
+}
+
+float galaxyDust(vec2 space, float time) {
+  vec2 bandSpace = rotate2d(space, -0.36);
+  float warp = (fbm(bandSpace * vec2(1.6, 4.7) + vec2(time * 0.012, -time * 0.006)) - 0.5) * 0.16;
+  float band = exp(-pow((bandSpace.y + warp) / 0.18, 2.0));
+  float taper = smoothstep(1.18, 0.04, abs(bandSpace.x));
+  float granularity = smoothstep(0.3, 0.88, fbm(bandSpace * vec2(4.2, 11.0) + vec2(-time * 0.018, time * 0.01)));
+  return band * taper * (0.38 + granularity * 0.62);
+}
+
 void main() {
   vec2 uv = vUv;
   vec2 aspect = vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
+  vec2 space = (uv - vec2(0.5)) * aspect;
   vec2 fluidVelocity = texture2D(uVelocityMap, uv).rg * 2.0 - 1.0;
   vec4 dye = sampleDye(uv);
   vec2 layerDrift = clamp(fluidVelocity * vec2(0.018, 0.014), vec2(-0.025), vec2(0.025));
@@ -3109,12 +4459,29 @@ void main() {
   vec3 color = dyeColor + velocityColor + causticColor + volumeColor;
   color *= 1.0 - coreShadow;
   color = color / (vec3(1.0) + color * 1.95);
-  color = clamp(color, vec3(0.0), vec3(0.48));
-  float alpha = clamp(layeredDensity * 1.08 + caustic * 0.2 + innerScatter * 0.1 + backGlow * 0.12 + edgeEnergy * 0.038 + smoothstep(0.018, 0.28, speed) * 0.14, 0.0, 0.62);
+  color = clamp(color, vec3(0.0), vec3(0.32));
+  float alpha = clamp(layeredDensity * 0.48 + caustic * 0.08 + innerScatter * 0.04 + backGlow * 0.08 + edgeEnergy * 0.022 + smoothstep(0.018, 0.28, speed) * 0.055, 0.0, 0.34);
   float panelSmokeMask = widgetMask(uv, aspect.x) * smoothstep(0.018, 0.38, layeredDensity + haloDensity * 0.42);
   vec3 panelGrayscaleColor = grayscaleColor(color);
   color = mix(color, panelGrayscaleColor, panelSmokeMask);
-  alpha = clamp(alpha + panelSmokeMask * 0.035, 0.0, 0.64);
+  alpha = clamp(alpha + panelSmokeMask * 0.02, 0.0, 0.36);
+
+  float galaxyTime = uElapsedTime * 0.62;
+  float dust = galaxyDust(space, galaxyTime);
+  float core = exp(-dot(space - vec2(-0.09, 0.035), space - vec2(-0.09, 0.035)) / 0.085);
+  float farStars = starLayer(uv + vec2(galaxyTime * 0.0009, -galaxyTime * 0.0005), 112.0, 0.982, 0.05, galaxyTime);
+  float nearStars = starLayer(uv + vec2(-galaxyTime * 0.00055, galaxyTime * 0.0007), 58.0, 0.965, 0.038, galaxyTime);
+  float pinStars = starLayer(uv, 182.0, 0.991, 0.028, galaxyTime);
+  float stars = clamp(farStars * 0.45 + nearStars * 0.62 + pinStars * 0.34, 0.0, 1.0);
+  vec3 dustColor = vec3(0.055, 0.09, 0.13) * dust;
+  dustColor += vec3(0.08, 0.04, 0.065) * dust * smoothstep(-0.18, 0.32, space.x);
+  dustColor += vec3(0.13, 0.102, 0.052) * core * 0.16;
+  vec3 starColor = mix(vec3(0.54, 0.67, 0.72), vec3(0.86, 0.78, 0.62), smoothstep(0.2, 0.88, hash21(floor(uv * 96.0)))) * stars;
+  float vignette = smoothstep(1.12, 0.18, length(space));
+  vec3 galaxyColor = (dustColor * 0.82 + starColor * 0.22) * vignette;
+  float galaxyAlpha = clamp(dust * 0.18 + core * 0.055 + stars * 0.11, 0.0, 0.3) * vignette;
+  color = clamp(color * 0.58 + galaxyColor, vec3(0.0), vec3(0.38));
+  alpha = clamp(alpha * 0.68 + galaxyAlpha, 0.0, 0.42);
 
   float weatherTime = uElapsedTime * 0.72;
   float centerA = clamp(weatherCenter(weatherTime + uEmitterSeed.x * 17.0, 0.2 + uEmitterSeed.x * 6.28318) + (uEmitterSeed.x - 0.5) * 0.12, 0.08, 0.92);
@@ -3135,23 +4502,42 @@ void main() {
   debugColor += vec3(0.95, 0.78, 0.34) * debugC;
   float debugAlpha = clamp((debugA + debugB + debugC) * 0.92, 0.0, 0.92) * uEmitterDebug;
   color = mix(color, clamp(color + debugColor * 0.9, vec3(0.0), vec3(0.78)), debugAlpha);
+  color *= 2.0;
   alpha = max(alpha, debugAlpha);
 
-  gl_FragColor = vec4(color, alpha);
+  float lowContrastMask = 1.0 - smoothstep(0.02, 0.22, length(dyeGradient) * 8.0 + stars * 0.42 + dust * 0.16);
+  float dither = blueDitherNoise(gl_FragCoord.xy, uEmitterSeed, uElapsedTime);
+  float grain = filmGrain(gl_FragCoord.xy, uEmitterSeed, uElapsedTime);
+  vec3 baseBackground = vec3(0.0196, 0.0275, 0.0431);
+  float baseTeal = exp(-dot((uv - vec2(0.16, 0.82)) * aspect, (uv - vec2(0.16, 0.82)) * aspect) / 0.48);
+  float baseCool = exp(-dot((uv - vec2(0.48, 0.46)) * aspect, (uv - vec2(0.48, 0.46)) * aspect) / 0.62);
+  float baseAmber = exp(-dot((uv - vec2(0.88, 0.22)) * aspect, (uv - vec2(0.88, 0.22)) * aspect) / 0.44);
+  baseBackground += vec3(0.0025, 0.018, 0.016) * baseTeal;
+  baseBackground += vec3(0.012, 0.018, 0.026) * baseCool;
+  baseBackground += vec3(0.014, 0.009, 0.004) * baseAmber;
+  vec3 composedColor = mix(baseBackground, color, alpha);
+  float ditherStrength = mix(0.004, 0.01, lowContrastMask);
+  float grainStrength = mix(0.0035, 0.0085, lowContrastMask);
+  composedColor = clamp(
+    composedColor + vec3(dither * ditherStrength + grain * grainStrength),
+    vec3(0.0),
+    vec3(1.0)
+  );
+
+  gl_FragColor = vec4(composedColor, 1.0);
 }
 `;
 
 function AuroraBackdrop() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [isCursorFluidEnabled, setIsCursorFluidEnabled] = useState(false);
-  const cursorFluidEnabledRef = useRef(isCursorFluidEnabled);
+  const cursorFluidEnabledRef = useRef(false);
   const emitterDebugVisibleRef = useRef(false);
 
   useEffect(() => {
-    cursorFluidEnabledRef.current = isCursorFluidEnabled;
-  }, [isCursorFluidEnabled]);
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      return;
+    }
 
-  useEffect(() => {
     const canvas = canvasRef.current;
     const gl = canvas?.getContext('webgl', {
       alpha: true,
@@ -3566,7 +4952,7 @@ function AuroraBackdrop() {
     ];
 
     const resize = () => {
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.3);
+      const pixelRatio = 1;
       const width = Math.max(1, Math.floor(window.innerWidth * pixelRatio));
       const height = Math.max(1, Math.floor(window.innerHeight * pixelRatio));
 
@@ -3897,17 +5283,6 @@ function AuroraBackdrop() {
         className="aurora-canvas"
         aria-hidden="true"
       />
-      <div className="fixed bottom-4 left-4 z-40 flex flex-col gap-2 sm:flex-row">
-        <button
-          type="button"
-          aria-pressed={isCursorFluidEnabled}
-          onClick={() => setIsCursorFluidEnabled((enabled) => !enabled)}
-          className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--edge)] bg-[rgba(8,11,16,0.82)] px-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)] backdrop-blur-md transition duration-300 hover:border-[var(--edge-strong)] hover:text-[var(--ink)] active:scale-[0.98]"
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${isCursorFluidEnabled ? 'bg-[#4fb9a5]' : 'bg-[var(--muted)]'}`} />
-          Fluid cursor {isCursorFluidEnabled ? 'On' : 'Off'}
-        </button>
-      </div>
     </>
   );
 }
@@ -3989,23 +5364,40 @@ function TimelineSkeleton() {
   );
 }
 
-type ZoomHandler = (updater: (zoomLevel: number) => number) => void;
+type ZoomAnchor = {
+  x: number;
+  y: number;
+};
+type ZoomHandler = (updater: (zoomLevel: number) => number, anchor?: ZoomAnchor) => void;
 type TimelinePointerHandler = (event: React.PointerEvent<HTMLDivElement>) => void;
+type TimelineTouchHandler = (event: React.TouchEvent<HTMLDivElement>) => void;
 type CompanyMoveDirection = 'up' | 'down';
 type CompanyMoveHandler = (companyId: string, direction: CompanyMoveDirection) => void;
-type CompanyReorderHandler = (sourceCompanyId: string, targetCompanyId: string) => void;
+type PointerPoint = {
+  clientX: number;
+  clientY: number;
+};
+type MobileTouchGestureState = {
+  distance: number;
+  lastMidpointX: number;
+  lastMidpointY: number;
+  lastX: number;
+  lastY: number;
+  startX: number;
+  startY: number;
+  type: 'pan' | 'pinch';
+};
 
 type DesktopTimelineExperienceProps = {
   activeArticleSlug: string | null;
   boardView: BoardView;
+  camera: CameraState;
   currentGlobalDay: number;
-  draggedCompanyId: string | null;
   handlePointerDown: TimelinePointerHandler;
   handlePointerMove: TimelinePointerHandler;
   hiddenCompanyCount: number;
   handleZoomChange: ZoomHandler;
   isPanning: boolean;
-  isZoomSliderActive: boolean;
   latestCompany: ProcessedCompany | null;
   maxDays: number;
   minZoom: number;
@@ -4013,19 +5405,23 @@ type DesktopTimelineExperienceProps = {
   maxSummaryQuietDays: number;
   modelExplorer: React.ReactNode;
   monthTicks: Tick[];
-  onCompanyDragEnd: () => void;
-  onCompanyDragStart: (companyId: string) => void;
   onCompanyHide: (companyId: string) => void;
   onCompanyMove: CompanyMoveHandler;
-  onCompanyReorder: CompanyReorderHandler;
+  onDismissArticle: (target: EventTarget, clientPosition?: {clientX: number; clientY: number}) => void;
   onModelSelect: (slug: string) => void;
+  onResetCamera: () => void;
   onShowHiddenCompanies: () => void;
-  onZoomSliderActiveChange: (isActive: boolean) => void;
+  onToggleTimelineGrid: () => void;
   processedCompanies: ProcessedCompany[];
+  renderWindow: TimelineDayWindow;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  showTimelineGrid: boolean;
   stopPanning: TimelinePointerHandler;
   summaryCompanies: ProcessedCompany[];
+  timelineStartDay: number;
   timelineWidth: number;
+  viewport: ViewportSize;
+  worldRef: React.RefObject<HTMLDivElement | null>;
   yearTicks: Tick[];
   zoom: number;
 };
@@ -4033,44 +5429,247 @@ type DesktopTimelineExperienceProps = {
 type MobileTimelineExperienceProps = {
   activeArticleSlug: string | null;
   boardView: BoardView;
+  camera: CameraState;
   currentGlobalDay: number;
-  draggedCompanyId: string | null;
+  handleTouchEnd: TimelineTouchHandler;
+  handleTouchMove: TimelineTouchHandler;
+  handleTouchStart: TimelineTouchHandler;
   handleZoomChange: ZoomHandler;
   latestCompany: ProcessedCompany | null;
   hiddenCompanyCount: number;
-  isZoomSliderActive: boolean;
   minZoom: number;
   maxZoom: number;
   maxDays: number;
   maxSummaryQuietDays: number;
   modelExplorer: React.ReactNode;
   monthTicks: Tick[];
-  onCompanyDragEnd: () => void;
-  onCompanyDragStart: (companyId: string) => void;
   onCompanyHide: (companyId: string) => void;
   onCompanyMove: CompanyMoveHandler;
-  onCompanyReorder: CompanyReorderHandler;
+  onDismissArticle: (target: EventTarget, clientPosition?: {clientX: number; clientY: number}) => void;
   onModelSelect: (slug: string) => void;
+  onResetCamera: () => void;
   onShowHiddenCompanies: () => void;
-  onZoomSliderActiveChange: (isActive: boolean) => void;
+  onToggleTimelineGrid: () => void;
   processedCompanies: ProcessedCompany[];
+  renderWindow: TimelineDayWindow;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  showTimelineGrid: boolean;
+  timelineStartDay: number;
   timelineWidth: number;
+  viewport: ViewportSize;
+  worldRef: React.RefObject<HTMLDivElement | null>;
   yearTicks: Tick[];
   zoom: number;
 };
 
+function TimelineRowFocusBands({
+  activeCompanyId,
+  compact = false,
+  onCompanyBlur,
+  onCompanyFocus,
+  onCompanyTap,
+  railWidth,
+  rowLayouts,
+  timelineWidth,
+}: {
+  activeCompanyId: string | null;
+  compact?: boolean;
+  onCompanyBlur?: () => void;
+  onCompanyFocus: (companyId: string) => void;
+  onCompanyTap?: (companyId: string) => void;
+  railWidth: number;
+  rowLayouts: CompanyRowLayout[];
+  timelineWidth: number;
+}) {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[6]">
+      {rowLayouts.map((row) => {
+        const isActive = activeCompanyId === row.company.id;
+
+        return (
+          <div
+            key={`${row.company.id}-${compact ? 'mobile' : 'desktop'}-focus-band`}
+            data-row-focus-band
+            className="pointer-events-auto absolute left-0 rounded-[1.25rem]"
+            onClick={(event) => {
+              if (!onCompanyTap) {
+                return;
+              }
+
+              event.stopPropagation();
+              onCompanyTap(row.company.id);
+            }}
+            onMouseEnter={() => onCompanyFocus(row.company.id)}
+            onMouseLeave={() => onCompanyBlur?.()}
+            onPointerEnter={(event) => {
+              if (event.pointerType === 'touch') {
+                return;
+              }
+
+              onCompanyFocus(row.company.id);
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType === 'touch') {
+                return;
+              }
+
+              onCompanyBlur?.();
+            }}
+            style={{
+              height: `${row.height}px`,
+              top: `${row.y}px`,
+              width: `${timelineWidth + railWidth}px`,
+            }}
+          >
+            <div
+              className={`absolute inset-x-0 top-1/2 h-[calc(100%+1.25rem)] -translate-y-1/2 border-y transition duration-200 ${
+                isActive ? 'opacity-100' : 'opacity-0'
+              }`}
+              style={{
+                background: `linear-gradient(90deg, ${toRgbaFromHex(row.company.accent, compact ? 0.16 : 0.12)}, transparent 42%, ${toRgbaFromHex(
+                  row.company.accent,
+                  0.08,
+                )})`,
+                borderColor: toRgbaFromHex(row.company.accent, compact ? 0.28 : 0.22),
+              }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CompanyRowFocusLabel({
+  compact = false,
+  onClearFocus,
+  onCompanyHide,
+  onCompanyMove,
+  onPointerEnter,
+  onPointerLeave,
+  row,
+  rowCount,
+  screenX,
+  screenY,
+}: {
+  compact?: boolean;
+  onClearFocus: () => void;
+  onCompanyHide: (companyId: string) => void;
+  onCompanyMove: CompanyMoveHandler;
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
+  row: CompanyRowLayout;
+  rowCount: number;
+  screenX: number;
+  screenY: number;
+}) {
+  const company = row.company;
+  const latestRelease = company.latestRelease;
+  const latestLabel = latestRelease ? latestRelease.name : 'No releases';
+  const lineLabel = company.productLines.map((productLine) => productLine.shortLabel).join(' / ');
+  const actionClassName =
+    'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--edge)] bg-[rgba(255,255,255,0.035)] text-[var(--ink-soft)] transition duration-200 hover:border-[var(--edge-strong)] hover:bg-[rgba(255,255,255,0.075)] hover:text-[var(--ink)] disabled:pointer-events-none disabled:opacity-30';
+
+  return (
+    <div
+      data-row-focus-label
+      className="pointer-events-none absolute z-30 will-change-transform"
+      style={{
+        transform: `translate3d(${screenX}px, ${screenY}px, 0) translateY(-50%)`,
+      }}
+    >
+      <motion.div
+        initial={{opacity: 0, scale: 0.96, x: -8}}
+        animate={{opacity: 1, scale: 1, x: 0}}
+        exit={{opacity: 0, scale: 0.96, x: -8}}
+        transition={{duration: 0.16, ease: [0.22, 1, 0.36, 1]}}
+        className={`pointer-events-auto rounded-[1.15rem] border border-[var(--edge-strong)] bg-[rgba(8,11,16,0.92)] shadow-[0_22px_48px_-30px_rgba(0,0,0,0.88)] backdrop-blur-xl ${
+          compact ? 'w-[min(15.5rem,calc(100vw-8rem))] p-3' : 'w-[18rem] p-3.5'
+        }`}
+        onMouseEnter={onPointerEnter}
+        onMouseLeave={onPointerLeave}
+        onPointerDown={(event) => event.stopPropagation()}
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <CompanyLogoBadge compact={compact} company={company} />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-sm font-semibold leading-tight tracking-tight text-[var(--ink)]">{company.name}</p>
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{backgroundColor: company.accent}}
+              />
+            </div>
+            <p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--muted)]">
+              {lineLabel}
+            </p>
+            <p className="mt-2 truncate text-xs font-medium text-[var(--ink-soft)]">{latestLabel}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-[var(--edge)] pt-2.5">
+          <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--muted)]">
+            Score {company.significanceScore} · Row {row.index + 1}/{rowCount}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              aria-label={`Move ${company.name} up`}
+              title={`Move ${company.name} up`}
+              className={actionClassName}
+              disabled={row.index === 0}
+              onClick={(event) => {
+                event.stopPropagation();
+                onCompanyMove(company.id, 'up');
+              }}
+            >
+              <ArrowUp className="h-3.5 w-3.5" strokeWidth={1.8} />
+            </button>
+            <button
+              type="button"
+              aria-label={`Move ${company.name} down`}
+              title={`Move ${company.name} down`}
+              className={actionClassName}
+              disabled={row.index === rowCount - 1}
+              onClick={(event) => {
+                event.stopPropagation();
+                onCompanyMove(company.id, 'down');
+              }}
+            >
+              <ArrowDown className="h-3.5 w-3.5" strokeWidth={1.8} />
+            </button>
+            <button
+              type="button"
+              aria-label={`Hide ${company.name}`}
+              title={`Hide ${company.name}`}
+              className={actionClassName}
+              onClick={(event) => {
+                event.stopPropagation();
+                onCompanyHide(company.id);
+                onClearFocus();
+              }}
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={1.8} />
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function DesktopTimelineExperience({
   activeArticleSlug,
   boardView,
+  camera,
   currentGlobalDay,
-  draggedCompanyId,
   handlePointerDown,
   handlePointerMove,
   hiddenCompanyCount,
   handleZoomChange,
   isPanning,
-  isZoomSliderActive,
   latestCompany,
   maxDays,
   minZoom,
@@ -4078,84 +5677,176 @@ function DesktopTimelineExperience({
   maxSummaryQuietDays,
   modelExplorer,
   monthTicks,
-  onCompanyDragEnd,
-  onCompanyDragStart,
   onCompanyHide,
   onCompanyMove,
-  onCompanyReorder,
+  onDismissArticle,
   onModelSelect,
+  onResetCamera,
   onShowHiddenCompanies,
-  onZoomSliderActiveChange,
+  onToggleTimelineGrid,
   processedCompanies,
+  renderWindow,
   scrollContainerRef,
+  showTimelineGrid,
   stopPanning,
   summaryCompanies,
+  timelineStartDay,
   timelineWidth,
+  viewport,
+  worldRef,
   yearTicks,
   zoom,
 }: DesktopTimelineExperienceProps) {
-  const timelineMinHeight = getTimelineMinHeight(processedCompanies);
-  const shouldFreezeTimelineSizing = isPanning || isZoomSliderActive;
+  const timelineVerticalScale = 1;
+  const timelineLayout = getTimelineLayout(false, timelineVerticalScale);
+  const timelineMinHeight = getTimelineMinHeight(processedCompanies, false, timelineVerticalScale);
+  const canvasLayout = getCanvasWorldLayout({
+    currentGlobalDay,
+    maxDays,
+    summaryCount: summaryCompanies.length,
+    timelineStartDay,
+    timelineHeight: timelineMinHeight,
+    timelineWidth,
+    viewport,
+  });
+  const companyRowLayouts = getCompanyRowLayouts(processedCompanies, false, timelineVerticalScale, timelineLayout);
+  const [focusedCompanyId, setFocusedCompanyId] = useState<string | null>(null);
+  const focusClearTimeoutRef = useRef<number | null>(null);
+  const cancelFocusClear = () => {
+    if (focusClearTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(focusClearTimeoutRef.current);
+    focusClearTimeoutRef.current = null;
+  };
+  const focusCompany = (companyId: string) => {
+    cancelFocusClear();
+    setFocusedCompanyId(companyId);
+  };
+  const clearFocus = () => {
+    cancelFocusClear();
+    setFocusedCompanyId(null);
+  };
+  const scheduleFocusClear = () => {
+    cancelFocusClear();
+    focusClearTimeoutRef.current = window.setTimeout(() => {
+      setFocusedCompanyId(null);
+      focusClearTimeoutRef.current = null;
+    }, 120);
+  };
+  useEffect(() => () => cancelFocusClear(), []);
+  const focusedRow = companyRowLayouts.find((row) => row.company.id === focusedCompanyId) ?? null;
+  const focusLabelWidth = 288;
+  const focusLabelX = clampNumber(116, 16, Math.max(16, viewport.width - focusLabelWidth - 16));
+  const focusLabelY = focusedRow
+    ? clampNumber(
+        (canvasLayout.timelineY + focusedRow.y + focusedRow.height / 2 - camera.y) * zoom,
+        82,
+        Math.max(82, viewport.height - 84),
+      )
+    : 0;
+  const boardDescription = boardView.isDefault
+    ? 'Explore important AI milestones across LLMs, open-source labs, generative media, audio, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.'
+    : boardView.isEmpty
+      ? 'Turn on one or more product lines to compose the timeline.'
+      : boardView.isComposite
+        ? `${boardView.label} puts selected product lines onto one shared timeline for full-field comparison.`
+        : `${boardView.label} is shown on the same absolute timeline, so newer product lines can be scanned without flattening every company into separate rows.`;
+  const timelineWorldLeft = canvasLayout.timelineX + timelineStartDay * TIMELINE_PIXELS_PER_DAY;
+  const timelineWidthWithRail = timelineWidth + LABEL_RAIL_WIDTH;
 
   return (
-    <>
-      <section className="mx-auto max-w-[1480px] px-5 pb-6 pt-8 md:px-8 md:pt-10">
-        <motion.div
-          initial={{opacity: 0, y: 26}}
-          animate={{opacity: 1, y: 0}}
-          transition={{duration: 0.8, ease: [0.22, 1, 0.36, 1]}}
-          className="space-y-6"
+    <section className="relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden">
+      <div className="absolute left-5 top-5 z-40 [--category-expanded-width:286px]">
+        {modelExplorer}
+      </div>
+
+      <div
+        ref={scrollContainerRef}
+        className={`absolute inset-0 overflow-hidden [overflow-anchor:none] ${
+          isPanning ? 'cursor-grabbing' : 'cursor-grab'
+        }`}
+        onClickCapture={(event) =>
+          onDismissArticle(event.target, {clientX: event.clientX, clientY: event.clientY})
+        }
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopPanning}
+        onPointerCancel={stopPanning}
+        onLostPointerCapture={stopPanning}
+      >
+        <div
+          ref={worldRef}
+          className="relative will-change-transform"
+          style={{
+            height: `${canvasLayout.worldHeight}px`,
+            transform: getTimelineWorldTransform(camera, zoom),
+            transformOrigin: '0 0',
+            width: `${canvasLayout.worldWidth}px`,
+            ['--map-zoom' as string]: String(getMapZoomCssValue(zoom)),
+          }}
         >
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_320px] lg:items-end">
-            <div className="space-y-5">
-              <h1 className="max-w-5xl text-4xl leading-none tracking-tighter text-[var(--ink)] md:text-6xl">
-                Mapping major AI progress across time
-              </h1>
-              <p className="max-w-[68ch] text-base leading-relaxed text-[var(--ink-soft)] md:text-lg">
-                {boardView.isDefault
-                  ? 'Explore important AI milestones across frontier models, open systems, generative media, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.'
-                  : boardView.isEmpty
-                    ? 'Turn on one or more product lines to compose the timeline.'
-                  : boardView.isComposite
-                    ? `${boardView.label} puts selected product lines onto one shared timeline for full-field comparison.`
-                  : `${boardView.label} is shown on the same absolute timeline, so newer product lines can be scanned without flattening every company into separate rows.`}
-              </p>
-            </div>
-
-            <div className="border-l border-[var(--edge-strong)] pl-5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Reading notes</p>
-              <p className="mt-4 max-w-[42ch] text-sm leading-7 text-[var(--ink-soft)]">
-                Drag the field to pan across dense stretches, then hold and use the mouse wheel to zoom around the
-                pointer. Dates stay absolute, so concurrency and dry spells remain legible.
-              </p>
-              {hiddenCompanyCount > 0 ? (
-                <div className="mt-5">
-                  <SurfaceButton label="Show hidden companies" onClick={onShowHiddenCompanies}>
-                    <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
-                    <span className="hidden sm:inline">Companies</span>
-                  </SurfaceButton>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </motion.div>
-      </section>
-
-      <section className="mx-auto max-w-[1540px] px-5 pb-8 md:px-8">
-        <div className="relative pr-16">
-          <div
-            className="absolute right-[calc(100%+1rem)] top-0 z-40 hidden [--category-expanded-width:min(260px,max(74px,calc((100vw-1540px)/2+16px)))] lg:flex max-[1699px]:left-0 max-[1699px]:right-auto max-[1699px]:[--category-expanded-width:260px]"
+          <motion.div
+            initial={{opacity: 0, y: 20}}
+            animate={{opacity: 1, y: 0}}
+            transition={{duration: 0.75, ease: [0.22, 1, 0.36, 1]}}
+            className="timeline-border-sheen timeline-fluid-obstacle absolute z-30 rounded-[2rem] border border-[var(--edge)] bg-[rgba(10,13,19,0.86)] p-7 shadow-[var(--panel-shadow)] backdrop-blur-xl"
+            style={{
+              left: `${canvasLayout.contentCards.intro.x}px`,
+              top: `${canvasLayout.contentCards.intro.y}px`,
+              width: `${canvasLayout.contentCards.intro.width}px`,
+            }}
           >
-            {modelExplorer}
-          </div>
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">{boardView.label}</p>
+            <h1 className="mt-4 max-w-4xl text-5xl leading-none tracking-tighter text-[var(--ink)]">
+              Mapping major AI progress across time
+            </h1>
+            <p className="mt-5 max-w-[68ch] text-base leading-7 text-[var(--ink-soft)]">{boardDescription}</p>
+          </motion.div>
+
+          <motion.div
+            initial={{opacity: 0, y: 18}}
+            animate={{opacity: 1, y: 0}}
+            transition={{duration: 0.7, delay: 0.08, ease: [0.22, 1, 0.36, 1]}}
+            className="timeline-border-sheen timeline-fluid-obstacle absolute z-30 rounded-[1.45rem] border border-[var(--edge)] bg-[rgba(10,13,19,0.78)] p-5 shadow-[var(--soft-shadow)] backdrop-blur-xl"
+            style={{
+              left: `${canvasLayout.contentCards.notes.x}px`,
+              top: `${canvasLayout.contentCards.notes.y}px`,
+              width: `${canvasLayout.contentCards.notes.width}px`,
+              ['--border-sheen-delay' as string]: '2.8s',
+            }}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Reading notes</p>
+            <p className="mt-4 text-sm leading-7 text-[var(--ink-soft)]">
+              Drag the field to pan the board like a canvas. Wheel or use the zoom rail to move the camera in and out.
+            </p>
+          </motion.div>
 
         <motion.section
+          data-timeline-field
           initial={{opacity: 0, y: 24}}
           animate={{opacity: 1, y: 0}}
           transition={{duration: 0.9, delay: 0.14, ease: [0.22, 1, 0.36, 1]}}
-          className="timeline-fluid-obstacle min-w-0 overflow-hidden rounded-[2.4rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
+            className="absolute z-10 overflow-visible"
+            style={{
+              height: `${timelineMinHeight}px`,
+              left: `${timelineWorldLeft}px`,
+              top: `${canvasLayout.timelineY}px`,
+              width: `${timelineWidthWithRail}px`,
+            }}
         >
           <div className="relative">
+            <TimelineRowFocusBands
+              activeCompanyId={focusedCompanyId}
+              onCompanyBlur={scheduleFocusClear}
+              onCompanyFocus={focusCompany}
+              onCompanyTap={focusCompany}
+              railWidth={LABEL_RAIL_WIDTH}
+              rowLayouts={companyRowLayouts}
+              timelineWidth={timelineWidth}
+            />
+
             {processedCompanies.length === 0 ? (
               <div className="absolute bottom-0 left-[320px] right-0 top-0 z-20 flex items-center justify-center px-6">
                 <TimelineEmptyState
@@ -4166,160 +5857,221 @@ function DesktopTimelineExperience({
               </div>
             ) : null}
 
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-30 w-[320px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.98)_0%,rgba(11,14,20,0.95)_78%,rgba(11,14,20,0)_100%)]">
-              <div className="px-5 pb-14 pt-24">
-                <div className="flex flex-col gap-11">
-                  {processedCompanies.map((company, companyIndex) => (
-                    <React.Fragment key={company.id}>
-                      <CompanyRailItem
-                        draggedCompanyId={draggedCompanyId}
-                        isFirst={companyIndex === 0}
-                        isLast={companyIndex === processedCompanies.length - 1}
-                        company={company}
-                        onDragEnd={onCompanyDragEnd}
-                        onDragStart={onCompanyDragStart}
-                        onHide={onCompanyHide}
-                        onMove={onCompanyMove}
-                        onReorder={onCompanyReorder}
-                      />
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div
-              ref={scrollContainerRef}
-              className={`relative overflow-x-auto overflow-y-hidden pb-8 [overflow-anchor:none] [scroll-behavior:auto] [scrollbar-gutter:stable] ${
-                isPanning ? 'cursor-grabbing' : 'cursor-grab'
-              }`}
-              style={{minHeight: `${timelineMinHeight}px`}}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={stopPanning}
-              onPointerCancel={stopPanning}
-              onLostPointerCapture={stopPanning}
-            >
               <div
-                className={`relative ${shouldFreezeTimelineSizing ? 'transition-none' : 'transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
-                style={{minWidth: `${timelineWidth + LABEL_RAIL_WIDTH}px`}}
+                className="relative"
+                style={{minWidth: `${timelineWidthWithRail}px`}}
               >
                 <div style={{paddingLeft: `${LABEL_RAIL_WIDTH}px`}}>
                   <div
-                    className={`relative pb-14 ${shouldFreezeTimelineSizing ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+                    className="relative"
                     style={{width: `${timelineWidth}px`, minHeight: `${timelineMinHeight}px`}}
                   >
-                    <div className="pointer-events-none absolute inset-0">
-                      {monthTicks.map((tick) => (
-                        <div
-                          key={`month-${tick.days}`}
-                          className="absolute bottom-0 top-0 border-l border-[var(--grid-line)]"
-                          style={{left: `${(tick.days / maxDays) * 100}%`}}
-                        >
-                          <div className="absolute left-0 top-10 -translate-x-1/2 rounded-full bg-[var(--surface-strong)] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--muted)] shadow-[var(--soft-shadow)]">
-                            {tick.label}
+                    {showTimelineGrid ? (
+                      <div className="pointer-events-none absolute inset-0" data-timeline-grid>
+                        {monthTicks.map((tick) => (
+                          <div
+                            key={`month-${tick.days}`}
+                            className="absolute bottom-0 top-0 border-l border-[var(--grid-line)]"
+                            style={{left: `${getTimelineDayOffsetPx(tick.days, timelineStartDay)}px`}}
+                          >
+                            <div className="absolute left-0 top-10 -translate-x-1/2">
+                              <div className="timeline-map-screen-fixed">
+                                <div
+                                  className="timeline-map-screen-label rounded-full bg-[var(--surface-strong)] px-2 py-1 font-medium uppercase tracking-[0.18em] text-[var(--muted)] shadow-[var(--soft-shadow)]"
+                                  style={getTimelineMapLabelStyle(10)}
+                                >
+                                  {tick.label}
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
 
-                      {yearTicks.map((tick) => (
-                        <div
-                          key={`year-${tick.label}`}
-                          className="absolute bottom-0 top-0 border-l-2 border-[var(--grid-line-strong)]"
-                          style={{left: `${(tick.days / maxDays) * 100}%`}}
-                        >
-                          <div className="absolute left-0 top-2 -translate-x-1/2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)]">
-                            {tick.label}
+                        {yearTicks.map((tick) => (
+                          <div
+                            key={`year-${tick.label}`}
+                            className="absolute bottom-0 top-0 border-l-2 border-[var(--grid-line-strong)]"
+                            style={{left: `${getTimelineDayOffsetPx(tick.days, timelineStartDay)}px`}}
+                          >
+                            <div className="absolute left-0 top-2 -translate-x-1/2">
+                              <div className="timeline-map-screen-fixed">
+                                <div
+                                  className="timeline-map-screen-label rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1.5 font-semibold uppercase tracking-[0.18em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)]"
+                                  style={getTimelineMapLabelStyle(11)}
+                                >
+                                  {tick.label}
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
 
-                      <div
-                        className="absolute bottom-0 top-0 border-l-2 border-[var(--today-line)]"
-                        style={{left: `${(currentGlobalDay / maxDays) * 100}%`}}
-                      >
-                        <div className="absolute left-0 top-1 -translate-x-1/2">
-                          <div className="inline-flex items-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[0_18px_40px_-24px_rgba(0,0,0,0.6)]">
-                            Today
+                        <div
+                          className="absolute bottom-0 top-0 border-l-2 border-[var(--today-line)]"
+                          style={{left: `${getTimelineDayOffsetPx(currentGlobalDay, timelineStartDay)}px`}}
+                        >
+                          <div className="absolute left-0 top-1 -translate-x-1/2">
+                            <div className="timeline-map-screen-fixed">
+                              <div
+                                className="timeline-map-screen-label inline-flex items-center gap-2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-2 font-semibold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[0_18px_40px_-24px_rgba(0,0,0,0.6)]"
+                                style={getTimelineMapLabelStyle(11)}
+                              >
+                                Today
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    ) : null}
 
                     {processedCompanies.length > 0 ? (
-                      <div className="relative flex flex-col pb-14 pt-24" style={{gap: '44px'}}>
-                        {processedCompanies.map((company, companyIndex) => (
-                          <React.Fragment key={`${company.id}-timeline-group`}>
-                            <CompanyTimelineGroup
+                      <motion.div
+                        className="relative flex flex-col"
+                        style={{
+                          gap: `${timelineLayout.companyGap}px`,
+                          paddingBottom: `${timelineLayout.bottomPadding}px`,
+                          paddingTop: `${timelineLayout.topPadding}px`,
+                        }}
+                      >
+                        <AnimatePresence initial={false} mode="popLayout">
+                          {processedCompanies.map((company, companyIndex) => (
+                            <MemoizedCompanyTimelineGroup
+                              key={company.id}
                               activeArticleSlug={activeArticleSlug}
                               company={company}
                               companyIndex={companyIndex}
                               currentGlobalDay={currentGlobalDay}
                               maxDays={maxDays}
+                              onCompanyBlur={scheduleFocusClear}
+                              onCompanyFocus={focusCompany}
                               onModelSelect={onModelSelect}
+                              renderWindow={renderWindow}
+                              timelineStartDay={timelineStartDay}
+                              verticalScale={timelineVerticalScale}
                             />
-                          </React.Fragment>
-                        ))}
-                      </div>
+                          ))}
+                        </AnimatePresence>
+                      </motion.div>
                     ) : null}
+
+                    <div aria-hidden="true" className="timeline-tail-fade" />
                   </div>
                 </div>
               </div>
-            </div>
           </div>
         </motion.section>
-        <TimelineZoomRail
-          className="right-0 top-1/2 -translate-y-1/2"
-          maxZoom={maxZoom}
-          minZoom={minZoom}
-          onSliderActiveChange={onZoomSliderActiveChange}
-          onZoomChange={handleZoomChange}
-          zoom={zoom}
-        />
-        </div>
-      </section>
 
-      <section className="mx-auto max-w-[1540px] px-5 pb-16 md:px-8 md:pb-20">
-        <motion.div
-          initial={{opacity: 0, y: 20}}
-          animate={{opacity: 1, y: 0}}
-          transition={{duration: 0.75, delay: 0.22, ease: [0.22, 1, 0.36, 1]}}
-          className="space-y-4"
-        >
-          <div className="grid gap-4 text-sm text-[var(--muted)] md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-            <p className="max-w-[68ch] leading-relaxed">
+          <motion.div
+            initial={{opacity: 0, y: 18}}
+            animate={{opacity: 1, y: 0}}
+            transition={{duration: 0.65, delay: 0.18, ease: [0.22, 1, 0.36, 1]}}
+            className="absolute grid gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+            style={{
+              left: `${canvasLayout.contentCards.latest.x}px`,
+              top: `${canvasLayout.contentCards.latest.y}px`,
+              width: `${canvasLayout.contentCards.latest.width}px`,
+            }}
+          >
+            <p className="text-sm leading-relaxed text-[var(--ink-soft)]">
               Latest company on the board: <span className="font-semibold text-[var(--ink)]">{latestCompany?.name ?? 'n/a'}</span>
               {' '}with <span className="font-semibold text-[var(--ink)]">{latestCompany?.latestRelease?.name ?? 'n/a'}</span>.
             </p>
-            <p className="font-mono uppercase tracking-[0.14em]">All dates rendered in UTC</p>
-          </div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">All dates rendered in UTC</p>
+          </motion.div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {summaryCompanies.map((company, index) => (
-              <React.Fragment key={`${company.id}-summary-card`}>
-                <CompanySummaryCard
-                  company={company}
-                  currentGlobalDay={currentGlobalDay}
-                  index={index}
-                  maxSummaryQuietDays={maxSummaryQuietDays}
-                />
-              </React.Fragment>
-            ))}
-          </div>
-        </motion.div>
-      </section>
-    </>
+          <motion.div
+            initial={{opacity: 0, y: 20}}
+            animate={{opacity: 1, y: 0}}
+            transition={{duration: 0.72, delay: 0.24, ease: [0.22, 1, 0.36, 1]}}
+            className="absolute"
+            style={{
+              left: `${canvasLayout.contentCards.summaries.x}px`,
+              top: `${canvasLayout.contentCards.summaries.y}px`,
+              width: `${canvasLayout.contentCards.summaries.width}px`,
+            }}
+          >
+            <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--muted)]">Provider recency</p>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <AnimatePresence initial={false} mode="popLayout">
+                {summaryCompanies.map((company, index) => (
+                  <MemoizedCompanySummaryCard
+                    key={company.id}
+                    company={company}
+                    currentGlobalDay={currentGlobalDay}
+                    index={index}
+                    maxSummaryQuietDays={maxSummaryQuietDays}
+                  />
+                ))}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {focusedRow ? (
+          <React.Fragment key={`${focusedRow.company.id}-desktop-focus-label`}>
+            <CompanyRowFocusLabel
+              onClearFocus={clearFocus}
+              onCompanyHide={onCompanyHide}
+              onCompanyMove={onCompanyMove}
+              onPointerEnter={cancelFocusClear}
+              onPointerLeave={scheduleFocusClear}
+              row={focusedRow}
+              rowCount={companyRowLayouts.length}
+              screenX={focusLabelX}
+              screenY={focusLabelY}
+            />
+          </React.Fragment>
+        ) : null}
+      </AnimatePresence>
+
+      <TimelineZoomRail
+        className="right-5 top-1/2 -translate-y-1/2"
+        maxZoom={maxZoom}
+        minZoom={minZoom}
+        onZoomChange={handleZoomChange}
+        zoom={zoom}
+      />
+
+      <div className="absolute right-6 top-[calc(50%+12.5rem)] z-40 flex flex-col items-end gap-2">
+        <SurfaceButton
+          label={showTimelineGrid ? 'Hide timeline grid' : 'Show timeline grid'}
+          onClick={onToggleTimelineGrid}
+          pressed={showTimelineGrid}
+        >
+          {showTimelineGrid ? (
+            <EyeOff className="h-4 w-4" strokeWidth={1.8} />
+          ) : (
+            <Eye className="h-4 w-4" strokeWidth={1.8} />
+          )}
+          <span>Grid</span>
+        </SurfaceButton>
+        <SurfaceButton label="Reset camera" onClick={onResetCamera}>
+          <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
+          <span>Reset</span>
+        </SurfaceButton>
+        {hiddenCompanyCount > 0 ? (
+          <SurfaceButton label="Show hidden companies" onClick={onShowHiddenCompanies}>
+            <Layers3 className="h-4 w-4" strokeWidth={1.8} />
+            <span>Companies</span>
+          </SurfaceButton>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
 function MobileTimelineExperience({
   activeArticleSlug,
   boardView,
+  camera,
   currentGlobalDay,
-  draggedCompanyId,
+  handleTouchEnd,
+  handleTouchMove,
+  handleTouchStart,
   handleZoomChange,
   hiddenCompanyCount,
-  isZoomSliderActive,
   latestCompany,
   minZoom,
   maxZoom,
@@ -4327,78 +6079,164 @@ function MobileTimelineExperience({
   maxSummaryQuietDays,
   modelExplorer,
   monthTicks,
-  onCompanyDragEnd,
-  onCompanyDragStart,
   onCompanyHide,
   onCompanyMove,
-  onCompanyReorder,
+  onDismissArticle,
   onModelSelect,
+  onResetCamera,
   onShowHiddenCompanies,
-  onZoomSliderActiveChange,
+  onToggleTimelineGrid,
   processedCompanies,
+  renderWindow,
   scrollContainerRef,
+  showTimelineGrid,
+  timelineStartDay,
   timelineWidth,
+  viewport,
+  worldRef,
   yearTicks,
   zoom,
 }: MobileTimelineExperienceProps) {
-  const timelineMinHeight = getTimelineMinHeight(processedCompanies, true);
+  const timelineVerticalScale = 1;
+  const timelineLayout = getTimelineLayout(true, timelineVerticalScale);
+  const timelineMinHeight = getTimelineMinHeight(processedCompanies, true, timelineVerticalScale);
+  const canvasLayout = getCanvasWorldLayout({
+    compact: true,
+    currentGlobalDay,
+    maxDays,
+    summaryCount: processedCompanies.length,
+    timelineStartDay,
+    timelineHeight: timelineMinHeight,
+    timelineWidth,
+    viewport,
+  });
+  const companyRowLayouts = getCompanyRowLayouts(processedCompanies, true, timelineVerticalScale, timelineLayout);
+  const [focusedCompanyId, setFocusedCompanyId] = useState<string | null>(null);
+  const focusCompany = (companyId: string) => setFocusedCompanyId(companyId);
+  const clearFocus = () => setFocusedCompanyId(null);
+  const focusedRow = companyRowLayouts.find((row) => row.company.id === focusedCompanyId) ?? null;
+  const focusLabelWidth = 248;
+  const focusLabelX = Math.max(16, Math.min(126, Math.max(16, viewport.width - focusLabelWidth - 12)));
+  const focusLabelY = focusedRow
+    ? clampNumber(
+        (canvasLayout.timelineY + focusedRow.y + focusedRow.height / 2 - camera.y) * zoom,
+        98,
+        Math.max(98, viewport.height - 104),
+      )
+    : 0;
+  const boardDescription = boardView.isDefault
+    ? 'Explore important AI milestones across LLMs, open-source labs, generative media, audio, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.'
+    : boardView.isEmpty
+      ? 'Turn on one or more product lines to compose the timeline.'
+      : boardView.isComposite
+        ? `${boardView.label} shows selected product lines together. Use zoom when the field gets dense.`
+        : `${boardView.label} is isolated into its own board, keeping the release field readable on mobile.`;
+  const timelineWorldLeft = canvasLayout.timelineX + timelineStartDay * TIMELINE_PIXELS_PER_DAY;
+  const timelineWidthWithRail = timelineWidth + MOBILE_LABEL_RAIL_WIDTH;
 
   return (
-    <>
-      <section className="mx-auto max-w-[640px] px-4 pb-5 pt-6">
-        <motion.div
-          initial={{opacity: 0, y: 18}}
-          animate={{opacity: 1, y: 0}}
-          transition={{duration: 0.75, ease: [0.22, 1, 0.36, 1]}}
-          className="space-y-5"
+    <section className="relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden">
+      <div className="absolute left-3 top-3 z-40 [--category-expanded-width:min(20rem,calc(100vw-5rem))]">
+        {modelExplorer}
+      </div>
+
+      <div
+        ref={scrollContainerRef}
+        className="absolute inset-0 touch-none overflow-hidden [overflow-anchor:none]"
+        onClickCapture={(event) =>
+          onDismissArticle(event.target, {clientX: event.clientX, clientY: event.clientY})
+        }
+        onClick={(event) => {
+          const target = event.target;
+
+          if (!(target instanceof Element)) {
+            return;
+          }
+
+          if (
+            target.closest('[data-row-focus-band], [data-row-focus-label], button, a, input, label, select, textarea')
+          ) {
+            return;
+          }
+
+          clearFocus();
+        }}
+        onTouchCancel={handleTouchEnd}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
+        onTouchStart={handleTouchStart}
+      >
+        <div
+          ref={worldRef}
+          className="relative will-change-transform"
+          style={{
+            height: `${canvasLayout.worldHeight}px`,
+            transform: getTimelineWorldTransform(camera, zoom),
+            transformOrigin: '0 0',
+            width: `${canvasLayout.worldWidth}px`,
+            ['--map-zoom' as string]: String(getMapZoomCssValue(zoom)),
+          }}
         >
-          <div className="space-y-4">
-            <h1 className="max-w-xl text-[2.35rem] leading-none tracking-tighter text-[var(--ink)]">
+          <motion.div
+            initial={{opacity: 0, y: 18}}
+            animate={{opacity: 1, y: 0}}
+            transition={{duration: 0.72, ease: [0.22, 1, 0.36, 1]}}
+            className="timeline-border-sheen timeline-fluid-obstacle absolute z-30 rounded-[1.7rem] border border-[var(--edge)] bg-[rgba(10,13,19,0.86)] p-5 shadow-[var(--panel-shadow)] backdrop-blur-xl"
+            style={{
+              left: `${canvasLayout.contentCards.intro.x}px`,
+              top: `${canvasLayout.contentCards.intro.y}px`,
+              width: `${canvasLayout.contentCards.intro.width}px`,
+            }}
+          >
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">{boardView.label}</p>
+            <h1 className="mt-3 max-w-sm text-[2.25rem] leading-none tracking-tighter text-[var(--ink)]">
               Mapping major AI progress across time
             </h1>
-            <p className="text-sm leading-7 text-[var(--ink-soft)]">
-              {boardView.isDefault
-                ? 'Explore important AI milestones across frontier models, open systems, generative media, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.'
-                : boardView.isEmpty
-                  ? 'Turn on one or more product lines to compose the mobile timeline.'
-                : boardView.isComposite
-                  ? `${boardView.label} shows selected product lines together. Use zoom when the field gets dense.`
-                : `${boardView.label} is isolated into its own board, keeping the release field readable on mobile.`}
+            <p className="mt-4 text-sm leading-6 text-[var(--ink-soft)]">{boardDescription}</p>
+          </motion.div>
+
+          <motion.div
+            initial={{opacity: 0, y: 16}}
+            animate={{opacity: 1, y: 0}}
+            transition={{duration: 0.68, delay: 0.08, ease: [0.22, 1, 0.36, 1]}}
+            className="timeline-border-sheen timeline-fluid-obstacle absolute z-30 rounded-[1.25rem] border border-[var(--edge)] bg-[rgba(10,13,19,0.78)] p-4 shadow-[var(--soft-shadow)] backdrop-blur-xl"
+            style={{
+              left: `${canvasLayout.contentCards.notes.x}px`,
+              top: `${canvasLayout.contentCards.notes.y}px`,
+              width: `${canvasLayout.contentCards.notes.width}px`,
+              ['--border-sheen-delay' as string]: '2.8s',
+            }}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">Reading notes</p>
+            <p className="mt-3 text-xs leading-5 text-[var(--ink-soft)]">
+              Drag to pan the board. Pinch or use the zoom rail to move the camera.
             </p>
-          </div>
+          </motion.div>
 
-          <div className="rounded-[1.6rem] border border-[var(--edge)] bg-[var(--surface)] p-4 shadow-[var(--soft-shadow)]">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Latest on the board</p>
-              <p className="mt-3 text-sm leading-relaxed text-[var(--ink)]">
-                <span className="font-semibold">{latestCompany?.name ?? 'n/a'}</span>
-                {' '}with <span className="font-semibold">{latestCompany?.latestRelease?.name ?? 'n/a'}</span>.
-              </p>
-              <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]">{boardView.label}</p>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {hiddenCompanyCount > 0 ? (
-                <SurfaceButton label="Show hidden companies" onClick={onShowHiddenCompanies}>
-                  <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
-                  <span>Companies</span>
-                </SurfaceButton>
-              ) : null}
-            </div>
-          </div>
-        </motion.div>
-      </section>
-
-      <section className="mx-auto max-w-[760px] px-4 pb-6">
-        <div className="mb-4">{modelExplorer}</div>
-
-        <div className="relative pr-14">
         <motion.section
+          data-timeline-field
           initial={{opacity: 0, y: 20}}
           animate={{opacity: 1, y: 0}}
           transition={{duration: 0.8, delay: 0.1, ease: [0.22, 1, 0.36, 1]}}
-          className="timeline-fluid-obstacle overflow-hidden rounded-[1.9rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--panel-shadow)] backdrop-blur-xl"
+            className="absolute z-10 overflow-visible"
+            style={{
+              height: `${timelineMinHeight}px`,
+              left: `${timelineWorldLeft}px`,
+              top: `${canvasLayout.timelineY}px`,
+              width: `${timelineWidthWithRail}px`,
+            }}
         >
           <div className="relative">
+            <TimelineRowFocusBands
+              activeCompanyId={focusedCompanyId}
+              compact
+              onCompanyFocus={focusCompany}
+              onCompanyTap={focusCompany}
+              railWidth={MOBILE_LABEL_RAIL_WIDTH}
+              rowLayouts={companyRowLayouts}
+              timelineWidth={timelineWidth}
+            />
+
             {processedCompanies.length === 0 ? (
               <div className="absolute bottom-0 left-[196px] right-0 top-0 z-20 flex items-center justify-center px-3">
                 <TimelineEmptyState
@@ -4409,136 +6247,218 @@ function MobileTimelineExperience({
               </div>
             ) : null}
 
-            <div className="pointer-events-none absolute inset-y-0 left-0 z-30 w-[196px] border-r border-[var(--edge)] bg-[linear-gradient(90deg,rgba(11,14,20,0.99)_0%,rgba(11,14,20,0.96)_78%,rgba(11,14,20,0)_100%)]">
-              <div className="px-3 pb-10 pt-20">
-                <div className="flex flex-col gap-8">
-                  {processedCompanies.map((company, companyIndex) => (
-                    <React.Fragment key={`${company.id}-mobile-rail`}>
-                      <CompanyRailItem
-                        compact
-                        draggedCompanyId={draggedCompanyId}
-                        isFirst={companyIndex === 0}
-                        isLast={companyIndex === processedCompanies.length - 1}
-                        company={company}
-                        onDragEnd={onCompanyDragEnd}
-                        onDragStart={onCompanyDragStart}
-                        onHide={onCompanyHide}
-                        onMove={onCompanyMove}
-                        onReorder={onCompanyReorder}
-                      />
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div
-              ref={scrollContainerRef}
-              className="relative overflow-x-auto overflow-y-hidden pb-6 [overflow-anchor:none] [scroll-behavior:auto] [scrollbar-gutter:stable]"
-              style={{minHeight: `${timelineMinHeight}px`}}
-            >
               <div
-                className={`relative ${isZoomSliderActive ? 'transition-none' : 'transition-[min-width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
-                style={{minWidth: `${timelineWidth + MOBILE_LABEL_RAIL_WIDTH}px`}}
+                className="relative"
+                style={{minWidth: `${timelineWidthWithRail}px`}}
               >
                 <div style={{paddingLeft: `${MOBILE_LABEL_RAIL_WIDTH}px`}}>
                   <div
-                    className={`relative pb-10 ${isZoomSliderActive ? 'transition-none' : 'transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]'}`}
+                    className="relative"
                     style={{width: `${timelineWidth}px`, minHeight: `${timelineMinHeight}px`}}
                   >
-                    <div className="pointer-events-none absolute inset-0">
-                      {monthTicks.map((tick) => (
-                        <div
-                          key={`mobile-month-${tick.days}`}
-                          className="absolute bottom-0 top-0 border-l border-[var(--grid-line)]"
-                          style={{left: `${(tick.days / maxDays) * 100}%`}}
-                        >
-                          <div className="absolute left-0 top-9 -translate-x-1/2 rounded-full bg-[var(--surface-strong)] px-2 py-1 text-[9px] font-medium uppercase tracking-[0.16em] text-[var(--muted)] shadow-[var(--soft-shadow)]">
-                            {tick.label}
+                    {showTimelineGrid ? (
+                      <div className="pointer-events-none absolute inset-0" data-timeline-grid>
+                        {monthTicks.map((tick) => (
+                          <div
+                            key={`mobile-month-${tick.days}`}
+                            className="absolute bottom-0 top-0 border-l border-[var(--grid-line)]"
+                            style={{left: `${getTimelineDayOffsetPx(tick.days, timelineStartDay)}px`}}
+                          >
+                            <div className="absolute left-0 top-9 -translate-x-1/2">
+                              <div className="timeline-map-screen-fixed">
+                                <div
+                                  className="timeline-map-screen-label rounded-full bg-[var(--surface-strong)] px-2 py-1 font-medium uppercase tracking-[0.16em] text-[var(--muted)] shadow-[var(--soft-shadow)]"
+                                  style={getTimelineMapLabelStyle(9)}
+                                >
+                                  {tick.label}
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
 
-                      {yearTicks.map((tick) => (
-                        <div
-                          key={`mobile-year-${tick.label}`}
-                          className="absolute bottom-0 top-0 border-l-2 border-[var(--grid-line-strong)]"
-                          style={{left: `${(tick.days / maxDays) * 100}%`}}
-                        >
-                          <div className="absolute left-0 top-1 -translate-x-1/2 rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)]">
-                            {tick.label}
+                        {yearTicks.map((tick) => (
+                          <div
+                            key={`mobile-year-${tick.label}`}
+                            className="absolute bottom-0 top-0 border-l-2 border-[var(--grid-line-strong)]"
+                            style={{left: `${getTimelineDayOffsetPx(tick.days, timelineStartDay)}px`}}
+                          >
+                            <div className="absolute left-0 top-1 -translate-x-1/2">
+                              <div className="timeline-map-screen-fixed">
+                                <div
+                                  className="timeline-map-screen-label rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2.5 py-1 font-semibold uppercase tracking-[0.16em] text-[var(--ink-soft)] shadow-[var(--soft-shadow)]"
+                                  style={getTimelineMapLabelStyle(10)}
+                                >
+                                  {tick.label}
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
 
-                      <div
-                        className="absolute bottom-0 top-0 border-l-2 border-[var(--today-line)]"
-                        style={{left: `${(currentGlobalDay / maxDays) * 100}%`}}
-                      >
-                        <div className="absolute left-0 top-1 -translate-x-1/2">
-                          <div className="inline-flex items-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--ink)] shadow-[0_18px_40px_-24px_rgba(0,0,0,0.6)]">
-                            Today
+                        <div
+                          className="absolute bottom-0 top-0 border-l-2 border-[var(--today-line)]"
+                          style={{left: `${getTimelineDayOffsetPx(currentGlobalDay, timelineStartDay)}px`}}
+                        >
+                          <div className="absolute left-0 top-1 -translate-x-1/2">
+                            <div className="timeline-map-screen-fixed">
+                              <div
+                                className="timeline-map-screen-label inline-flex items-center rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2.5 py-1.5 font-semibold uppercase tracking-[0.16em] text-[var(--ink)] shadow-[0_18px_40px_-24px_rgba(0,0,0,0.6)]"
+                                style={getTimelineMapLabelStyle(10)}
+                              >
+                                Today
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    ) : null}
 
                     {processedCompanies.length > 0 ? (
-                      <div className="relative flex flex-col pb-10 pt-20" style={{gap: '32px'}}>
-                        {processedCompanies.map((company, companyIndex) => (
-                          <React.Fragment key={`${company.id}-mobile-timeline-group`}>
-                            <CompanyTimelineGroup
+                      <motion.div
+                        className="relative flex flex-col"
+                        style={{
+                          gap: `${timelineLayout.companyGap}px`,
+                          paddingBottom: `${timelineLayout.bottomPadding}px`,
+                          paddingTop: `${timelineLayout.topPadding}px`,
+                        }}
+                      >
+                        <AnimatePresence initial={false} mode="popLayout">
+                          {processedCompanies.map((company, companyIndex) => (
+                            <MemoizedCompanyTimelineGroup
+                              key={company.id}
                               activeArticleSlug={activeArticleSlug}
                               compact
                               company={company}
                               companyIndex={companyIndex}
                               currentGlobalDay={currentGlobalDay}
                               maxDays={maxDays}
+                              onCompanyFocus={focusCompany}
                               onModelSelect={onModelSelect}
+                              renderWindow={renderWindow}
+                              timelineStartDay={timelineStartDay}
+                              verticalScale={timelineVerticalScale}
                             />
-                          </React.Fragment>
-                        ))}
-                      </div>
+                          ))}
+                        </AnimatePresence>
+                      </motion.div>
                     ) : null}
+
+                    <div aria-hidden="true" className="timeline-tail-fade timeline-tail-fade--compact" />
                   </div>
                 </div>
               </div>
-            </div>
           </div>
         </motion.section>
-        <TimelineZoomRail
-          compact
-          className="right-0 top-1/2 -translate-y-1/2"
-          maxZoom={maxZoom}
-          minZoom={minZoom}
-          onSliderActiveChange={onZoomSliderActiveChange}
-          onZoomChange={handleZoomChange}
-          zoom={zoom}
-        />
-        </div>
-      </section>
 
-      <section className="mx-auto max-w-[760px] px-4 pb-16">
-        <div className="grid gap-3 sm:grid-cols-2">
-          {processedCompanies.map((company, index) => (
-            <React.Fragment key={`${company.id}-mobile-summary-card`}>
-              <CompanySummaryCard
-                compact
-                company={company}
-                currentGlobalDay={currentGlobalDay}
-                index={index}
-                maxSummaryQuietDays={maxSummaryQuietDays}
-              />
-            </React.Fragment>
-          ))}
+          <motion.div
+            initial={{opacity: 0, y: 16}}
+            animate={{opacity: 1, y: 0}}
+            transition={{duration: 0.62, delay: 0.18, ease: [0.22, 1, 0.36, 1]}}
+            className="absolute"
+            style={{
+              left: `${canvasLayout.contentCards.latest.x}px`,
+              top: `${canvasLayout.contentCards.latest.y}px`,
+              width: `${canvasLayout.contentCards.latest.width}px`,
+            }}
+          >
+            <p className="text-xs leading-5 text-[var(--ink-soft)]">
+              Latest: <span className="font-semibold text-[var(--ink)]">{latestCompany?.name ?? 'n/a'}</span>
+              {' '}with <span className="font-semibold text-[var(--ink)]">{latestCompany?.latestRelease?.name ?? 'n/a'}</span>.
+            </p>
+            <p className="mt-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[var(--muted)]">All dates rendered in UTC</p>
+          </motion.div>
+
+          <motion.div
+            initial={{opacity: 0, y: 18}}
+            animate={{opacity: 1, y: 0}}
+            transition={{duration: 0.68, delay: 0.24, ease: [0.22, 1, 0.36, 1]}}
+            className="absolute"
+            style={{
+              left: `${canvasLayout.contentCards.summaries.x}px`,
+              top: `${canvasLayout.contentCards.summaries.y}px`,
+              width: `${canvasLayout.contentCards.summaries.width}px`,
+            }}
+          >
+            <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--muted)]">Provider recency</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <AnimatePresence initial={false} mode="popLayout">
+                {processedCompanies.map((company, index) => (
+                  <MemoizedCompanySummaryCard
+                    key={company.id}
+                    compact
+                    company={company}
+                    currentGlobalDay={currentGlobalDay}
+                    index={index}
+                    maxSummaryQuietDays={maxSummaryQuietDays}
+                  />
+                ))}
+              </AnimatePresence>
+            </div>
+          </motion.div>
         </div>
-      </section>
-    </>
+      </div>
+
+      <AnimatePresence>
+        {focusedRow ? (
+          <React.Fragment key={`${focusedRow.company.id}-mobile-focus-label`}>
+            <CompanyRowFocusLabel
+              compact
+              onClearFocus={clearFocus}
+              onCompanyHide={onCompanyHide}
+              onCompanyMove={onCompanyMove}
+              row={focusedRow}
+              rowCount={companyRowLayouts.length}
+              screenX={focusLabelX}
+              screenY={focusLabelY}
+            />
+          </React.Fragment>
+        ) : null}
+      </AnimatePresence>
+
+      <TimelineZoomRail
+        compact
+        className="right-1 top-1/2 -translate-y-1/2"
+        maxZoom={maxZoom}
+        minZoom={minZoom}
+        onZoomChange={handleZoomChange}
+        zoom={zoom}
+      />
+
+      <div className="absolute bottom-4 right-4 z-40 flex flex-col items-end gap-2">
+        <SurfaceButton
+          label={showTimelineGrid ? 'Hide timeline grid' : 'Show timeline grid'}
+          onClick={onToggleTimelineGrid}
+          pressed={showTimelineGrid}
+        >
+          {showTimelineGrid ? (
+            <EyeOff className="h-4 w-4" strokeWidth={1.8} />
+          ) : (
+            <Eye className="h-4 w-4" strokeWidth={1.8} />
+          )}
+          <span className="sr-only">Grid</span>
+        </SurfaceButton>
+        <SurfaceButton label="Reset camera" onClick={onResetCamera}>
+          <RotateCcw className="h-4 w-4" strokeWidth={1.8} />
+          <span className="sr-only">Reset</span>
+        </SurfaceButton>
+        {hiddenCompanyCount > 0 ? (
+          <SurfaceButton label="Show hidden companies" onClick={onShowHiddenCompanies}>
+            <Layers3 className="h-4 w-4" strokeWidth={1.8} />
+            <span className="sr-only">Companies</span>
+          </SurfaceButton>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
 export default function App() {
   const [selectedPresetIds, setSelectedPresetIds] = useState<PresetId[]>(DEFAULT_SELECTED_PRESET_IDS);
+  const [companySortMode, setCompanySortMode] = useState<CompanySortMode>('significance');
+  const [significanceDisplayLimit, setSignificanceDisplayLimit] = useState<SignificanceDisplayLimit>(
+    DEFAULT_SIGNIFICANCE_DISPLAY_LIMIT,
+  );
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(() =>
     typeof window === 'undefined' ? true : window.matchMedia('(min-width: 768px)').matches,
@@ -4546,20 +6466,51 @@ export default function App() {
   const [zoom, setZoom] = useState(DEFAULT_DESKTOP_ZOOM);
   const [mobileZoom, setMobileZoom] = useState(DEFAULT_MOBILE_ZOOM);
   const [isPanning, setIsPanning] = useState(false);
-  const [isZoomSliderActive, setIsZoomSliderActive] = useState(false);
   const [isReady, setIsReady] = useState(false);
-  const [draggedCompanyId, setDraggedCompanyId] = useState<string | null>(null);
+  const [showTimelineGrid, setShowTimelineGrid] = useState(true);
   const [hiddenCompanyIds, setHiddenCompanyIds] = useState<string[]>([]);
   const [companyOrderIds, setCompanyOrderIds] = useState<string[]>(() => companies.map((company) => company.id));
+  const [desktopCamera, setDesktopCamera] = useState<CameraState>({x: 0, y: 0});
+  const [mobileCamera, setMobileCamera] = useState<CameraState>({x: 0, y: 0});
   const [route, setRoute] = useState<AppRoute>(() => getCurrentAppRoute());
+  const zoomRef = useRef(DEFAULT_DESKTOP_ZOOM);
+  const mobileZoomRef = useRef(DEFAULT_MOBILE_ZOOM);
+  const desktopCameraRef = useRef<CameraState>({x: 0, y: 0});
+  const mobileCameraRef = useRef<CameraState>({x: 0, y: 0});
+  const desktopCameraInterpolationRef = useRef<CameraInterpolationState>({
+    frameId: null,
+    lastFrameAt: null,
+    stiffness: CAMERA_TARGET_INTERPOLATION_STIFFNESS,
+    target: {
+      camera: {x: 0, y: 0},
+      zoom: DEFAULT_DESKTOP_ZOOM,
+    },
+    zoomAnchor: null,
+  });
+  const mobileCameraInterpolationRef = useRef<CameraInterpolationState>({
+    frameId: null,
+    lastFrameAt: null,
+    stiffness: CAMERA_TARGET_INTERPOLATION_STIFFNESS,
+    target: {
+      camera: {x: 0, y: 0},
+      zoom: DEFAULT_MOBILE_ZOOM,
+    },
+    zoomAnchor: null,
+  });
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const mobileScrollContainerRef = useRef<HTMLDivElement>(null);
+  const desktopWorldRef = useRef<HTMLDivElement>(null);
+  const mobileWorldRef = useRef<HTMLDivElement>(null);
   const desktopPointerOffsetXRef = useRef<number | null>(null);
+  const desktopPointerOffsetYRef = useRef<number | null>(null);
+  const mobilePointerOffsetXRef = useRef<number | null>(null);
+  const mobilePointerOffsetYRef = useRef<number | null>(null);
   const hasPositionedInitialView = useRef(false);
   const hasPositionedInitialMobileView = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
+  const lastFocusedArticleSlugRef = useRef<string | null>(null);
+  const blockTimelineArticleDismissClickRef = useRef(false);
   const dragFrameRef = useRef<number | null>(null);
-  const isZoomSliderActiveRef = useRef(false);
   const timelineWheelHandlerRef = useRef<(event: WheelEvent) => void>(() => undefined);
   const removeWheelCaptureListenerRef = useRef<(() => void) | null>(null);
   const latestDragPointRef = useRef<{
@@ -4568,38 +6519,125 @@ export default function App() {
   } | null>(null);
   const panStateRef = useRef({
     lastX: 0,
+    lastY: 0,
+    startX: 0,
+    startY: 0,
   });
-  const [viewportWidths, setViewportWidths] = useState({desktop: 0, mobile: 0});
+  const mobileTouchPointsRef = useRef<Map<number, PointerPoint>>(new Map<number, PointerPoint>());
+  const mobileTouchGestureRef = useRef<MobileTouchGestureState | null>(null);
+  const [viewportSizes, setViewportSizes] = useState<{desktop: ViewportSize; mobile: ViewportSize}>({
+    desktop: {height: 0, width: 0},
+    mobile: {height: 0, width: 0},
+  });
   const activeArticleSlug = route.kind === 'model' ? route.slug : null;
   const activeArticleEntry = activeArticleSlug ? (modelReleaseIndexBySlug[activeArticleSlug] ?? null) : null;
   const isArticleOpen = route.kind === 'model';
 
+  const today = useMemo(() => new Date(), []);
+  const currentGlobalDay = (today.getTime() - START_DATE.getTime()) / DAY_MS;
   const boardView = useMemo(() => getBoardView(selectedPresetIds), [selectedPresetIds]);
-  const visibleCompanies = useMemo(() => getVisibleCompanies(companies, selectedPresetIds), [selectedPresetIds]);
+  const visibleCompanies = useMemo(
+    () => getVisibleCompanies(companies, selectedPresetIds),
+    [selectedPresetIds],
+  );
   const orderedVisibleCompanies = useMemo(
-    () => orderCompanies(visibleCompanies, companyOrderIds, hiddenCompanyIds),
-    [companyOrderIds, hiddenCompanyIds, visibleCompanies],
+    () => orderCompanies(visibleCompanies, companyOrderIds, hiddenCompanyIds, companySortMode, currentGlobalDay),
+    [companyOrderIds, companySortMode, currentGlobalDay, hiddenCompanyIds, visibleCompanies],
+  );
+  const displayedVisibleCompanies = useMemo(
+    () => getDisplayedCompanies(orderedVisibleCompanies, significanceDisplayLimit, activeArticleEntry?.companyId),
+    [activeArticleEntry?.companyId, orderedVisibleCompanies, significanceDisplayLimit],
   );
   const displayedCompanyIds = useMemo(
-    () => orderedVisibleCompanies.map((company) => company.id),
-    [orderedVisibleCompanies],
+    () => displayedVisibleCompanies.map((company) => company.id),
+    [displayedVisibleCompanies],
   );
   const hiddenCompanyCount = useMemo(() => {
     const hiddenCompanyIdSet = new Set(hiddenCompanyIds);
     return visibleCompanies.filter((company) => hiddenCompanyIdSet.has(company.id)).length;
   }, [hiddenCompanyIds, visibleCompanies]);
   const presetStats = useMemo(() => buildPresetStats(companies), []);
-  const timelineData = useMemo(() => buildTimelineData(orderedVisibleCompanies), [orderedVisibleCompanies]);
-  const today = new Date();
-  const currentGlobalDay = (today.getTime() - START_DATE.getTime()) / DAY_MS;
-  const maxDays = Math.max(Math.ceil(currentGlobalDay) + 36, timelineData.latestGlobalDay + 36, 720);
-  const baseTimelineWidth = Math.max(Math.round(maxDays * TIMELINE_PIXELS_PER_DAY), 1);
-  const desktopMinZoom = getFitZoom(viewportWidths.desktop, LABEL_RAIL_WIDTH, baseTimelineWidth);
-  const mobileMinZoom = getFitZoom(viewportWidths.mobile, MOBILE_LABEL_RAIL_WIDTH, baseTimelineWidth);
-  const timelineWidth = Math.max(Math.round(baseTimelineWidth * zoom), 1);
-  const mobileTimelineWidth = Math.max(Math.round(baseTimelineWidth * mobileZoom), 1);
-
-  const {monthTicks, yearTicks} = useMemo(() => buildTicks(maxDays), [maxDays]);
+  const timelineData = useMemo(
+    () => buildTimelineData(displayedVisibleCompanies, currentGlobalDay),
+    [currentGlobalDay, displayedVisibleCompanies],
+  );
+  const baseTimelineDays = Math.max(Math.ceil(currentGlobalDay) + 36, timelineData.latestGlobalDay + 36, 720);
+  const baseTimelineWidth = Math.max(baseTimelineDays * TIMELINE_PIXELS_PER_DAY, 1);
+  const desktopMinZoom = getFitZoom(viewportSizes.desktop.width, LABEL_RAIL_WIDTH, baseTimelineWidth);
+  const mobileMinZoom = getFitZoom(viewportSizes.mobile.width, MOBILE_LABEL_RAIL_WIDTH, baseTimelineWidth);
+  const desktopTimelineRange = getProceduralTimelineRange({
+    camera: desktopCamera,
+    minimumDays: baseTimelineDays,
+    viewport: viewportSizes.desktop,
+    zoom,
+  });
+  const mobileTimelineRange = getProceduralTimelineRange({
+    camera: mobileCamera,
+    compact: true,
+    minimumDays: baseTimelineDays,
+    viewport: viewportSizes.mobile,
+    zoom: mobileZoom,
+  });
+  const maxDays = desktopTimelineRange.endDay;
+  const timelineStartDay = desktopTimelineRange.startDay;
+  const mobileMaxDays = mobileTimelineRange.endDay;
+  const mobileTimelineStartDay = mobileTimelineRange.startDay;
+  const timelineWidth = Math.max(getTimelineDurationWidthPx(timelineStartDay, maxDays), 1);
+  const mobileTimelineWidth = Math.max(
+    getTimelineDurationWidthPx(mobileTimelineStartDay, mobileMaxDays),
+    1,
+  );
+  const desktopReleaseRenderWindow = useMemo(
+    () =>
+      getTimelineReleaseRenderWindow({
+        camera: desktopCamera,
+        viewport: viewportSizes.desktop,
+        zoom,
+      }),
+    [desktopCamera, viewportSizes.desktop, zoom],
+  );
+  const mobileReleaseRenderWindow = useMemo(
+    () =>
+      getTimelineReleaseRenderWindow({
+        camera: mobileCamera,
+        compact: true,
+        viewport: viewportSizes.mobile,
+        zoom: mobileZoom,
+      }),
+    [mobileCamera, mobileZoom, viewportSizes.mobile],
+  );
+  const desktopTimelineVerticalScale = 1;
+  const mobileTimelineVerticalScale = 1;
+  const desktopTimelineContentHeight = getTimelineMinHeight(timelineData.processedCompanies, false, desktopTimelineVerticalScale);
+  const mobileTimelineContentHeight = getTimelineMinHeight(timelineData.processedCompanies, true, mobileTimelineVerticalScale);
+  const desktopTickWindow = useMemo(
+    () =>
+      getTimelineViewportDayWindow({
+        camera: desktopCamera,
+        futureBufferDays: TIMELINE_TICK_FUTURE_BUFFER_DAYS,
+        pastBufferDays: TIMELINE_TICK_PAST_BUFFER_DAYS,
+        viewport: viewportSizes.desktop,
+        zoom,
+      }),
+    [desktopCamera, viewportSizes.desktop, zoom],
+  );
+  const mobileTickWindow = useMemo(
+    () =>
+      getTimelineViewportDayWindow({
+        camera: mobileCamera,
+        compact: true,
+        futureBufferDays: TIMELINE_TICK_FUTURE_BUFFER_DAYS,
+        pastBufferDays: TIMELINE_TICK_PAST_BUFFER_DAYS,
+        viewport: viewportSizes.mobile,
+        zoom: mobileZoom,
+      }),
+    [mobileCamera, mobileZoom, viewportSizes.mobile],
+  );
+  const {monthTicks, yearTicks} = useMemo(() => buildTicks(desktopTickWindow), [desktopTickWindow]);
+  const {monthTicks: mobileMonthTicks, yearTicks: mobileYearTicks} = useMemo(
+    () => buildTicks(mobileTickWindow),
+    [mobileTickWindow],
+  );
 
   const latestCompany = useMemo(() => {
     return [...timelineData.processedCompanies]
@@ -4617,6 +6655,49 @@ export default function App() {
       return Math.max(max, quietDays);
     }, 0);
   }, [currentGlobalDay, summaryCompanies]);
+  const desktopCanvasLayout = useMemo(
+    () =>
+      getCanvasWorldLayout({
+        currentGlobalDay,
+        maxDays,
+        summaryCount: summaryCompanies.length,
+        timelineStartDay,
+        timelineHeight: desktopTimelineContentHeight,
+        timelineWidth,
+        viewport: viewportSizes.desktop,
+      }),
+    [
+      currentGlobalDay,
+      desktopTimelineContentHeight,
+      maxDays,
+      summaryCompanies.length,
+      timelineStartDay,
+      timelineWidth,
+      viewportSizes.desktop,
+    ],
+  );
+  const mobileCanvasLayout = useMemo(
+    () =>
+      getCanvasWorldLayout({
+        compact: true,
+        currentGlobalDay,
+        maxDays: mobileMaxDays,
+        summaryCount: timelineData.processedCompanies.length,
+        timelineStartDay: mobileTimelineStartDay,
+        timelineHeight: mobileTimelineContentHeight,
+        timelineWidth: mobileTimelineWidth,
+        viewport: viewportSizes.mobile,
+      }),
+    [
+      currentGlobalDay,
+      mobileMaxDays,
+      mobileTimelineStartDay,
+      mobileTimelineContentHeight,
+      mobileTimelineWidth,
+      timelineData.processedCompanies.length,
+      viewportSizes.mobile,
+    ],
+  );
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setIsReady(true), 120);
@@ -4635,6 +6716,14 @@ export default function App() {
   useEffect(() => {
     return () => {
       removeWheelCaptureListenerRef.current?.();
+
+      if (desktopCameraInterpolationRef.current.frameId !== null) {
+        window.cancelAnimationFrame(desktopCameraInterpolationRef.current.frameId);
+      }
+
+      if (mobileCameraInterpolationRef.current.frameId !== null) {
+        window.cancelAnimationFrame(mobileCameraInterpolationRef.current.frameId);
+      }
     };
   }, []);
 
@@ -4667,27 +6756,28 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    hasPositionedInitialView.current = false;
-    hasPositionedInitialMobileView.current = false;
-  }, [selectedPresetIds]);
-
-  useEffect(() => {
-    const updateViewportWidths = () => {
-      setViewportWidths({
-        desktop: scrollContainerRef.current?.clientWidth ?? 0,
-        mobile: mobileScrollContainerRef.current?.clientWidth ?? 0,
+    const updateViewportSizes = () => {
+      setViewportSizes({
+        desktop: {
+          height: scrollContainerRef.current?.clientHeight ?? window.innerHeight,
+          width: scrollContainerRef.current?.clientWidth ?? window.innerWidth,
+        },
+        mobile: {
+          height: mobileScrollContainerRef.current?.clientHeight ?? window.innerHeight,
+          width: mobileScrollContainerRef.current?.clientWidth ?? window.innerWidth,
+        },
       });
     };
 
-    updateViewportWidths();
-    const animationFrame = window.requestAnimationFrame(updateViewportWidths);
-    window.addEventListener('resize', updateViewportWidths);
+    updateViewportSizes();
+    const animationFrame = window.requestAnimationFrame(updateViewportSizes);
+    window.addEventListener('resize', updateViewportSizes);
 
     return () => {
       window.cancelAnimationFrame(animationFrame);
-      window.removeEventListener('resize', updateViewportWidths);
+      window.removeEventListener('resize', updateViewportSizes);
     };
-  }, [isReady]);
+  }, [isDesktopViewport, isReady]);
 
   useEffect(() => {
     if (hasPositionedInitialView.current) {
@@ -4704,8 +6794,10 @@ export default function App() {
         return;
       }
 
-      const dayOffset = LABEL_RAIL_WIDTH + (currentGlobalDay / maxDays) * timelineWidth;
-      container.scrollLeft = Math.max(0, dayOffset - container.clientWidth * 0.68);
+      const defaultView = getDefaultCameraView(desktopCanvasLayout);
+      desktopCameraRef.current = defaultView.camera;
+      desktopCameraInterpolationRef.current.target = defaultView;
+      commitDesktopCameraZoomState(defaultView.zoom, defaultView.camera);
       hasPositionedInitialView.current = true;
     };
 
@@ -4717,7 +6809,7 @@ export default function App() {
 
     window.addEventListener('resize', positionInitialDesktopView);
     return () => window.removeEventListener('resize', positionInitialDesktopView);
-  }, [currentGlobalDay, maxDays, selectedPresetIds, timelineWidth]);
+  }, [desktopCanvasLayout, viewportSizes.desktop, zoom]);
 
   useEffect(() => {
     if (hasPositionedInitialMobileView.current) {
@@ -4734,8 +6826,10 @@ export default function App() {
         return;
       }
 
-      const dayOffset = MOBILE_LABEL_RAIL_WIDTH + (currentGlobalDay / maxDays) * mobileTimelineWidth;
-      container.scrollLeft = Math.max(0, dayOffset - container.clientWidth * 0.78);
+      const defaultView = getDefaultCameraView(mobileCanvasLayout, true);
+      mobileCameraRef.current = defaultView.camera;
+      mobileCameraInterpolationRef.current.target = defaultView;
+      commitMobileCameraZoomState(defaultView.zoom, defaultView.camera);
       hasPositionedInitialMobileView.current = true;
     };
 
@@ -4747,9 +6841,10 @@ export default function App() {
 
     window.addEventListener('resize', positionInitialMobileView);
     return () => window.removeEventListener('resize', positionInitialMobileView);
-  }, [currentGlobalDay, maxDays, mobileTimelineWidth, selectedPresetIds]);
+  }, [mobileCanvasLayout, mobileZoom, viewportSizes.mobile]);
 
   const togglePreset = (presetId: PresetId) => {
+    setSignificanceDisplayLimit('all');
     setSelectedPresetIds((currentIds) => {
       if (currentIds.includes(presetId)) {
         return currentIds.filter((currentId) => currentId !== presetId);
@@ -4759,17 +6854,21 @@ export default function App() {
     });
   };
 
-  const resetPreset = () => {
+  const resetFilters = () => {
     setSelectedPresetIds(DEFAULT_SELECTED_PRESET_IDS);
+    setCompanySortMode('significance');
+    setSignificanceDisplayLimit(DEFAULT_SIGNIFICANCE_DISPLAY_LIMIT);
     setHiddenCompanyIds([]);
     setCompanyOrderIds(companies.map((company) => company.id));
   };
 
   const selectAllPresets = () => {
+    setSignificanceDisplayLimit('all');
     setSelectedPresetIds(modelPresets.map((preset) => preset.id));
   };
 
   const clearAllPresets = () => {
+    setSignificanceDisplayLimit('all');
     setSelectedPresetIds([]);
   };
 
@@ -4787,11 +6886,9 @@ export default function App() {
     setHiddenCompanyIds([]);
   };
 
-  const reorderCompany = (sourceCompanyId: string, targetCompanyId: string) => {
-    setCompanyOrderIds((currentIds) =>
-      reorderVisibleCompanyIds(currentIds, displayedCompanyIds, sourceCompanyId, targetCompanyId),
-    );
-  };
+  const toggleTimelineGrid = useCallback(() => {
+    setShowTimelineGrid((isVisible) => !isVisible);
+  }, []);
 
   const moveCompany = (companyId: string, direction: CompanyMoveDirection) => {
     setCompanyOrderIds((currentIds) => moveVisibleCompanyId(currentIds, displayedCompanyIds, companyId, direction));
@@ -4801,115 +6898,521 @@ export default function App() {
     window.location.hash = `#/models/${encodeURIComponent(slug)}`;
   };
 
+  const dismissActiveTimelineArticle = () => {
+    if (route.kind !== 'model') {
+      return;
+    }
+
+    lastFocusedArticleSlugRef.current = null;
+    navigateToTimeline();
+  };
+
+  const handleTimelineBackgroundDismiss = (
+    target: EventTarget,
+    clientPosition?: {clientX: number; clientY: number},
+  ) => {
+    if (blockTimelineArticleDismissClickRef.current) {
+      blockTimelineArticleDismissClickRef.current = false;
+      return;
+    }
+
+    tryDismissTimelineArticleOnBackgroundClick(
+      target,
+      activeArticleSlug,
+      dismissActiveTimelineArticle,
+      clientPosition,
+    );
+  };
+
   const explorerProps = {
     boardView,
+    companySortMode,
     isOpen: isExplorerOpen,
     onClearAll: clearAllPresets,
+    onCompanySortModeChange: setCompanySortMode,
     onPresetToggle: togglePreset,
-    onReset: resetPreset,
+    onReset: resetFilters,
     onSelectAll: selectAllPresets,
+    onSignificanceDisplayLimitChange: setSignificanceDisplayLimit,
     onToggle: () => setIsExplorerOpen((isOpen) => !isOpen),
     presetStats,
     selectedPresetIds,
+    significanceDisplayLimit,
+    totalMatchedCompanyCount: orderedVisibleCompanies.length,
+    visibleCompanyCount: displayedVisibleCompanies.length,
   };
 
-  const handleZoomSliderActiveChange = useCallback((isActive: boolean) => {
-    isZoomSliderActiveRef.current = isActive;
-    setIsZoomSliderActive((current) => (current === isActive ? current : isActive));
-  }, []);
+  const commitDesktopCameraZoomState = (nextZoom: number, nextCamera: CameraState) => {
+    zoomRef.current = nextZoom;
+    desktopCameraRef.current = nextCamera;
+    applyTimelineWorldTransform(desktopWorldRef.current, nextCamera, nextZoom);
+    setZoom(nextZoom);
+    setDesktopCamera(nextCamera);
+  };
 
-  const handleZoomChange = (updater: (zoomLevel: number) => number) => {
+  const commitMobileCameraZoomState = (nextZoom: number, nextCamera: CameraState) => {
+    mobileZoomRef.current = nextZoom;
+    mobileCameraRef.current = nextCamera;
+    applyTimelineWorldTransform(mobileWorldRef.current, nextCamera, nextZoom);
+    setMobileZoom(nextZoom);
+    setMobileCamera(nextCamera);
+  };
+
+  const runDesktopCameraInterpolationFrame = (timestamp: number) => {
+    const interpolation = desktopCameraInterpolationRef.current;
+    const deltaSeconds =
+      interpolation.lastFrameAt === null
+        ? 1 / 60
+        : clampNumber((timestamp - interpolation.lastFrameAt) / 1000, 0, 0.064);
+    interpolation.lastFrameAt = timestamp;
+
+    const {target, zoomAnchor} = interpolation;
+    const alpha = 1 - Math.exp(-interpolation.stiffness * deltaSeconds);
+    const nextZoom = lerpNumber(zoomRef.current, target.zoom, alpha);
+    const nextCamera = zoomAnchor
+      ? getCameraForZoomWorldAnchor(
+          zoomAnchor.worldX,
+          zoomAnchor.worldY,
+          zoomAnchor.viewportX,
+          zoomAnchor.viewportY,
+          nextZoom,
+        )
+      : {
+          x: lerpNumber(desktopCameraRef.current.x, target.camera.x, alpha),
+          y: lerpNumber(desktopCameraRef.current.y, target.camera.y, alpha),
+        };
+
+    commitDesktopCameraZoomState(nextZoom, nextCamera);
+
+    const cameraDistance = Math.hypot(target.camera.x - nextCamera.x, target.camera.y - nextCamera.y);
+    const zoomDistance = Math.abs(target.zoom - nextZoom);
+
+    if (cameraDistance > CAMERA_TARGET_SNAP_DISTANCE || zoomDistance > CAMERA_TARGET_SNAP_ZOOM) {
+      interpolation.frameId = window.requestAnimationFrame(runDesktopCameraInterpolationFrame);
+      return;
+    }
+
+    interpolation.frameId = null;
+    interpolation.lastFrameAt = null;
+    const snappedCamera = zoomAnchor
+      ? getCameraForZoomWorldAnchor(
+          zoomAnchor.worldX,
+          zoomAnchor.worldY,
+          zoomAnchor.viewportX,
+          zoomAnchor.viewportY,
+          target.zoom,
+        )
+      : target.camera;
+    interpolation.zoomAnchor = null;
+    commitDesktopCameraZoomState(target.zoom, snappedCamera);
+  };
+
+  const runMobileCameraInterpolationFrame = (timestamp: number) => {
+    const interpolation = mobileCameraInterpolationRef.current;
+    const deltaSeconds =
+      interpolation.lastFrameAt === null
+        ? 1 / 60
+        : clampNumber((timestamp - interpolation.lastFrameAt) / 1000, 0, 0.064);
+    interpolation.lastFrameAt = timestamp;
+
+    const {target, zoomAnchor} = interpolation;
+    const alpha = 1 - Math.exp(-interpolation.stiffness * deltaSeconds);
+    const nextZoom = lerpNumber(mobileZoomRef.current, target.zoom, alpha);
+    const nextCamera = zoomAnchor
+      ? getCameraForZoomWorldAnchor(
+          zoomAnchor.worldX,
+          zoomAnchor.worldY,
+          zoomAnchor.viewportX,
+          zoomAnchor.viewportY,
+          nextZoom,
+        )
+      : {
+          x: lerpNumber(mobileCameraRef.current.x, target.camera.x, alpha),
+          y: lerpNumber(mobileCameraRef.current.y, target.camera.y, alpha),
+        };
+
+    commitMobileCameraZoomState(nextZoom, nextCamera);
+
+    const cameraDistance = Math.hypot(target.camera.x - nextCamera.x, target.camera.y - nextCamera.y);
+    const zoomDistance = Math.abs(target.zoom - nextZoom);
+
+    if (cameraDistance > CAMERA_TARGET_SNAP_DISTANCE || zoomDistance > CAMERA_TARGET_SNAP_ZOOM) {
+      interpolation.frameId = window.requestAnimationFrame(runMobileCameraInterpolationFrame);
+      return;
+    }
+
+    interpolation.frameId = null;
+    interpolation.lastFrameAt = null;
+    const snappedCamera = zoomAnchor
+      ? getCameraForZoomWorldAnchor(
+          zoomAnchor.worldX,
+          zoomAnchor.worldY,
+          zoomAnchor.viewportX,
+          zoomAnchor.viewportY,
+          target.zoom,
+        )
+      : target.camera;
+    interpolation.zoomAnchor = null;
+    commitMobileCameraZoomState(target.zoom, snappedCamera);
+  };
+
+  const setDesktopCameraTarget = (target: CameraViewState, options?: CameraTargetOptions) => {
+    const interpolation = desktopCameraInterpolationRef.current;
+    interpolation.target = target;
+    interpolation.stiffness = options?.stiffness ?? CAMERA_TARGET_INTERPOLATION_STIFFNESS;
+
+    if (options) {
+      interpolation.zoomAnchor = options.zoomAnchor ?? null;
+    } else {
+      interpolation.zoomAnchor = null;
+    }
+
+    if (interpolation.frameId === null) {
+      interpolation.lastFrameAt = null;
+      interpolation.frameId = window.requestAnimationFrame(runDesktopCameraInterpolationFrame);
+    }
+  };
+
+  const setMobileCameraTarget = (target: CameraViewState, options?: CameraTargetOptions) => {
+    const interpolation = mobileCameraInterpolationRef.current;
+    interpolation.target = target;
+    interpolation.stiffness = options?.stiffness ?? CAMERA_TARGET_INTERPOLATION_STIFFNESS;
+
+    if (options) {
+      interpolation.zoomAnchor = options.zoomAnchor ?? null;
+    } else {
+      interpolation.zoomAnchor = null;
+    }
+
+    if (interpolation.frameId === null) {
+      interpolation.lastFrameAt = null;
+      interpolation.frameId = window.requestAnimationFrame(runMobileCameraInterpolationFrame);
+    }
+  };
+
+  const jumpToTimelineRegion = useCallback(
+    (target: TimelineJumpTarget) => {
+      const compact = !isDesktopViewport;
+      const viewport = compact ? viewportSizes.mobile : viewportSizes.desktop;
+
+      if (viewport.width <= 0 || viewport.height <= 0) {
+        return;
+      }
+
+      const layout = compact ? mobileCanvasLayout : desktopCanvasLayout;
+      const timelineHeight = compact ? mobileTimelineContentHeight : desktopTimelineContentHeight;
+      const bounds = resolveTimelineJumpTarget(
+        target,
+        timelineData.processedCompanies,
+        layout,
+        timelineHeight,
+        compact,
+        1,
+      );
+
+      if (!bounds) {
+        return;
+      }
+
+      const insets = getTimelineFocusInsets(viewport, compact, isArticleOpen);
+      const anchor =
+        isArticleOpen && !compact
+          ? getArticleTimelineFocusAnchor(viewport, insets)
+          : DEFAULT_TIMELINE_FOCUS_ANCHOR;
+      const view = getCameraViewForTimelineRegion({
+        anchor,
+        bounds,
+        focusMaxZoom: compact ? TIMELINE_REGION_FOCUS_MAX_ZOOM_MOBILE : TIMELINE_REGION_FOCUS_MAX_ZOOM_DESKTOP,
+        insets,
+        layout,
+        maxZoom: compact ? MOBILE_MAX_ZOOM : DESKTOP_MAX_ZOOM,
+        minZoom: compact ? mobileMinZoom : desktopMinZoom,
+        viewport,
+      });
+
+      if (!view) {
+        return;
+      }
+
+      const targetOptions: CameraTargetOptions =
+        target.kind === 'slug' ? {stiffness: MODEL_FOCUS_CAMERA_INTERPOLATION_STIFFNESS} : {};
+
+      if (compact) {
+        setMobileCameraTarget(view, targetOptions);
+        return;
+      }
+
+      setDesktopCameraTarget(view, targetOptions);
+    },
+    [
+      desktopCanvasLayout,
+      desktopMinZoom,
+      desktopTimelineContentHeight,
+      isArticleOpen,
+      isDesktopViewport,
+      mobileCanvasLayout,
+      mobileMinZoom,
+      mobileTimelineContentHeight,
+      timelineData.processedCompanies,
+      viewportSizes.desktop,
+      viewportSizes.mobile,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isArticleOpen || !activeArticleSlug) {
+      if (!isArticleOpen) {
+        lastFocusedArticleSlugRef.current = null;
+      }
+
+      return;
+    }
+
+    if (!isReady || isPanning || activePointerIdRef.current !== null) {
+      return;
+    }
+
+    const viewport = isDesktopViewport ? viewportSizes.desktop : viewportSizes.mobile;
+
+    if (viewport.width <= 0) {
+      return;
+    }
+
+    if (lastFocusedArticleSlugRef.current === activeArticleSlug) {
+      return;
+    }
+
+    if (!findProcessedReleaseBySlug(timelineData.processedCompanies, activeArticleSlug)) {
+      return;
+    }
+
+    jumpToTimelineRegion({kind: 'slug', slug: activeArticleSlug});
+    lastFocusedArticleSlugRef.current = activeArticleSlug;
+    // jumpToTimelineRegion is intentionally omitted: it changes when the camera pans because
+    // procedural layout depends on viewport position, which would re-snap the camera every frame.
+  }, [
+    activeArticleSlug,
+    isArticleOpen,
+    isDesktopViewport,
+    isPanning,
+    isReady,
+    timelineData.processedCompanies,
+    viewportSizes.desktop,
+    viewportSizes.mobile,
+  ]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const direction = getTimelinePinNavDirectionFromKey(event.key);
+
+      if (!direction || shouldIgnoreTimelinePinArrowNavigation(event) || !isReady) {
+        return;
+      }
+
+      const compact = !isDesktopViewport;
+      const viewport = compact ? viewportSizes.mobile : viewportSizes.desktop;
+
+      if (viewport.width <= 0 || viewport.height <= 0) {
+        return;
+      }
+
+      const layout = compact ? mobileCanvasLayout : desktopCanvasLayout;
+      const verticalScale = compact ? mobileTimelineVerticalScale : desktopTimelineVerticalScale;
+      const pinTargets = collectTimelinePinNavTargets(
+        timelineData.processedCompanies,
+        layout,
+        compact,
+        verticalScale,
+      );
+
+      if (pinTargets.length === 0) {
+        return;
+      }
+
+      const camera = compact ? mobileCameraRef.current : desktopCameraRef.current;
+      const zoomLevel = compact ? mobileZoomRef.current : zoomRef.current;
+      const origin = getTimelinePinNavOrigin(
+        timelineData.processedCompanies,
+        layout,
+        compact,
+        verticalScale,
+        activeArticleSlug,
+        camera,
+        zoomLevel,
+        viewport,
+      );
+      const nextPin = findNearestTimelinePinInDirection(origin, pinTargets, direction, {
+        excludeSlug: activeArticleSlug,
+        minPrimaryDistance: activeArticleSlug ? TIMELINE_PIN_NAV_PRIMARY_EPS : 0,
+      });
+
+      if (!nextPin || nextPin.slug === activeArticleSlug) {
+        return;
+      }
+
+      event.preventDefault();
+      lastFocusedArticleSlugRef.current = null;
+      navigateToModelSlug(nextPin.slug);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    activeArticleSlug,
+    desktopCanvasLayout,
+    isDesktopViewport,
+    isReady,
+    mobileCanvasLayout,
+    mobileTimelineVerticalScale,
+    desktopTimelineVerticalScale,
+    timelineData.processedCompanies,
+    viewportSizes.desktop,
+    viewportSizes.mobile,
+  ]);
+
+  const cancelDesktopCameraInterpolation = () => {
+    const interpolation = desktopCameraInterpolationRef.current;
+
+    if (interpolation.frameId !== null) {
+      window.cancelAnimationFrame(interpolation.frameId);
+      interpolation.frameId = null;
+    }
+
+    interpolation.lastFrameAt = null;
+    interpolation.target = {
+      camera: desktopCameraRef.current,
+      zoom: zoomRef.current,
+    };
+    interpolation.stiffness = CAMERA_TARGET_INTERPOLATION_STIFFNESS;
+    interpolation.zoomAnchor = null;
+  };
+
+  const cancelMobileCameraInterpolation = () => {
+    const interpolation = mobileCameraInterpolationRef.current;
+
+    if (interpolation.frameId !== null) {
+      window.cancelAnimationFrame(interpolation.frameId);
+      interpolation.frameId = null;
+    }
+
+    interpolation.lastFrameAt = null;
+    interpolation.target = {
+      camera: mobileCameraRef.current,
+      zoom: mobileZoomRef.current,
+    };
+    interpolation.stiffness = CAMERA_TARGET_INTERPOLATION_STIFFNESS;
+    interpolation.zoomAnchor = null;
+  };
+
+  const resetDesktopCamera = () => {
     const container = scrollContainerRef.current;
-    const anchorOffsetX = container
-      ? clampNumber(desktopPointerOffsetXRef.current ?? container.clientWidth / 2, 0, container.clientWidth)
-      : null;
-    const anchorRatio =
-      container && anchorOffsetX !== null
-        ? getTimelineAnchorRatio(container.scrollLeft, anchorOffsetX, LABEL_RAIL_WIDTH, timelineWidth)
-        : null;
-
-    const applyZoomChange = () => {
-      setZoom((previousZoom) => {
-        const nextZoom = Number(clampNumber(updater(previousZoom), desktopMinZoom, DESKTOP_MAX_ZOOM).toFixed(3));
-        const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
-
-        if (nextZoom === previousZoom) {
-          return previousZoom;
-        }
-
-        if (anchorRatio !== null && anchorOffsetX !== null) {
-          requestAnimationFrame(() => {
-            if (!scrollContainerRef.current) {
-              return;
-            }
-
-            scrollContainerRef.current.scrollLeft = getScrollLeftForTimelineAnchor(
-              anchorRatio,
-              anchorOffsetX,
-              LABEL_RAIL_WIDTH,
-              nextTimelineWidth,
-            );
-          });
-        }
-
-        return nextZoom;
-      });
-    };
-
-    if (isZoomSliderActiveRef.current || activePointerIdRef.current !== null) {
-      applyZoomChange();
-      return;
-    }
-
-    startTransition(applyZoomChange);
+    desktopPointerOffsetXRef.current = (container?.clientWidth ?? viewportSizes.desktop.width) / 2;
+    desktopPointerOffsetYRef.current = (container?.clientHeight ?? viewportSizes.desktop.height) / 2;
+    setDesktopCameraTarget(getDefaultCameraView(desktopCanvasLayout));
   };
 
-  const handleMobileZoomChange = (updater: (zoomLevel: number) => number) => {
+  const resetMobileCamera = () => {
     const container = mobileScrollContainerRef.current;
-    const anchorOffsetX = container ? container.clientWidth / 2 : null;
-    const anchorRatio =
-      container && anchorOffsetX !== null
-        ? getTimelineAnchorRatio(container.scrollLeft, anchorOffsetX, MOBILE_LABEL_RAIL_WIDTH, mobileTimelineWidth)
-        : null;
+    mobilePointerOffsetXRef.current = (container?.clientWidth ?? viewportSizes.mobile.width) / 2;
+    mobilePointerOffsetYRef.current = (container?.clientHeight ?? viewportSizes.mobile.height) / 2;
+    setMobileCameraTarget(getDefaultCameraView(mobileCanvasLayout, true));
+  };
 
-    const applyMobileZoomChange = () => {
-      setMobileZoom((previousZoom) => {
-        const nextZoom = Number(clampNumber(updater(previousZoom), mobileMinZoom, MOBILE_MAX_ZOOM).toFixed(3));
-        const nextTimelineWidth = Math.max(Math.round(baseTimelineWidth * nextZoom), 1);
+  const handleZoomChange: ZoomHandler = (updater, anchor) => {
+    const container = scrollContainerRef.current;
+    const viewport = viewportSizes.desktop;
+    const anchorX = clampNumber(
+      anchor?.x ?? desktopPointerOffsetXRef.current ?? (container?.clientWidth ?? viewport.width) / 2,
+      0,
+      container?.clientWidth ?? viewport.width,
+    );
+    const anchorY = clampNumber(
+      anchor?.y ?? desktopPointerOffsetYRef.current ?? (container?.clientHeight ?? viewport.height) / 2,
+      0,
+      container?.clientHeight ?? viewport.height,
+    );
 
-        if (nextZoom === previousZoom) {
-          return previousZoom;
-        }
+    const interpolation = desktopCameraInterpolationRef.current;
+    const previousZoom = zoomRef.current;
+    const nextZoom = Number(clampNumber(updater(previousZoom), desktopMinZoom, DESKTOP_MAX_ZOOM).toFixed(3));
 
-        if (anchorRatio !== null && anchorOffsetX !== null) {
-          requestAnimationFrame(() => {
-            if (!mobileScrollContainerRef.current) {
-              return;
-            }
-
-            mobileScrollContainerRef.current.scrollLeft = getScrollLeftForTimelineAnchor(
-              anchorRatio,
-              anchorOffsetX,
-              MOBILE_LABEL_RAIL_WIDTH,
-              nextTimelineWidth,
-            );
-          });
-        }
-
-        return nextZoom;
-      });
-    };
-
-    if (isZoomSliderActiveRef.current) {
-      applyMobileZoomChange();
+    if (nextZoom === previousZoom) {
       return;
     }
 
-    startTransition(applyMobileZoomChange);
+    const zoomAnchor = resolveZoomInterpolationAnchor({
+      anchorX,
+      anchorY,
+      camera: desktopCameraRef.current,
+      existingAnchor: interpolation.zoomAnchor,
+      zoom: previousZoom,
+    });
+    const nextCamera = getCameraForZoomWorldAnchor(
+      zoomAnchor.worldX,
+      zoomAnchor.worldY,
+      anchorX,
+      anchorY,
+      nextZoom,
+    );
+
+    setDesktopCameraTarget(
+      {
+        camera: nextCamera,
+        zoom: nextZoom,
+      },
+      {zoomAnchor},
+    );
+  };
+
+  const handleMobileZoomChange: ZoomHandler = (updater, anchor) => {
+    const container = mobileScrollContainerRef.current;
+    const viewport = viewportSizes.mobile;
+    const anchorX = clampNumber(
+      anchor?.x ?? mobilePointerOffsetXRef.current ?? (container?.clientWidth ?? viewport.width) / 2,
+      0,
+      container?.clientWidth ?? viewport.width,
+    );
+    const anchorY = clampNumber(
+      anchor?.y ?? mobilePointerOffsetYRef.current ?? (container?.clientHeight ?? viewport.height) / 2,
+      0,
+      container?.clientHeight ?? viewport.height,
+    );
+
+    const interpolation = mobileCameraInterpolationRef.current;
+    const previousZoom = mobileZoomRef.current;
+    const nextZoom = Number(clampNumber(updater(previousZoom), mobileMinZoom, MOBILE_MAX_ZOOM).toFixed(3));
+
+    if (nextZoom === previousZoom) {
+      return;
+    }
+
+    const zoomAnchor = resolveZoomInterpolationAnchor({
+      anchorX,
+      anchorY,
+      camera: mobileCameraRef.current,
+      existingAnchor: interpolation.zoomAnchor,
+      zoom: previousZoom,
+    });
+    const nextCamera = getCameraForZoomWorldAnchor(
+      zoomAnchor.worldX,
+      zoomAnchor.worldY,
+      anchorX,
+      anchorY,
+      nextZoom,
+    );
+
+    setMobileCameraTarget(
+      {
+        camera: nextCamera,
+        zoom: nextZoom,
+      },
+      {zoomAnchor},
+    );
   };
 
   timelineWheelHandlerRef.current = (event: WheelEvent) => {
-    if (activePointerIdRef.current === null || !scrollContainerRef.current) {
+    if (!scrollContainerRef.current || event.deltaY === 0) {
       return;
     }
 
@@ -4917,13 +7420,14 @@ export default function App() {
       event.preventDefault();
     }
 
-    if (event.deltaY === 0) {
-      return;
-    }
-
     const container = scrollContainerRef.current;
     const containerRect = container.getBoundingClientRect();
-    desktopPointerOffsetXRef.current = clampNumber(event.clientX - containerRect.left, 0, container.clientWidth);
+    const anchor = {
+      x: clampNumber(event.clientX - containerRect.left, 0, container.clientWidth),
+      y: clampNumber(event.clientY - containerRect.top, 0, container.clientHeight),
+    };
+    desktopPointerOffsetXRef.current = anchor.x;
+    desktopPointerOffsetYRef.current = anchor.y;
 
     const normalizedDeltaY =
       event.deltaMode === 1
@@ -4932,10 +7436,31 @@ export default function App() {
           ? event.deltaY * container.clientHeight
           : event.deltaY;
 
-    handleZoomChange((current) =>
-      getSteppedZoom(current, -normalizedDeltaY * WHEEL_ZOOM_PROGRESS_PER_PIXEL, desktopMinZoom, DESKTOP_MAX_ZOOM),
+    handleZoomChange(
+      (current) =>
+        getSteppedZoom(current, -normalizedDeltaY * WHEEL_ZOOM_PROGRESS_PER_PIXEL, desktopMinZoom, DESKTOP_MAX_ZOOM),
+      anchor,
     );
   };
+
+  useEffect(() => {
+    if (!isReady || !isDesktopViewport) {
+      return undefined;
+    }
+
+    const container = scrollContainerRef.current;
+
+    if (!container) {
+      return undefined;
+    }
+
+    const handleNativeWheel = (event: WheelEvent) => timelineWheelHandlerRef.current(event);
+    container.addEventListener('wheel', handleNativeWheel, {passive: false});
+
+    return () => {
+      container.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, [isDesktopViewport, isReady]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'mouse' || event.button !== 0 || !scrollContainerRef.current) {
@@ -4945,10 +7470,16 @@ export default function App() {
     const container = scrollContainerRef.current;
     const containerRect = container.getBoundingClientRect();
     desktopPointerOffsetXRef.current = event.clientX - containerRect.left;
+    desktopPointerOffsetYRef.current = event.clientY - containerRect.top;
+    cancelDesktopCameraInterpolation();
 
+    blockTimelineArticleDismissClickRef.current = false;
     activePointerIdRef.current = event.pointerId;
     panStateRef.current = {
       lastX: event.clientX,
+      lastY: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
     };
 
     container.setPointerCapture(event.pointerId);
@@ -4981,14 +7512,40 @@ export default function App() {
     const containerRect = container.getBoundingClientRect();
     const pointerOffsetX = latestDragPoint.clientX - containerRect.left;
     desktopPointerOffsetXRef.current = pointerOffsetX;
+    desktopPointerOffsetYRef.current = latestDragPoint.clientY - containerRect.top;
 
     const deltaX = latestDragPoint.clientX - panStateRef.current.lastX;
-    container.scrollLeft -= deltaX;
+    const deltaY = latestDragPoint.clientY - panStateRef.current.lastY;
+    const nextCamera = {
+      x: desktopCameraRef.current.x - deltaX / Math.max(zoomRef.current, 0.001),
+      y: desktopCameraRef.current.y - deltaY / Math.max(zoomRef.current, 0.001),
+    };
+    desktopCameraInterpolationRef.current.target = {
+      camera: nextCamera,
+      zoom: zoomRef.current,
+    };
+    desktopCameraRef.current = nextCamera;
+    applyTimelineWorldTransform(desktopWorldRef.current, nextCamera, zoomRef.current);
 
     panStateRef.current.lastX = latestDragPoint.clientX;
+    panStateRef.current.lastY = latestDragPoint.clientY;
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && scrollContainerRef.current) {
+      const containerRect = scrollContainerRef.current.getBoundingClientRect();
+      desktopPointerOffsetXRef.current = clampNumber(
+        event.clientX - containerRect.left,
+        0,
+        scrollContainerRef.current.clientWidth,
+      );
+      desktopPointerOffsetYRef.current = clampNumber(
+        event.clientY - containerRect.top,
+        0,
+        scrollContainerRef.current.clientHeight,
+      );
+    }
+
     if (event.pointerId !== activePointerIdRef.current) {
       return;
     }
@@ -5010,6 +7567,12 @@ export default function App() {
       return;
     }
 
+    if (dragFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+      applyDragCameraUpdate();
+    }
+
     if (scrollContainerRef.current.hasPointerCapture(event.pointerId)) {
       scrollContainerRef.current.releasePointerCapture(event.pointerId);
     }
@@ -5019,12 +7582,334 @@ export default function App() {
     removeWheelCaptureListenerRef.current?.();
     removeWheelCaptureListenerRef.current = null;
 
-    if (dragFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragFrameRef.current);
-      dragFrameRef.current = null;
+    const pointerTravel = Math.hypot(
+      event.clientX - panStateRef.current.startX,
+      event.clientY - panStateRef.current.startY,
+    );
+
+    if (pointerTravel > TIMELINE_BACKGROUND_CLICK_MOVE_THRESHOLD_PX) {
+      blockTimelineArticleDismissClickRef.current = true;
+    } else {
+      tryDismissTimelineArticleOnBackgroundClick(
+        event.target,
+        activeArticleSlug,
+        dismissActiveTimelineArticle,
+        {clientX: event.clientX, clientY: event.clientY},
+      );
     }
 
+    setDesktopCamera(desktopCameraRef.current);
     setIsPanning(false);
+  };
+
+  const getMobileTouchPair = () => Array.from<PointerPoint>(mobileTouchPointsRef.current.values()).slice(0, 2);
+
+  const getTouchDistance = (left: PointerPoint, right: PointerPoint) =>
+    Math.hypot(right.clientX - left.clientX, right.clientY - left.clientY);
+
+  const getTouchMidpoint = (left: PointerPoint, right: PointerPoint) => ({
+    clientX: (left.clientX + right.clientX) / 2,
+    clientY: (left.clientY + right.clientY) / 2,
+  });
+
+  const updateMobilePointerAnchor = (point: PointerPoint, container: HTMLDivElement) => {
+    const rect = container.getBoundingClientRect();
+    mobilePointerOffsetXRef.current = clampNumber(point.clientX - rect.left, 0, container.clientWidth);
+    mobilePointerOffsetYRef.current = clampNumber(point.clientY - rect.top, 0, container.clientHeight);
+  };
+
+  const resetMobileGestureFromRemainingPointers = () => {
+    const points = Array.from<PointerPoint>(mobileTouchPointsRef.current.values());
+
+    if (points.length === 0) {
+      mobileTouchGestureRef.current = null;
+      mobilePointerOffsetXRef.current = null;
+      mobilePointerOffsetYRef.current = null;
+      return;
+    }
+
+    if (points.length === 1) {
+      const point = points[0];
+      mobileTouchGestureRef.current = {
+        distance: 0,
+        lastMidpointX: point.clientX,
+        lastMidpointY: point.clientY,
+        lastX: point.clientX,
+        lastY: point.clientY,
+        startX: point.clientX,
+        startY: point.clientY,
+        type: 'pan',
+      };
+      return;
+    }
+
+    const [left, right] = points;
+    const midpoint = getTouchMidpoint(left, right);
+    mobileTouchGestureRef.current = {
+      distance: Math.max(getTouchDistance(left, right), 1),
+      lastMidpointX: midpoint.clientX,
+      lastMidpointY: midpoint.clientY,
+      lastX: midpoint.clientX,
+      lastY: midpoint.clientY,
+      startX: midpoint.clientX,
+      startY: midpoint.clientY,
+      type: 'pinch',
+    };
+  };
+
+  const applyMobileCameraPanDelta = (deltaX: number, deltaY: number) => {
+    const nextCamera = {
+      x: mobileCameraRef.current.x - deltaX / Math.max(mobileZoomRef.current, 0.001),
+      y: mobileCameraRef.current.y - deltaY / Math.max(mobileZoomRef.current, 0.001),
+    };
+    mobileCameraInterpolationRef.current.target = {
+      camera: nextCamera,
+      zoom: mobileZoomRef.current,
+    };
+    mobileCameraRef.current = nextCamera;
+    applyTimelineWorldTransform(mobileWorldRef.current, nextCamera, mobileZoomRef.current);
+  };
+
+  const handleMobilePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch' || !mobileScrollContainerRef.current) {
+      return;
+    }
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    mobileTouchPointsRef.current.set(event.pointerId, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+    cancelMobileCameraInterpolation();
+    resetMobileGestureFromRemainingPointers();
+    event.preventDefault();
+  };
+
+  const handleMobilePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch' || !mobileScrollContainerRef.current) {
+      return;
+    }
+
+    if (!mobileTouchPointsRef.current.has(event.pointerId)) {
+      return;
+    }
+
+    const container = mobileScrollContainerRef.current;
+    mobileTouchPointsRef.current.set(event.pointerId, {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+
+    const gesture = mobileTouchGestureRef.current;
+    const points = Array.from<PointerPoint>(mobileTouchPointsRef.current.values());
+
+    if (points.length === 1) {
+      const point = points[0];
+      updateMobilePointerAnchor(point, container);
+
+      if (gesture?.type === 'pan') {
+        const deltaX = point.clientX - gesture.lastX;
+        const deltaY = point.clientY - gesture.lastY;
+        applyMobileCameraPanDelta(deltaX, deltaY);
+        gesture.lastX = point.clientX;
+        gesture.lastY = point.clientY;
+      } else {
+        resetMobileGestureFromRemainingPointers();
+      }
+
+      event.preventDefault();
+      return;
+    }
+
+    const [left, right] = getMobileTouchPair();
+
+    if (!left || !right) {
+      return;
+    }
+
+    const midpoint = getTouchMidpoint(left, right);
+    const distance = Math.max(getTouchDistance(left, right), 1);
+    updateMobilePointerAnchor(midpoint, container);
+
+    if (gesture?.type !== 'pinch') {
+      resetMobileGestureFromRemainingPointers();
+      event.preventDefault();
+      return;
+    }
+
+    const deltaX = midpoint.clientX - gesture.lastMidpointX;
+    const deltaY = midpoint.clientY - gesture.lastMidpointY;
+    applyMobileCameraPanDelta(deltaX, deltaY);
+
+    const zoomRatio = clampNumber(distance / Math.max(gesture.distance, 1), 0.78, 1.28);
+    handleMobileZoomChange((current) => current * zoomRatio, {
+      x: mobilePointerOffsetXRef.current ?? container.clientWidth / 2,
+      y: mobilePointerOffsetYRef.current ?? container.clientHeight / 2,
+    });
+
+    gesture.distance = distance;
+    gesture.lastMidpointX = midpoint.clientX;
+    gesture.lastMidpointY = midpoint.clientY;
+    gesture.lastX = midpoint.clientX;
+    gesture.lastY = midpoint.clientY;
+    event.preventDefault();
+  };
+
+  const stopMobilePointerGesture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch') {
+      return;
+    }
+
+    mobileTouchPointsRef.current.delete(event.pointerId);
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    resetMobileGestureFromRemainingPointers();
+    setMobileCamera(mobileCameraRef.current);
+  };
+
+  const isInteractiveTouchTarget = (target: EventTarget | null) =>
+    target instanceof Element &&
+    Boolean(target.closest('button, a, input, label, select, textarea, [data-timeline-pin]'));
+
+  const getTouchPoint = (touch: React.Touch): PointerPoint => ({
+    clientX: touch.clientX,
+    clientY: touch.clientY,
+  });
+
+  const resetMobileTouchGesture = (touches: React.TouchList) => {
+    if (touches.length === 0) {
+      mobileTouchGestureRef.current = null;
+      mobilePointerOffsetXRef.current = null;
+      mobilePointerOffsetYRef.current = null;
+      return;
+    }
+
+    if (touches.length === 1) {
+      const point = getTouchPoint(touches[0]);
+      mobileTouchGestureRef.current = {
+        distance: 0,
+        lastMidpointX: point.clientX,
+        lastMidpointY: point.clientY,
+        lastX: point.clientX,
+        lastY: point.clientY,
+        startX: point.clientX,
+        startY: point.clientY,
+        type: 'pan',
+      };
+      return;
+    }
+
+    const left = getTouchPoint(touches[0]);
+    const right = getTouchPoint(touches[1]);
+    const midpoint = getTouchMidpoint(left, right);
+    mobileTouchGestureRef.current = {
+      distance: Math.max(getTouchDistance(left, right), 1),
+      lastMidpointX: midpoint.clientX,
+      lastMidpointY: midpoint.clientY,
+      lastX: midpoint.clientX,
+      lastY: midpoint.clientY,
+      startX: midpoint.clientX,
+      startY: midpoint.clientY,
+      type: 'pinch',
+    };
+  };
+
+  const handleMobileTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!mobileScrollContainerRef.current || isInteractiveTouchTarget(event.target)) {
+      return;
+    }
+
+    cancelMobileCameraInterpolation();
+    resetMobileTouchGesture(event.touches);
+  };
+
+  const handleMobileTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!mobileScrollContainerRef.current || isInteractiveTouchTarget(event.target)) {
+      return;
+    }
+
+    const container = mobileScrollContainerRef.current;
+    const gesture = mobileTouchGestureRef.current;
+
+    if (!gesture) {
+      resetMobileTouchGesture(event.touches);
+      return;
+    }
+
+    if (event.touches.length === 1) {
+      const point = getTouchPoint(event.touches[0]);
+      updateMobilePointerAnchor(point, container);
+
+      if (gesture.type === 'pan') {
+        const deltaX = point.clientX - gesture.lastX;
+        const deltaY = point.clientY - gesture.lastY;
+        applyMobileCameraPanDelta(deltaX, deltaY);
+        gesture.lastX = point.clientX;
+        gesture.lastY = point.clientY;
+      } else {
+        resetMobileTouchGesture(event.touches);
+      }
+
+      return;
+    }
+
+    if (event.touches.length < 2) {
+      return;
+    }
+
+    const left = getTouchPoint(event.touches[0]);
+    const right = getTouchPoint(event.touches[1]);
+    const midpoint = getTouchMidpoint(left, right);
+    const distance = Math.max(getTouchDistance(left, right), 1);
+    updateMobilePointerAnchor(midpoint, container);
+
+    if (gesture.type !== 'pinch') {
+      resetMobileTouchGesture(event.touches);
+      return;
+    }
+
+    const deltaX = midpoint.clientX - gesture.lastMidpointX;
+    const deltaY = midpoint.clientY - gesture.lastMidpointY;
+    applyMobileCameraPanDelta(deltaX, deltaY);
+
+    const zoomRatio = clampNumber(distance / Math.max(gesture.distance, 1), 0.78, 1.28);
+    handleMobileZoomChange((current) => current * zoomRatio, {
+      x: mobilePointerOffsetXRef.current ?? container.clientWidth / 2,
+      y: mobilePointerOffsetYRef.current ?? container.clientHeight / 2,
+    });
+
+    gesture.distance = distance;
+    gesture.lastMidpointX = midpoint.clientX;
+    gesture.lastMidpointY = midpoint.clientY;
+    gesture.lastX = midpoint.clientX;
+    gesture.lastY = midpoint.clientY;
+  };
+
+  const handleMobileTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    const gesture = mobileTouchGestureRef.current;
+    resetMobileTouchGesture(event.touches);
+    setMobileCamera(mobileCameraRef.current);
+
+    if (!gesture || gesture.type !== 'pan' || event.changedTouches.length === 0) {
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    const travel = Math.hypot(touch.clientX - gesture.startX, touch.clientY - gesture.startY);
+
+    if (travel > TIMELINE_BACKGROUND_CLICK_MOVE_THRESHOLD_PX) {
+      return;
+    }
+
+    tryDismissTimelineArticleOnBackgroundClick(
+      touch.target,
+      activeArticleSlug,
+      dismissActiveTimelineArticle,
+      {clientX: touch.clientX, clientY: touch.clientY},
+    );
   };
 
   if (companies.length === 0) {
@@ -5052,105 +7937,91 @@ export default function App() {
   return (
     <div className="relative isolate min-h-[100dvh] overflow-hidden bg-[var(--page-bg)] text-[var(--ink)] selection:bg-emerald-500/25 selection:text-[var(--ink)]">
       <AuroraBackdrop />
-
-      <motion.div
-        animate={
-          isArticleOpen
-            ? isDesktopViewport
-              ? {opacity: 0.46, scale: 0.94, x: -260}
-              : {opacity: 0, scale: 0.98, x: -48}
-            : {opacity: 1, scale: 1, x: 0}
-        }
-        transition={{duration: 0.42, ease: [0.22, 1, 0.36, 1]}}
-        className={`relative z-10 origin-left ${isArticleOpen && !isDesktopViewport ? 'pointer-events-none' : ''}`}
-        aria-hidden={isArticleOpen && !isDesktopViewport}
-      >
-        <div className="md:hidden">
-          <MobileTimelineExperience
-            activeArticleSlug={activeArticleSlug}
-            boardView={boardView}
-            currentGlobalDay={currentGlobalDay}
-            draggedCompanyId={draggedCompanyId}
-            handleZoomChange={handleMobileZoomChange}
-            hiddenCompanyCount={hiddenCompanyCount}
-            isZoomSliderActive={isZoomSliderActive}
-            latestCompany={latestCompany}
-            minZoom={mobileMinZoom}
-            maxZoom={MOBILE_MAX_ZOOM}
-            maxDays={maxDays}
-            maxSummaryQuietDays={maxSummaryQuietDays}
-            modelExplorer={<ModelClassExplorer {...explorerProps} variant="panel" />}
-            monthTicks={monthTicks}
-            onCompanyDragEnd={() => setDraggedCompanyId(null)}
-            onCompanyDragStart={setDraggedCompanyId}
-            onCompanyHide={hideCompany}
-            onCompanyMove={moveCompany}
-            onCompanyReorder={reorderCompany}
-            onModelSelect={navigateToModelSlug}
-            onShowHiddenCompanies={showHiddenCompanies}
-            onZoomSliderActiveChange={handleZoomSliderActiveChange}
-            processedCompanies={timelineData.processedCompanies}
-            scrollContainerRef={mobileScrollContainerRef}
-            timelineWidth={mobileTimelineWidth}
-            yearTicks={yearTicks}
-            zoom={mobileZoom}
-          />
-        </div>
-
-        <div className="hidden md:block">
-          <DesktopTimelineExperience
-            activeArticleSlug={activeArticleSlug}
-            boardView={boardView}
-            currentGlobalDay={currentGlobalDay}
-            draggedCompanyId={draggedCompanyId}
-            handlePointerDown={handlePointerDown}
-            handlePointerMove={handlePointerMove}
-            handleZoomChange={handleZoomChange}
-            hiddenCompanyCount={hiddenCompanyCount}
-            isPanning={isPanning}
-            isZoomSliderActive={isZoomSliderActive}
-            latestCompany={latestCompany}
-            maxDays={maxDays}
-            minZoom={desktopMinZoom}
-            maxZoom={DESKTOP_MAX_ZOOM}
-            maxSummaryQuietDays={maxSummaryQuietDays}
-            modelExplorer={<ModelClassExplorer {...explorerProps} variant="rail" />}
-            monthTicks={monthTicks}
-            onCompanyDragEnd={() => setDraggedCompanyId(null)}
-            onCompanyDragStart={setDraggedCompanyId}
-            onCompanyHide={hideCompany}
-            onCompanyMove={moveCompany}
-            onCompanyReorder={reorderCompany}
-            onModelSelect={navigateToModelSlug}
-            onShowHiddenCompanies={showHiddenCompanies}
-            onZoomSliderActiveChange={handleZoomSliderActiveChange}
-            processedCompanies={timelineData.processedCompanies}
-            scrollContainerRef={scrollContainerRef}
-            stopPanning={stopPanning}
-            summaryCompanies={summaryCompanies}
-            timelineWidth={timelineWidth}
-            yearTicks={yearTicks}
-            zoom={zoom}
-          />
-        </div>
-      </motion.div>
-
-      <AnimatePresence>
-        {isArticleOpen ? (
-          <motion.button
-            key="article-click-away"
-            type="button"
-            aria-label="Return to timeline"
-            tabIndex={-1}
-            initial={{opacity: 0}}
-            animate={{opacity: 1}}
-            exit={{opacity: 0}}
-            transition={{duration: 0.18, ease: [0.22, 1, 0.36, 1]}}
-            onClick={navigateToTimeline}
-            className="fixed inset-0 z-30 hidden cursor-pointer bg-transparent md:block"
-          />
+      <div className="relative z-10">
+        {!isDesktopViewport ? (
+          <div className="md:hidden">
+            <MobileTimelineExperience
+              activeArticleSlug={activeArticleSlug}
+              boardView={boardView}
+              camera={mobileCamera}
+              currentGlobalDay={currentGlobalDay}
+              handleTouchEnd={handleMobileTouchEnd}
+              handleTouchMove={handleMobileTouchMove}
+              handleTouchStart={handleMobileTouchStart}
+              handleZoomChange={handleMobileZoomChange}
+              hiddenCompanyCount={hiddenCompanyCount}
+              latestCompany={latestCompany}
+              minZoom={mobileMinZoom}
+              maxZoom={MOBILE_MAX_ZOOM}
+              maxDays={mobileMaxDays}
+              maxSummaryQuietDays={maxSummaryQuietDays}
+              modelExplorer={<ModelClassExplorer {...explorerProps} variant="rail" />}
+              monthTicks={mobileMonthTicks}
+              onCompanyHide={hideCompany}
+              onCompanyMove={moveCompany}
+              onDismissArticle={handleTimelineBackgroundDismiss}
+              onModelSelect={navigateToModelSlug}
+              onResetCamera={resetMobileCamera}
+              onShowHiddenCompanies={showHiddenCompanies}
+              onToggleTimelineGrid={toggleTimelineGrid}
+              processedCompanies={timelineData.processedCompanies}
+              renderWindow={mobileReleaseRenderWindow}
+              scrollContainerRef={mobileScrollContainerRef}
+              showTimelineGrid={showTimelineGrid}
+              timelineStartDay={mobileTimelineStartDay}
+              timelineWidth={mobileTimelineWidth}
+              viewport={viewportSizes.mobile}
+              worldRef={mobileWorldRef}
+              yearTicks={mobileYearTicks}
+              zoom={mobileZoom}
+            />
+          </div>
         ) : null}
 
+        {isDesktopViewport ? (
+          <div className="hidden md:block">
+            <DesktopTimelineExperience
+              activeArticleSlug={activeArticleSlug}
+              boardView={boardView}
+              camera={desktopCamera}
+              currentGlobalDay={currentGlobalDay}
+              handlePointerDown={handlePointerDown}
+              handlePointerMove={handlePointerMove}
+              handleZoomChange={handleZoomChange}
+              hiddenCompanyCount={hiddenCompanyCount}
+              isPanning={isPanning}
+              latestCompany={latestCompany}
+              maxDays={maxDays}
+              minZoom={desktopMinZoom}
+              maxZoom={DESKTOP_MAX_ZOOM}
+              maxSummaryQuietDays={maxSummaryQuietDays}
+              modelExplorer={<ModelClassExplorer {...explorerProps} variant="rail" />}
+              monthTicks={monthTicks}
+              onCompanyHide={hideCompany}
+              onCompanyMove={moveCompany}
+              onDismissArticle={handleTimelineBackgroundDismiss}
+              onModelSelect={navigateToModelSlug}
+              onResetCamera={resetDesktopCamera}
+              onShowHiddenCompanies={showHiddenCompanies}
+              onToggleTimelineGrid={toggleTimelineGrid}
+              processedCompanies={timelineData.processedCompanies}
+              renderWindow={desktopReleaseRenderWindow}
+              scrollContainerRef={scrollContainerRef}
+              showTimelineGrid={showTimelineGrid}
+              stopPanning={stopPanning}
+              summaryCompanies={summaryCompanies}
+              timelineStartDay={timelineStartDay}
+              timelineWidth={timelineWidth}
+              viewport={viewportSizes.desktop}
+              worldRef={desktopWorldRef}
+              yearTicks={yearTicks}
+              zoom={zoom}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      <AnimatePresence>
         {isArticleOpen ? (
           <ModelArticlePanel
             entry={activeArticleEntry}

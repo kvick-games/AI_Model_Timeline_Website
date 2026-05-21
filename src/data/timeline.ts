@@ -7,22 +7,38 @@ import type {
   ProductLineRecord,
   ProductMarkerShape,
   ReleaseRecord,
+  TimelineDatePrecision,
   TimelineEventTypeConfig,
   TimelineEventTypeId,
+  TimelineTag,
 } from './types';
 import {companyProfilesById} from './companyProfiles';
 
-export const DEFAULT_PRESET_ID: PresetId = 'frontier-llms';
-export const DEFAULT_SELECTED_PRESET_IDS: PresetId[] = [DEFAULT_PRESET_ID];
+export const DEFAULT_PRESET_ID: PresetId = 'llms';
+export const DEFAULT_SELECTED_PRESET_IDS: PresetId[] = ['llms', 'open-source', 'coding-harnesses'];
 export const DEFAULT_EVENT_TYPE_ID: TimelineEventTypeId = 'model-release';
 
 export const timelineEventTypes: TimelineEventTypeConfig[] = [
+  {
+    id: 'founding',
+    kind: 'event',
+    label: 'Company founded',
+    shortLabel: 'Founded',
+    description: 'The founding or incorporation date for the company behind a tracked product line.',
+  },
   {
     id: 'model-release',
     kind: 'release',
     label: 'Model release',
     shortLabel: 'Release',
     description: 'A named AI model, model family, or model generation release.',
+  },
+  {
+    id: 'coding-harness-release',
+    kind: 'release',
+    label: 'Coding harness release',
+    shortLabel: 'Harness',
+    description: 'A named release of an agentic coding tool, IDE integration, terminal agent, or coding harness.',
   },
   {
     id: 'product-launch',
@@ -85,22 +101,16 @@ export const timelineEventTypesById = timelineEventTypes.reduce<Record<TimelineE
 
 export const modelPresets: PresetConfig[] = [
   {
-    id: 'frontier-llms',
+    id: 'llms',
     classId: 'frontier-llms',
-    label: 'Frontier LLMs',
-    description: 'The default board for OpenAI, Anthropic, Google, and xAI.',
+    label: 'LLMs',
+    description: 'Foundation language and multimodal models from OpenAI, Anthropic, Google, and xAI.',
   },
   {
-    id: 'chinese-open-source',
+    id: 'open-source',
     classId: 'open-source-llms',
-    label: 'Chinese Open Source',
-    description: 'DeepSeek, Qwen, Kimi, and GLM release cadence.',
-  },
-  {
-    id: 'mistral',
-    classId: 'open-source-llms',
-    label: 'Mistral',
-    description: 'Mistral open and commercial model milestones.',
+    label: 'Open source',
+    description: 'Open-weight models from open labs and major releases across language, audio, and creative generation.',
   },
   {
     id: 'image-generation',
@@ -113,6 +123,12 @@ export const modelPresets: PresetConfig[] = [
     classId: 'video-generation',
     label: 'Video Generation',
     description: 'Text-to-video, image-to-video, and filmmaking model releases.',
+  },
+  {
+    id: 'audio-generation',
+    classId: 'audio-generation',
+    label: 'Audio Generation',
+    description: 'Text-to-audio, music, sound-effect, and audio-editing model releases.',
   },
   {
     id: '3d-generation',
@@ -146,18 +162,18 @@ export const modelPresets: PresetConfig[] = [
   },
 ];
 
-export const presetGroups: {label: string; presetIds: PresetId[]}[] = [
+export const filterPresetGroups: {label: string; presetIds: PresetId[]}[] = [
   {
-    label: 'Foundation Models',
-    presetIds: ['frontier-llms', 'chinese-open-source', 'mistral'],
+    label: 'Models & labs',
+    presetIds: ['llms', 'open-source'],
   },
   {
-    label: 'Coding Harnesses',
+    label: 'Creative media',
+    presetIds: ['image-generation', 'video-generation', 'audio-generation', '3d-generation'],
+  },
+  {
+    label: 'Coding tools',
     presetIds: ['coding-harnesses'],
-  },
-  {
-    label: 'Creative Generation',
-    presetIds: ['image-generation', 'video-generation', '3d-generation'],
   },
   {
     label: 'Events',
@@ -169,6 +185,9 @@ export const presetGroups: {label: string; presetIds: PresetId[]}[] = [
   },
 ];
 
+/** @deprecated Use filterPresetGroups */
+export const presetGroups = filterPresetGroups;
+
 function getDefaultMarkerShape(classId: ModelClassId): ProductMarkerShape {
   if (classId === 'coding-harnesses') {
     return 'square';
@@ -179,6 +198,10 @@ function getDefaultMarkerShape(classId: ModelClassId): ProductMarkerShape {
   }
 
   if (classId === 'video-generation') {
+    return 'diamond';
+  }
+
+  if (classId === 'audio-generation') {
     return 'diamond';
   }
 
@@ -224,6 +247,33 @@ function defineProductLine({
   };
 }
 
+function defineCompanyHistoryLine({
+  foundedDate,
+  datePrecision = 'day',
+  name = 'Founded',
+}: {
+  foundedDate: string;
+  datePrecision?: TimelineDatePrecision;
+  name?: string;
+}): ProductLineRecord {
+  return defineProductLine({
+    id: 'company-history',
+    label: 'Company history',
+    shortLabel: 'Founded',
+    classId: 'events',
+    defaultPresets: ['events'],
+    markerShape: 'square',
+    releases: [
+      {
+        name,
+        date: foundedDate,
+        datePrecision,
+        eventType: 'founding',
+      },
+    ],
+  });
+}
+
 function defineCompany({
   profileId,
   productLines,
@@ -260,11 +310,30 @@ export function parseTimelineDate(input: string) {
   return new Date(`${input}T00:00:00Z`);
 }
 
-export function formatTimelineDate(input: string | Date, options: Intl.DateTimeFormatOptions = {month: 'short', day: 'numeric', year: 'numeric'}) {
+export function formatTimelineDate(
+  input: string | Date,
+  options: Intl.DateTimeFormatOptions = {month: 'short', day: 'numeric', year: 'numeric'},
+  precision: TimelineDatePrecision = 'day',
+) {
   const parsedDate = typeof input === 'string' ? parseTimelineDate(input) : input;
 
   if (Number.isNaN(parsedDate.getTime())) {
     return typeof input === 'string' ? input : 'Date unavailable';
+  }
+
+  if (precision === 'year') {
+    return parsedDate.toLocaleDateString('en-US', {
+      timeZone: 'UTC',
+      year: 'numeric',
+    });
+  }
+
+  if (precision === 'month') {
+    return parsedDate.toLocaleDateString('en-US', {
+      timeZone: 'UTC',
+      month: 'short',
+      year: 'numeric',
+    });
   }
 
   return parsedDate.toLocaleDateString('en-US', {
@@ -273,9 +342,14 @@ export function formatTimelineDate(input: string | Date, options: Intl.DateTimeF
   });
 }
 
-export function formatTimelineDateRange(startDate: string, endDate?: string) {
+export function formatTimelineDateRange(
+  startDate: string,
+  endDate?: string,
+  startPrecision: TimelineDatePrecision = 'day',
+  endPrecision: TimelineDatePrecision = 'day',
+) {
   if (!endDate || endDate === startDate) {
-    return formatTimelineDate(startDate);
+    return formatTimelineDate(startDate, undefined, startPrecision);
   }
 
   const start = parseTimelineDate(startDate);
@@ -286,7 +360,11 @@ export function formatTimelineDateRange(startDate: string, endDate?: string) {
   }
 
   if (end.getTime() < start.getTime()) {
-    return `${formatTimelineDate(startDate)} - ${formatTimelineDate(endDate)}`;
+    return `${formatTimelineDate(startDate, undefined, startPrecision)} - ${formatTimelineDate(endDate, undefined, endPrecision)}`;
+  }
+
+  if (startPrecision !== 'day' || endPrecision !== 'day') {
+    return `${formatTimelineDate(start, undefined, startPrecision)} - ${formatTimelineDate(end, undefined, endPrecision)}`;
   }
 
   const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
@@ -335,21 +413,37 @@ export function getReleasePresets(
   return release.presets ?? getProductLinePresets(company, productLine);
 }
 
+export function getProductLineTags(productLine: ProductLineRecord): TimelineTag[] {
+  return productLine.defaultTags ?? [];
+}
+
+export function getReleaseTags(
+  company: CompanyRecord,
+  productLine: ProductLineRecord,
+  release: ReleaseRecord,
+): TimelineTag[] {
+  return release.tags ?? getProductLineTags(productLine);
+}
+
 export const companies: CompanyRecord[] = [
   defineCompany({
     profileId: 'openai',
     productLines: [
+      defineCompanyHistoryLine({
+        foundedDate: '2015-12-11',
+        name: 'OpenAI founded',
+      }),
       defineProductLine({
         id: 'openai-gpt',
         label: 'GPT models',
         shortLabel: 'GPT',
         classId: 'frontier-llms',
-        defaultPresets: ['frontier-llms'],
+        defaultPresets: ['llms'],
         releases: [
           {name: 'GPT-3.5', date: '2022-11-30'},
           {name: 'GPT-4', date: '2023-03-14'},
           {name: 'GPT-4 Turbo', date: '2023-11-06'},
-          {name: 'GPT-4o', date: '2024-05-13', articleSlug: 'gpt-4o'},
+          {name: 'GPT-4o', date: '2024-05-13', articleSlug: 'gpt-4o', tags: ['ai-race-core']},
           {name: 'o1', date: '2024-12-05'},
           {name: 'o3', date: '2025-04-16'},
           {name: 'GPT-5', date: '2025-08-07'},
@@ -393,10 +487,10 @@ export const companies: CompanyRecord[] = [
         defaultPresets: ['coding-harnesses'],
         markerShape: 'square',
         releases: [
-          {name: 'Codex Preview', date: '2025-05-16'},
-          {name: 'GPT-5-Codex', date: '2025-09-15'},
-          {name: 'Codex GA', date: '2025-10-06'},
-          {name: 'GPT-5.2-Codex', date: '2025-12-18'},
+          {name: 'Codex Preview', date: '2025-05-16', eventType: 'coding-harness-release'},
+          {name: 'GPT-5-Codex', date: '2025-09-15', eventType: 'coding-harness-release'},
+          {name: 'Codex GA', date: '2025-10-06', eventType: 'coding-harness-release'},
+          {name: 'GPT-5.2-Codex', date: '2025-12-18', eventType: 'coding-harness-release'},
         ],
       }),
     ],
@@ -404,17 +498,22 @@ export const companies: CompanyRecord[] = [
   defineCompany({
     profileId: 'anthropic',
     productLines: [
+      defineCompanyHistoryLine({
+        foundedDate: '2021-01-01',
+        datePrecision: 'year',
+        name: 'Anthropic founded',
+      }),
       defineProductLine({
         id: 'anthropic-claude',
         label: 'Claude models',
         shortLabel: 'Claude',
         classId: 'frontier-llms',
-        defaultPresets: ['frontier-llms'],
+        defaultPresets: ['llms'],
         releases: [
           {name: 'Claude 1', date: '2023-03-14'},
           {name: 'Claude 2', date: '2023-07-11'},
           {name: 'Claude 3', date: '2024-03-04'},
-          {name: 'Claude 3.5', date: '2024-06-20', articleSlug: 'claude-3-5'},
+          {name: 'Claude 3.5', date: '2024-06-20', articleSlug: 'claude-3-5', tags: ['ai-race-core']},
           {name: 'Claude 3.7', date: '2025-02-24'},
           {name: 'Claude 4', date: '2025-05-22'},
           {name: 'Claude 4.5 Sonnet', date: '2025-09-29'},
@@ -432,8 +531,13 @@ export const companies: CompanyRecord[] = [
         defaultPresets: ['coding-harnesses'],
         markerShape: 'square',
         releases: [
-          {name: 'Claude Code Preview', date: '2025-02-24'},
-          {name: 'Claude Code GA', date: '2025-05-22'},
+          {name: 'Claude Code Preview', date: '2025-02-24', eventType: 'coding-harness-release'},
+          {
+            name: 'Claude Code GA',
+            date: '2025-05-22',
+            eventType: 'coding-harness-release',
+            articleSlug: 'claude-code-ga',
+          },
         ],
       }),
     ],
@@ -441,21 +545,26 @@ export const companies: CompanyRecord[] = [
   defineCompany({
     profileId: 'google',
     productLines: [
+      defineCompanyHistoryLine({
+        foundedDate: '1998-09-04',
+        name: 'Google incorporated',
+      }),
       defineProductLine({
         id: 'google-gemini',
         label: 'Gemini models',
         shortLabel: 'Gemini',
         classId: 'frontier-llms',
-        defaultPresets: ['frontier-llms'],
+        defaultPresets: ['llms'],
         releases: [
           {name: 'Gemini 1.0', date: '2023-12-06'},
           {name: 'Gemini 1.5', date: '2024-02-15'},
           {name: 'Gemini 2.0', date: '2025-02-05'},
-          {name: 'Gemini 2.5', date: '2025-03-25', articleSlug: 'gemini-2-5'},
+          {name: 'Gemini 2.5', date: '2025-03-25', articleSlug: 'gemini-2-5', tags: ['ai-race-core']},
           {name: 'Gemini 3.0 Pro', date: '2025-11-18'},
           {name: 'Gemini 3.1 Pro (Preview)', date: '2026-02-19'},
           {name: 'Gemini 3.1 Flash-Image', date: '2026-02-26'},
           {name: 'Gemini 3.1 Flash-Lite', date: '2026-03-03'},
+          {name: 'Gemini 3.5 Flash', date: '2026-05-19', articleSlug: 'gemini-3-5-flash', tags: ['ai-race-core']},
         ],
       }),
       defineProductLine({
@@ -483,6 +592,21 @@ export const companies: CompanyRecord[] = [
         ],
       }),
       defineProductLine({
+        id: 'google-omni',
+        label: 'Gemini Omni',
+        shortLabel: 'Omni',
+        classId: 'video-generation',
+        defaultPresets: ['video-generation'],
+        releases: [
+          {
+            name: 'Gemini Omni',
+            date: '2026-05-19',
+            eventType: 'model-release',
+            articleSlug: 'gemini-omni-flash',
+          },
+        ],
+      }),
+      defineProductLine({
         id: 'google-coding-tools',
         label: 'Gemini coding tools',
         shortLabel: 'Tools',
@@ -491,7 +615,8 @@ export const companies: CompanyRecord[] = [
         markerShape: 'square',
         releases: [
           {name: 'Gemini CLI', date: '2025-06-25'},
-          {name: 'Antigravity IDE', date: '2025-11-20'},
+          {name: 'Antigravity IDE', date: '2025-11-20', eventType: 'coding-harness-release'},
+          {name: 'Antigravity 2.0', date: '2026-05-19', eventType: 'product-launch', articleSlug: 'antigravity-2-0'},
         ],
       }),
     ],
@@ -504,7 +629,7 @@ export const companies: CompanyRecord[] = [
         label: 'Grok models',
         shortLabel: 'Grok',
         classId: 'frontier-llms',
-        defaultPresets: ['frontier-llms'],
+        defaultPresets: ['llms'],
         releases: [
           {name: 'Grok 1', date: '2023-11-04'},
           {name: 'Grok 1.5', date: '2024-03-28'},
@@ -524,7 +649,7 @@ export const companies: CompanyRecord[] = [
         defaultPresets: ['coding-harnesses'],
         markerShape: 'square',
         releases: [
-          {name: 'Grok Build (Beta)', date: '2026-05-14'},
+          {name: 'Grok Build (Beta)', date: '2026-05-14', eventType: 'coding-harness-release'},
         ],
       }),
     ],
@@ -532,6 +657,10 @@ export const companies: CompanyRecord[] = [
   defineCompany({
     profileId: 'tesla',
     productLines: [
+      defineCompanyHistoryLine({
+        foundedDate: '2003-07-01',
+        name: 'Tesla incorporated',
+      }),
       defineProductLine({
         id: 'tesla-optimus',
         label: 'Optimus',
@@ -566,6 +695,10 @@ export const companies: CompanyRecord[] = [
   defineCompany({
     profileId: 'figure',
     productLines: [
+      defineCompanyHistoryLine({
+        foundedDate: '2022-05-20',
+        name: 'Figure founded',
+      }),
       defineProductLine({
         id: 'figure-humanoids',
         label: 'Figure humanoids',
@@ -591,6 +724,11 @@ export const companies: CompanyRecord[] = [
   defineCompany({
     profileId: 'cursor',
     productLines: [
+      defineCompanyHistoryLine({
+        foundedDate: '2022-01-01',
+        datePrecision: 'year',
+        name: 'Anysphere founded',
+      }),
       defineProductLine({
         id: 'cursor-editor',
         label: 'Cursor editor',
@@ -603,6 +741,8 @@ export const companies: CompanyRecord[] = [
           {name: 'Cursor Tab', date: '2025-01-13'},
           {name: 'Cursor 1.0', date: '2025-06-04'},
           {name: 'Cursor Agent CLI', date: '2025-08-07'},
+          {name: 'Cursor 2.0', date: '2025-10-29'},
+          {name: 'Cursor 3.0', date: '2026-04-02'},
         ],
       }),
       defineProductLine({
@@ -613,10 +753,10 @@ export const companies: CompanyRecord[] = [
         defaultPresets: ['coding-harnesses'],
         markerShape: 'square',
         releases: [
-          {name: 'Composer 1', date: '2025-10-29', articleSlug: 'composer-1'},
-          {name: 'Composer 1.5', date: '2026-02-09', articleSlug: 'composer-1-5'},
-          {name: 'Composer 2', date: '2026-03-19', articleSlug: 'composer-2'},
-          {name: 'Composer 2.5', date: '2026-05-18', articleSlug: 'composer-2-5'},
+          {name: 'Composer 1', date: '2025-10-29', articleSlug: 'composer-1', tags: ['major-release']},
+          {name: 'Composer 1.5', date: '2026-02-09', articleSlug: 'composer-1-5', tags: ['major-release']},
+          {name: 'Composer 2', date: '2026-03-19', articleSlug: 'composer-2', tags: ['ai-race-core']},
+          {name: 'Composer 2.5', date: '2026-05-18', articleSlug: 'composer-2-5', tags: ['ai-race-core']},
         ],
       }),
       defineProductLine({
@@ -632,6 +772,7 @@ export const companies: CompanyRecord[] = [
             date: '2026-04-21',
             eventType: 'partnership',
             articleSlug: 'cursor-spacex-partnership',
+            tags: ['ai-race-core'],
           },
         ],
       }),
@@ -645,12 +786,12 @@ export const companies: CompanyRecord[] = [
         label: 'DeepSeek models',
         shortLabel: 'DeepSeek',
         classId: 'open-source-llms',
-        defaultPresets: ['chinese-open-source'],
+        defaultPresets: ['open-source'],
         releases: [
           {name: 'DeepSeek-V2', date: '2024-05-06'},
           {name: 'DeepSeek-V2.5', date: '2024-09-05'},
           {name: 'DeepSeek-V3', date: '2024-12-26'},
-          {name: 'DeepSeek-R1', date: '2025-01-20', articleSlug: 'deepseek-r1'},
+          {name: 'DeepSeek-R1', date: '2025-01-20', articleSlug: 'deepseek-r1', tags: ['ai-race-core']},
           {name: 'DeepSeek-R1-0528', date: '2025-05-28'},
           {name: 'DeepSeek-V3.1', date: '2025-08-21'},
         ],
@@ -665,7 +806,7 @@ export const companies: CompanyRecord[] = [
         label: 'Qwen models',
         shortLabel: 'Qwen',
         classId: 'open-source-llms',
-        defaultPresets: ['chinese-open-source'],
+        defaultPresets: ['open-source'],
         releases: [
           {name: 'Qwen2', date: '2024-06-07'},
           {name: 'Qwen2.5', date: '2024-09-19'},
@@ -685,7 +826,7 @@ export const companies: CompanyRecord[] = [
         label: 'Kimi models',
         shortLabel: 'Kimi',
         classId: 'open-source-llms',
-        defaultPresets: ['chinese-open-source'],
+        defaultPresets: ['open-source'],
         releases: [
           {name: 'Kimi Chat', date: '2023-10-09'},
           {name: 'Kimi k1.5', date: '2025-01-20'},
@@ -702,7 +843,7 @@ export const companies: CompanyRecord[] = [
         label: 'GLM models',
         shortLabel: 'GLM',
         classId: 'open-source-llms',
-        defaultPresets: ['chinese-open-source'],
+        defaultPresets: ['open-source'],
         releases: [
           {name: 'GLM-4', date: '2024-01-16'},
           {name: 'GLM-4-9B', date: '2024-06-05'},
@@ -719,7 +860,7 @@ export const companies: CompanyRecord[] = [
         label: 'Mistral models',
         shortLabel: 'Mistral',
         classId: 'open-source-llms',
-        defaultPresets: ['mistral'],
+        defaultPresets: ['open-source'],
         releases: [
           {name: 'Mistral 7B', date: '2023-09-27'},
           {name: 'Mixtral 8x7B', date: '2023-12-11'},
@@ -777,6 +918,16 @@ export const companies: CompanyRecord[] = [
         releases: [
           {name: 'Stable Video Diffusion', date: '2023-11-21'},
           {name: 'Stable Video 4D', date: '2024-07-24'},
+        ],
+      }),
+      defineProductLine({
+        id: 'stability-audio',
+        label: 'Audio models',
+        shortLabel: 'Audio',
+        classId: 'audio-generation',
+        defaultPresets: ['open-source', 'audio-generation'],
+        releases: [
+          {name: 'Stable Audio 3.0', date: '2026-05-20', tags: ['major-release']},
         ],
       }),
       defineProductLine({
