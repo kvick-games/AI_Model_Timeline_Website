@@ -13,6 +13,7 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'zhipu-glm', name: 'Zhipu AI', accent: '#c78f38', raceRank: 10},
   {id: 'tesla', name: 'Tesla', accent: '#b92f3a', logoMark: 'tesla', raceRank: 20},
   {id: 'figure', name: 'Figure', accent: '#8d95a8', logoMark: 'figure', raceRank: 21},
+  {id: 'waymo', name: 'Waymo', accent: '#19a87d', raceRank: 22},
   {id: 'midjourney', name: 'Midjourney', accent: '#c0537a', raceRank: 30},
   {id: 'stability-ai', name: 'Stability AI', accent: '#6b8e4e', raceRank: 31},
   {id: 'black-forest-labs', name: 'Black Forest Labs', accent: '#7b6bd6', raceRank: 32},
