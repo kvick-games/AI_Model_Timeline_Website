@@ -15,7 +15,7 @@ import type {
 import {companyProfilesById} from './companyProfiles';
 
 export const DEFAULT_PRESET_ID: PresetId = 'llms';
-export const DEFAULT_SELECTED_PRESET_IDS: PresetId[] = ['llms', 'open-source', 'coding-harnesses'];
+export const DEFAULT_SELECTED_PRESET_IDS: PresetId[] = ['llms'];
 export const DEFAULT_EVENT_TYPE_ID: TimelineEventTypeId = 'model-release';
 
 export const timelineEventTypes: TimelineEventTypeConfig[] = [
@@ -104,7 +104,7 @@ export const modelPresets: PresetConfig[] = [
     id: 'llms',
     classId: 'frontier-llms',
     label: 'LLMs',
-    description: 'Foundation language and multimodal models from OpenAI, Anthropic, Google, and xAI.',
+    description: 'Foundation language and multimodal models across frontier and open-weight labs.',
   },
   {
     id: 'open-source',
@@ -786,7 +786,7 @@ export const companies: CompanyRecord[] = [
         label: 'DeepSeek models',
         shortLabel: 'DeepSeek',
         classId: 'open-source-llms',
-        defaultPresets: ['open-source'],
+        defaultPresets: ['llms', 'open-source'],
         releases: [
           {name: 'DeepSeek-V2', date: '2024-05-06'},
           {name: 'DeepSeek-V2.5', date: '2024-09-05'},
@@ -806,7 +806,7 @@ export const companies: CompanyRecord[] = [
         label: 'Qwen models',
         shortLabel: 'Qwen',
         classId: 'open-source-llms',
-        defaultPresets: ['open-source'],
+        defaultPresets: ['llms', 'open-source'],
         releases: [
           {name: 'Qwen2', date: '2024-06-07'},
           {name: 'Qwen2.5', date: '2024-09-19'},
@@ -826,7 +826,7 @@ export const companies: CompanyRecord[] = [
         label: 'Kimi models',
         shortLabel: 'Kimi',
         classId: 'open-source-llms',
-        defaultPresets: ['open-source'],
+        defaultPresets: ['llms', 'open-source'],
         releases: [
           {name: 'Kimi Chat', date: '2023-10-09'},
           {name: 'Kimi k1.5', date: '2025-01-20'},
@@ -843,7 +843,7 @@ export const companies: CompanyRecord[] = [
         label: 'GLM models',
         shortLabel: 'GLM',
         classId: 'open-source-llms',
-        defaultPresets: ['open-source'],
+        defaultPresets: ['llms', 'open-source'],
         releases: [
           {name: 'GLM-4', date: '2024-01-16'},
           {name: 'GLM-4-9B', date: '2024-06-05'},
@@ -860,7 +860,7 @@ export const companies: CompanyRecord[] = [
         label: 'Mistral models',
         shortLabel: 'Mistral',
         classId: 'open-source-llms',
-        defaultPresets: ['open-source'],
+        defaultPresets: ['llms', 'open-source'],
         releases: [
           {name: 'Mistral 7B', date: '2023-09-27'},
           {name: 'Mixtral 8x7B', date: '2023-12-11'},

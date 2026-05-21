@@ -628,11 +628,11 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
 
   if (isDefaultFilters) {
     return {
-      description: 'Foundation models, open-weight labs, and coding harness releases on the timeline.',
-      isComposite: true,
+      description: 'Foundation language and multimodal models across frontier and open-weight labs.',
+      isComposite: false,
       isDefault: true,
       isEmpty: false,
-      label: 'LLMs · open source · coding',
+      label: 'LLMs',
     };
   }
 
@@ -2093,35 +2093,70 @@ function TimelineFilterSortPanel({
           transition={{duration: 0.34, ease: [0.16, 1, 0.3, 1]}}
           className="max-h-[min(620px,calc(100dvh-18rem))] overflow-y-auto px-3 py-3"
         >
-          <div className="space-y-3">
-            {filterPresetGroups.map((group) => (
-              <div key={group.label}>
-                <p className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">{group.label}</p>
-                <div className="space-y-1.5">
-                  {group.presetIds.map((presetId) => {
-                    const preset = modelPresets.find((candidate) => candidate.id === presetId);
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_13rem] md:items-start">
+            <div className="space-y-3">
+              {filterPresetGroups.map((group) => (
+                <div key={group.label}>
+                  <p className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">{group.label}</p>
+                  <div className="space-y-1.5">
+                    {group.presetIds.map((presetId) => {
+                      const preset = modelPresets.find((candidate) => candidate.id === presetId);
 
-                    if (!preset) {
-                      return null;
-                    }
+                      if (!preset) {
+                        return null;
+                      }
 
-                    const stats = presetStats[preset.id];
+                      const stats = presetStats[preset.id];
 
-                    return renderToggleButton({
-                      buttonKey: preset.id,
-                      description: preset.label,
-                      icon: <ModelClassIcon classId={preset.classId} className="h-4 w-4 shrink-0 text-[var(--ink)]" />,
-                      isSelected: selectedPresetIds.includes(preset.id),
-                      meta: `${stats.providerCount}c / ${stats.releaseCount}r`,
-                      onClick: () => onPresetToggle(preset.id),
-                      title: preset.description,
-                    });
-                  })}
+                      return renderToggleButton({
+                        buttonKey: preset.id,
+                        description: preset.label,
+                        icon: <ModelClassIcon classId={preset.classId} className="h-4 w-4 shrink-0 text-[var(--ink)]" />,
+                        isSelected: selectedPresetIds.includes(preset.id),
+                        meta: `${stats.providerCount}c / ${stats.releaseCount}r`,
+                        onClick: () => onPresetToggle(preset.id),
+                        title: preset.description,
+                      });
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
-            <div className="border-t border-[var(--edge)] pt-3">
+              <div className="grid grid-cols-3 gap-1.5 border-t border-[var(--edge)] pt-3 md:border-t-0 md:pt-0">
+                <button
+                  type="button"
+                  disabled={!isOpen}
+                  onClick={onSelectAll}
+                  title="Select all category filters"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] px-2 text-[11px] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+                >
+                  <Layers3 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                  All
+                </button>
+                <button
+                  type="button"
+                  disabled={!isOpen}
+                  onClick={onClearAll}
+                  title="Clear filters"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] px-2 text-[11px] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+                >
+                  <X className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  disabled={!isOpen}
+                  onClick={onReset}
+                  title="Reset filters and sort"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] px-2 text-[11px] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
+                >
+                  <RotateCcw className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--edge)] pt-3 md:border-l md:border-t-0 md:py-1 md:pl-3">
               <p className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Sorting settings</p>
               <div className="grid grid-cols-1 gap-1.5">
                 {sortOptions.map((option) => {
@@ -2151,7 +2186,7 @@ function TimelineFilterSortPanel({
               </div>
 
               <p className="mb-1.5 mt-3 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Displayed rows</p>
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-4 gap-1.5 md:grid-cols-2">
                 {SIGNIFICANCE_DISPLAY_LIMITS.map((limit) => {
                   const isActive = significanceDisplayLimit === limit;
                   const label = limit === 'all' ? 'All' : String(limit);
@@ -2174,39 +2209,6 @@ function TimelineFilterSortPanel({
                 })}
               </div>
             </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-3 gap-1.5">
-            <button
-              type="button"
-              disabled={!isOpen}
-              onClick={onSelectAll}
-              title="Select all category filters"
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] px-2 text-[11px] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
-            >
-              <Layers3 className="h-3.5 w-3.5" strokeWidth={1.8} />
-              All
-            </button>
-            <button
-              type="button"
-              disabled={!isOpen}
-              onClick={onClearAll}
-              title="Clear filters"
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] px-2 text-[11px] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
-            >
-              <X className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
-              Clear
-            </button>
-            <button
-              type="button"
-              disabled={!isOpen}
-              onClick={onReset}
-              title="Reset filters and sort"
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-[var(--edge)] px-2 text-[11px] font-medium text-[var(--ink-soft)] transition duration-300 hover:border-[var(--edge-strong)] hover:bg-[var(--surface)] active:scale-[0.98]"
-            >
-              <RotateCcw className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
-              Reset
-            </button>
           </div>
         </motion.div>
       </div>
@@ -5758,7 +5760,7 @@ function DesktopTimelineExperience({
 
   return (
     <section className="relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden">
-      <div className="absolute left-5 top-5 z-40 [--category-expanded-width:286px]">
+      <div className="absolute left-5 top-5 z-40 [--category-expanded-width:34rem]">
         {modelExplorer}
       </div>
 
