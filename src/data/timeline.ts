@@ -829,6 +829,8 @@ export const companies: CompanyRecord[] = [
           {name: 'DeepSeek-R1', date: '2025-01-20', articleSlug: 'deepseek-r1', tags: ['ai-race-core']},
           {name: 'DeepSeek-R1-0528', date: '2025-05-28'},
           {name: 'DeepSeek-V3.1', date: '2025-08-21'},
+          {name: 'DeepSeek-V4-Flash', date: '2026-04-24', articleSlug: 'deepseek-v4-flash', tags: ['major-release']},
+          {name: 'DeepSeek-V4-Pro', date: '2026-04-24', articleSlug: 'deepseek-v4-pro', tags: ['ai-race-core']},
         ],
       }),
     ],
