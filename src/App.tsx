@@ -30,9 +30,6 @@ import {
 import {AnimatePresence, motion} from 'motion/react';
 import {
   companies,
-  DEFAULT_PRESET_ID,
-  DEFAULT_SELECTED_PRESET_IDS,
-  filterPresetGroups,
   formatTimelineDate,
   formatTimelineDateRange,
   getReleaseEventType,
@@ -68,9 +65,71 @@ type BoardView = {
 
 type CompanySortMode = 'significance' | 'latest' | 'alphabetical';
 type SignificanceDisplayLimit = 5 | 10 | 20 | 'all';
+type TimelineDomainId = Exclude<PresetId, 'open-source' | 'events'>;
+type TimelineAttributeId = 'open-source';
+type TimelineContentType = 'all' | 'events' | 'releases';
+
+type TimelineFilterState = {
+  attributeIds: TimelineAttributeId[];
+  companyIds: string[];
+  contentType: TimelineContentType;
+  domainIds: TimelineDomainId[];
+};
+
+type FacetStats = Record<string, {providerCount: number; releaseCount: number}>;
+type CompanyFilterOption = {
+  id: string;
+  name: string;
+  releaseCount: number;
+};
 
 const DEFAULT_SIGNIFICANCE_DISPLAY_LIMIT: SignificanceDisplayLimit = 5;
 const SIGNIFICANCE_DISPLAY_LIMITS: SignificanceDisplayLimit[] = [5, 10, 20, 'all'];
+const DEFAULT_COMPANY_SORT_MODE: CompanySortMode = 'significance';
+const DOMAIN_FILTER_GROUPS: {label: string; domainIds: TimelineDomainId[]}[] = [
+  {
+    label: 'Models',
+    domainIds: ['llms'],
+  },
+  {
+    label: 'Creative media',
+    domainIds: ['image-generation', 'video-generation', 'audio-generation', '3d-generation'],
+  },
+  {
+    label: 'Coding tools',
+    domainIds: ['coding-harnesses'],
+  },
+  {
+    label: 'Embodied AI',
+    domainIds: ['robotics', 'vehicle-autonomy'],
+  },
+];
+const DOMAIN_FILTER_IDS = DOMAIN_FILTER_GROUPS.flatMap((group) => group.domainIds);
+const DOMAIN_FILTER_ID_SET = new Set<PresetId>(DOMAIN_FILTER_IDS);
+const ATTRIBUTE_FILTER_IDS: TimelineAttributeId[] = ['open-source'];
+const DEFAULT_TIMELINE_FILTER_STATE: TimelineFilterState = {
+  attributeIds: [],
+  companyIds: [],
+  contentType: 'all',
+  domainIds: ['llms'],
+};
+const CONTENT_TYPE_OPTIONS: {description: string; id: TimelineContentType; label: string}[] = [
+  {
+    id: 'all',
+    label: 'All',
+    description: 'Show releases and milestone events inside the selected domains.',
+  },
+  {
+    id: 'events',
+    label: 'Events',
+    description: 'Show demos, deployments, announcements, partnerships, livestreams, founding milestones, and launches.',
+  },
+  {
+    id: 'releases',
+    label: 'Releases',
+    description: 'Show model, research, and coding-harness releases only.',
+  },
+];
 
 function setsMatch<T>(left: T[], right: T[]) {
   if (left.length !== right.length) {
@@ -79,6 +138,73 @@ function setsMatch<T>(left: T[], right: T[]) {
 
   const rightSet = new Set(right);
   return left.every((value) => rightSet.has(value));
+}
+
+function uniqueOrdered<T>(items: T[], allowedItems: readonly T[]) {
+  const itemSet = new Set(items);
+  return allowedItems.filter((item) => itemSet.has(item));
+}
+
+function createDefaultTimelineFilterState(): TimelineFilterState {
+  return {
+    attributeIds: [...DEFAULT_TIMELINE_FILTER_STATE.attributeIds],
+    companyIds: [...DEFAULT_TIMELINE_FILTER_STATE.companyIds],
+    contentType: DEFAULT_TIMELINE_FILTER_STATE.contentType,
+    domainIds: [...DEFAULT_TIMELINE_FILTER_STATE.domainIds],
+  };
+}
+
+function normalizeTimelineFilterState(filterState: TimelineFilterState): TimelineFilterState {
+  const knownCompanyIds = companies.map((company) => company.id);
+
+  return {
+    attributeIds: uniqueOrdered(filterState.attributeIds, ATTRIBUTE_FILTER_IDS),
+    companyIds: uniqueOrdered(filterState.companyIds, knownCompanyIds),
+    contentType: CONTENT_TYPE_OPTIONS.some((option) => option.id === filterState.contentType) ? filterState.contentType : 'all',
+    domainIds: uniqueOrdered(filterState.domainIds, DOMAIN_FILTER_IDS),
+  };
+}
+
+function timelineFilterStatesMatch(left: TimelineFilterState, right: TimelineFilterState) {
+  return (
+    left.contentType === right.contentType &&
+    setsMatch(left.attributeIds, right.attributeIds) &&
+    setsMatch(left.companyIds, right.companyIds) &&
+    setsMatch(left.domainIds, right.domainIds)
+  );
+}
+
+function getPresetConfig(presetId: PresetId) {
+  return modelPresets.find((preset) => preset.id === presetId);
+}
+
+function getPresetLabel(presetId: PresetId) {
+  return getPresetConfig(presetId)?.label ?? presetId;
+}
+
+function getPresetDescription(presetId: PresetId) {
+  return getPresetConfig(presetId)?.description ?? presetId;
+}
+
+function isTimelineDomainId(presetId: PresetId): presetId is TimelineDomainId {
+  return DOMAIN_FILTER_ID_SET.has(presetId);
+}
+
+function getReleaseDomainIds(presetIds: PresetId[]): TimelineDomainId[] {
+  return uniqueOrdered(presetIds.filter(isTimelineDomainId), DOMAIN_FILTER_IDS);
+}
+
+function serializeIdList(ids: string[]) {
+  return ids.join(',');
+}
+
+function parseIdList<T extends string>(value: string | null, allowedIds: readonly T[]) {
+  if (!value) {
+    return [];
+  }
+
+  const requestedIds = value.split(',').map((item) => item.trim()).filter(Boolean) as T[];
+  return uniqueOrdered(requestedIds, allowedIds);
 }
 
 function getCompanyLatestReleaseTimestamp(company: CompanyRecord) {
@@ -439,20 +565,109 @@ type AppRoute = {
   slug: string;
 };
 
-function parseAppRoute(hash: string): AppRoute {
+function getHashParts(hash: string) {
   const normalizedHash = hash.replace(/^#\/?/, '');
+  const queryStart = normalizedHash.indexOf('?');
+  const path = queryStart >= 0 ? normalizedHash.slice(0, queryStart) : normalizedHash;
+  const query = queryStart >= 0 ? normalizedHash.slice(queryStart + 1) : '';
 
-  if (!normalizedHash) {
+  return {
+    params: new URLSearchParams(query),
+    path,
+  };
+}
+
+function parseAppRoute(hash: string): AppRoute {
+  const {path} = getHashParts(hash);
+
+  if (!path) {
     return {kind: 'timeline'};
   }
 
-  const modelMatch = normalizedHash.match(/^(?:models|events)\/([^/?#]+)$/);
+  const modelMatch = path.match(/^(?:models|events)\/([^/?#]+)$/);
 
   if (modelMatch) {
     return {kind: 'model', slug: decodeURIComponent(modelMatch[1])};
   }
 
   return {kind: 'timeline'};
+}
+
+function parseTimelineFilterState(hash: string): TimelineFilterState {
+  const {params} = getHashParts(hash);
+  const contentType = params.get('ct');
+  const defaultFilterState = createDefaultTimelineFilterState();
+
+  return normalizeTimelineFilterState({
+    attributeIds: parseIdList(params.get('a'), ATTRIBUTE_FILTER_IDS),
+    companyIds: parseIdList(params.get('co'), companies.map((company) => company.id)),
+    contentType: CONTENT_TYPE_OPTIONS.some((option) => option.id === contentType) ? (contentType as TimelineContentType) : 'all',
+    domainIds: params.has('d') ? parseIdList(params.get('d'), DOMAIN_FILTER_IDS) : defaultFilterState.domainIds,
+  });
+}
+
+function parseCompanySortMode(hash: string): CompanySortMode {
+  const sortMode = getHashParts(hash).params.get('sort');
+  return sortMode === 'latest' || sortMode === 'alphabetical' || sortMode === 'significance'
+    ? sortMode
+    : DEFAULT_COMPANY_SORT_MODE;
+}
+
+function parseSignificanceDisplayLimit(hash: string): SignificanceDisplayLimit {
+  const rows = getHashParts(hash).params.get('rows');
+
+  if (rows === 'all') {
+    return 'all';
+  }
+
+  const parsedRows = Number.parseInt(rows ?? '', 10);
+  return SIGNIFICANCE_DISPLAY_LIMITS.includes(parsedRows as SignificanceDisplayLimit)
+    ? (parsedRows as SignificanceDisplayLimit)
+    : DEFAULT_SIGNIFICANCE_DISPLAY_LIMIT;
+}
+
+function serializeAppHash({
+  companySortMode,
+  filterState,
+  route,
+  significanceDisplayLimit,
+}: {
+  companySortMode: CompanySortMode;
+  filterState: TimelineFilterState;
+  route: AppRoute;
+  significanceDisplayLimit: SignificanceDisplayLimit;
+}) {
+  const normalizedFilterState = normalizeTimelineFilterState(filterState);
+  const defaultFilterState = createDefaultTimelineFilterState();
+  const params = new URLSearchParams();
+
+  if (!setsMatch(normalizedFilterState.domainIds, defaultFilterState.domainIds)) {
+    params.set('d', serializeIdList(normalizedFilterState.domainIds));
+  }
+
+  if (normalizedFilterState.attributeIds.length > 0) {
+    params.set('a', serializeIdList(normalizedFilterState.attributeIds));
+  }
+
+  if (normalizedFilterState.contentType !== defaultFilterState.contentType) {
+    params.set('ct', normalizedFilterState.contentType);
+  }
+
+  if (normalizedFilterState.companyIds.length > 0) {
+    params.set('co', serializeIdList(normalizedFilterState.companyIds));
+  }
+
+  if (companySortMode !== DEFAULT_COMPANY_SORT_MODE) {
+    params.set('sort', companySortMode);
+  }
+
+  if (significanceDisplayLimit !== DEFAULT_SIGNIFICANCE_DISPLAY_LIMIT) {
+    params.set('rows', String(significanceDisplayLimit));
+  }
+
+  const path = route.kind === 'model' ? `/models/${encodeURIComponent(route.slug)}` : '/';
+  const query = params.toString().replaceAll('%2C', ',');
+  return `#${path}${query ? `?${query}` : ''}`;
 }
 
 function getCurrentAppRoute(): AppRoute {
@@ -463,12 +678,28 @@ function getCurrentAppRoute(): AppRoute {
   return parseAppRoute(window.location.hash);
 }
 
-function navigateToTimeline() {
+function getCurrentTimelineFilterState(): TimelineFilterState {
   if (typeof window === 'undefined') {
-    return;
+    return createDefaultTimelineFilterState();
   }
 
-  window.location.hash = '#/';
+  return parseTimelineFilterState(window.location.hash);
+}
+
+function getCurrentCompanySortMode() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_COMPANY_SORT_MODE;
+  }
+
+  return parseCompanySortMode(window.location.hash);
+}
+
+function getCurrentSignificanceDisplayLimit() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_SIGNIFICANCE_DISPLAY_LIMIT;
+  }
+
+  return parseSignificanceDisplayLimit(window.location.hash);
 }
 
 function isTimelineBackgroundPointerTarget(target: EventTarget): boolean {
@@ -612,11 +843,12 @@ function getReleasePresets(
   return release.presets ?? getProductLinePresets(company, productLine);
 }
 
-function getBoardView(selectedPresetIds: PresetId[]): BoardView {
-  const selectedPresets = modelPresets.filter((preset) => selectedPresetIds.includes(preset.id));
-  const isDefaultFilters = setsMatch(selectedPresetIds, DEFAULT_SELECTED_PRESET_IDS);
+function getBoardView(filterState: TimelineFilterState): BoardView {
+  const normalizedFilterState = normalizeTimelineFilterState(filterState);
+  const selectedDomains = DOMAIN_FILTER_IDS.filter((domainId) => normalizedFilterState.domainIds.includes(domainId));
+  const isDefaultFilters = timelineFilterStatesMatch(normalizedFilterState, createDefaultTimelineFilterState());
 
-  if (selectedPresets.length === 0) {
+  if (selectedDomains.length === 0) {
     return {
       description: 'No product lines are currently selected.',
       isComposite: true,
@@ -636,75 +868,127 @@ function getBoardView(selectedPresetIds: PresetId[]): BoardView {
     };
   }
 
-  if (selectedPresets.length === 1) {
-    const preset = selectedPresets[0];
+  const domainLabel =
+    selectedDomains.length === DOMAIN_FILTER_IDS.length
+      ? 'All domains'
+      : selectedDomains.length === 1
+        ? getPresetLabel(selectedDomains[0])
+        : `${selectedDomains.length} domains`;
+  const labelParts = [domainLabel];
 
-    return {
-      description: preset.description,
-      isComposite: false,
-      isDefault: false,
-      isEmpty: false,
-      label: preset.label,
-    };
+  if (normalizedFilterState.attributeIds.includes('open-source')) {
+    labelParts.push('Open source');
   }
 
-  if (selectedPresets.length === modelPresets.length) {
-    return {
-      description: 'Every tracked model, coding, creative-media, events, robotics, and vehicle-autonomy line is visible.',
-      isComposite: true,
-      isDefault: false,
-      isEmpty: false,
-      label: 'All lines selected',
-    };
+  if (normalizedFilterState.contentType === 'events') {
+    labelParts.push('Events');
+  } else if (normalizedFilterState.contentType === 'releases') {
+    labelParts.push('Releases');
+  }
+
+  if (normalizedFilterState.companyIds.length > 0) {
+    labelParts.push(`${normalizedFilterState.companyIds.length} companies`);
   }
 
   return {
-    description: selectedPresets.map((preset) => preset.label).join(', '),
-    isComposite: true,
+    description: labelParts.join(', '),
+    isComposite: labelParts.length > 1 || selectedDomains.length > 1,
     isDefault: false,
     isEmpty: false,
-    label: `${selectedPresets.length} lines selected`,
+    label: labelParts.join(' · '),
   };
+}
+
+function releaseMatchesContentType(release: ReleaseRecord, contentType: TimelineContentType) {
+  if (contentType === 'all') {
+    return true;
+  }
+
+  const eventType = getReleaseEventType(release);
+  const isMilestoneEvent = eventType.kind === 'event' || eventType.id === 'product-launch';
+
+  return contentType === 'events' ? isMilestoneEvent : !isMilestoneEvent;
+}
+
+function releaseMatchesTimelineFilter(
+  company: CompanyRecord,
+  productLine: ProductLineRecord,
+  release: ReleaseRecord,
+  filterState: TimelineFilterState,
+) {
+  const releasePresets = getReleasePresets(company, productLine, release);
+  const domainMatches = filterState.domainIds.some((domainId) => releasePresets.includes(domainId));
+  const attributeMatches =
+    filterState.attributeIds.length === 0 ||
+    filterState.attributeIds.some((attributeId) => releasePresets.includes(attributeId));
+
+  return domainMatches && attributeMatches && releaseMatchesContentType(release, filterState.contentType);
 }
 
 function getVisibleCompanies(
   data: CompanyRecord[],
-  selectedPresetIds: PresetId[],
+  filterState: TimelineFilterState,
+  options: {ignoreCompanyFilter?: boolean} = {},
 ) {
-  if (selectedPresetIds.length === 0) {
+  const normalizedFilterState = normalizeTimelineFilterState(filterState);
+  const selectedCompanyIdSet = new Set(normalizedFilterState.companyIds);
+
+  if (normalizedFilterState.domainIds.length === 0) {
     return [];
   }
 
   return data
+    .filter((company) => options.ignoreCompanyFilter || selectedCompanyIdSet.size === 0 || selectedCompanyIdSet.has(company.id))
     .map<CompanyRecord>((company) => ({
       ...company,
       productLines: company.productLines
         .map<ProductLineRecord>((productLine) => ({
           ...productLine,
-          releases: productLine.releases.filter((release) => {
-            const releasePresets = getReleasePresets(company, productLine, release);
-            return selectedPresetIds.some((presetId) => releasePresets.includes(presetId));
-          }),
+          releases: productLine.releases.filter((release) =>
+            releaseMatchesTimelineFilter(company, productLine, release, normalizedFilterState),
+          ),
         }))
         .filter((productLine) => productLine.releases.length > 0),
     }))
     .filter((company) => company.productLines.length > 0);
 }
 
-function buildPresetStats(data: CompanyRecord[]) {
-  return modelPresets.reduce<Record<PresetId, {providerCount: number; releaseCount: number}>>((stats, preset) => {
-    const visibleCompanies = getVisibleCompanies(data, [preset.id]);
+function summarizeCompanyCollection(data: CompanyRecord[]) {
+  return {
+    providerCount: data.length,
+    releaseCount: data.reduce(
+      (sum, company) => sum + company.productLines.reduce((lineSum, productLine) => lineSum + productLine.releases.length, 0),
+      0,
+    ),
+  };
+}
 
-    stats[preset.id] = {
-      providerCount: visibleCompanies.length,
-      releaseCount: visibleCompanies.reduce(
-        (sum, company) => sum + company.productLines.reduce((lineSum, productLine) => lineSum + productLine.releases.length, 0),
-        0,
-      ),
-    };
+function buildDomainStats(data: CompanyRecord[], filterState: TimelineFilterState) {
+  return DOMAIN_FILTER_IDS.reduce<FacetStats>((stats, domainId) => {
+    stats[domainId] = summarizeCompanyCollection(
+      getVisibleCompanies(data, {...filterState, companyIds: [], domainIds: [domainId]}, {ignoreCompanyFilter: true}),
+    );
 
     return stats;
-  }, {} as Record<PresetId, {providerCount: number; releaseCount: number}>);
+  }, {});
+}
+
+function buildAttributeStats(data: CompanyRecord[], filterState: TimelineFilterState) {
+  return ATTRIBUTE_FILTER_IDS.reduce<FacetStats>((stats, attributeId) => {
+    stats[attributeId] = summarizeCompanyCollection(
+      getVisibleCompanies(data, {...filterState, attributeIds: [attributeId], companyIds: []}, {ignoreCompanyFilter: true}),
+    );
+
+    return stats;
+  }, {});
+}
+
+function getRelevantCompanyOptions(data: CompanyRecord[], filterState: TimelineFilterState): CompanyFilterOption[] {
+  return getVisibleCompanies(data, {...filterState, companyIds: []}, {ignoreCompanyFilter: true}).map((company) => ({
+    id: company.id,
+    name: company.name,
+    releaseCount: company.productLines.reduce((sum, productLine) => sum + productLine.releases.length, 0),
+  }));
 }
 
 function getPrimaryCompanyClass(company: Pick<CompanyRecord, 'defaultClasses' | 'productLines'>): ModelClassId {
@@ -1949,19 +2233,25 @@ function ModelClassIcon({classId, className}: {classId: ModelClassId; className?
 }
 
 type TimelineFilterSortPanelProps = {
+  attributeStats: FacetStats;
   boardView: BoardView;
   className?: string;
   companySortMode: CompanySortMode;
+  companyOptions: CompanyFilterOption[];
+  domainStats: FacetStats;
+  filterState: TimelineFilterState;
   isOpen: boolean;
+  onAttributeToggle: (attributeId: TimelineAttributeId) => void;
   onClearAll: () => void;
+  onClearCompanyFilter: () => void;
+  onCompanyToggle: (companyId: string) => void;
   onCompanySortModeChange: (sortMode: CompanySortMode) => void;
-  onPresetToggle: (presetId: PresetId) => void;
+  onContentTypeChange: (contentType: TimelineContentType) => void;
+  onDomainToggle: (domainId: TimelineDomainId) => void;
   onReset: () => void;
   onSelectAll: () => void;
   onSignificanceDisplayLimitChange: (limit: SignificanceDisplayLimit) => void;
   onToggle: () => void;
-  presetStats: Record<PresetId, {providerCount: number; releaseCount: number}>;
-  selectedPresetIds: PresetId[];
   significanceDisplayLimit: SignificanceDisplayLimit;
   totalMatchedCompanyCount: number;
   variant?: 'panel' | 'rail';
@@ -1969,26 +2259,35 @@ type TimelineFilterSortPanelProps = {
 };
 
 function TimelineFilterSortPanel({
+  attributeStats,
   boardView,
   className = '',
   companySortMode,
+  companyOptions,
+  domainStats,
+  filterState,
   isOpen,
+  onAttributeToggle,
   onClearAll,
+  onClearCompanyFilter,
+  onCompanyToggle,
   onCompanySortModeChange,
-  onPresetToggle,
+  onContentTypeChange,
+  onDomainToggle,
   onReset,
   onSelectAll,
   onSignificanceDisplayLimitChange,
   onToggle,
-  presetStats,
-  selectedPresetIds,
   significanceDisplayLimit,
   totalMatchedCompanyCount,
   variant = 'panel',
   visibleCompanyCount,
 }: TimelineFilterSortPanelProps) {
-  const selectedPresetCount = selectedPresetIds.length;
-  const selectedFilterCount = selectedPresetCount;
+  const selectedFilterCount =
+    filterState.domainIds.length +
+    filterState.attributeIds.length +
+    filterState.companyIds.length +
+    (filterState.contentType === 'all' ? 0 : 1);
   const isRail = variant === 'rail';
   const isCollapsedRail = isRail && !isOpen;
   const rootClassName = `${isRail ? (isOpen ? 'w-[var(--category-expanded-width,286px)]' : 'w-[74px]') : 'w-full'} timeline-fluid-obstacle overflow-hidden rounded-[1.6rem] border border-[var(--edge)] bg-[var(--surface)] shadow-[var(--soft-shadow)] backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${isCollapsedRail ? 'cursor-pointer hover:bg-[var(--surface-strong)]' : ''} ${className}`;
@@ -2093,34 +2392,62 @@ function TimelineFilterSortPanel({
           transition={{duration: 0.34, ease: [0.16, 1, 0.3, 1]}}
           className="max-h-[min(620px,calc(100dvh-18rem))] overflow-y-auto px-3 py-3"
         >
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_13rem] md:items-start">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_15rem] md:items-start">
             <div className="space-y-3">
-              {filterPresetGroups.map((group) => (
+              {DOMAIN_FILTER_GROUPS.map((group) => (
                 <div key={group.label}>
                   <p className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">{group.label}</p>
                   <div className="space-y-1.5">
-                    {group.presetIds.map((presetId) => {
-                      const preset = modelPresets.find((candidate) => candidate.id === presetId);
+                    {group.domainIds.map((domainId) => {
+                      const preset = getPresetConfig(domainId);
 
                       if (!preset) {
                         return null;
                       }
 
-                      const stats = presetStats[preset.id];
+                      const stats = domainStats[domainId] ?? {providerCount: 0, releaseCount: 0};
 
                       return renderToggleButton({
                         buttonKey: preset.id,
                         description: preset.label,
                         icon: <ModelClassIcon classId={preset.classId} className="h-4 w-4 shrink-0 text-[var(--ink)]" />,
-                        isSelected: selectedPresetIds.includes(preset.id),
+                        isSelected: filterState.domainIds.includes(domainId),
                         meta: `${stats.providerCount}c / ${stats.releaseCount}r`,
-                        onClick: () => onPresetToggle(preset.id),
+                        onClick: () => onDomainToggle(domainId),
                         title: preset.description,
                       });
                     })}
                   </div>
                 </div>
               ))}
+
+              <div className="border-t border-[var(--edge)] pt-3">
+                <p className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Content type</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {CONTENT_TYPE_OPTIONS.map((option) => {
+                    const isActive = filterState.contentType === option.id;
+                    const Icon = option.id === 'events' ? CalendarDays : option.id === 'releases' ? BookOpen : Layers3;
+
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        disabled={!isOpen}
+                        onClick={() => onContentTypeChange(option.id)}
+                        title={option.description}
+                        className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-[0.85rem] border px-2 text-[11px] font-semibold tracking-tight transition duration-300 active:scale-[0.99] ${
+                          isActive
+                            ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] text-[var(--ink)]'
+                            : 'border-[var(--edge)] text-[var(--ink-soft)] hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                        }`}
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               <div className="grid grid-cols-3 gap-1.5 border-t border-[var(--edge)] pt-3 md:border-t-0 md:pt-0">
                 <button
@@ -2157,7 +2484,77 @@ function TimelineFilterSortPanel({
             </div>
 
             <div className="border-t border-[var(--edge)] pt-3 md:border-l md:border-t-0 md:py-1 md:pl-3">
-              <p className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Sorting settings</p>
+              <p className="mb-1.5 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Attributes</p>
+              <div className="space-y-1.5">
+                {ATTRIBUTE_FILTER_IDS.map((attributeId) => {
+                  const preset = getPresetConfig(attributeId);
+
+                  if (!preset) {
+                    return null;
+                  }
+
+                  const stats = attributeStats[attributeId] ?? {providerCount: 0, releaseCount: 0};
+
+                  return renderToggleButton({
+                    buttonKey: attributeId,
+                    description: preset.label,
+                    icon: <ModelClassIcon classId={preset.classId} className="h-4 w-4 shrink-0 text-[var(--ink)]" />,
+                    isSelected: filterState.attributeIds.includes(attributeId),
+                    meta: `${stats.providerCount}c / ${stats.releaseCount}r`,
+                    onClick: () => onAttributeToggle(attributeId),
+                    title: preset.description,
+                  });
+                })}
+              </div>
+
+              <p className="mb-1.5 mt-3 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Companies</p>
+              <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
+                {companyOptions.length > 0 ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={!isOpen}
+                      onClick={onClearCompanyFilter}
+                      title="Use every company relevant to the current filters"
+                      className={`flex h-8 w-full items-center justify-between rounded-[0.75rem] border px-2 text-left text-[11px] font-semibold tracking-tight transition duration-300 active:scale-[0.99] ${
+                        filterState.companyIds.length === 0
+                          ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] text-[var(--ink)]'
+                          : 'border-[var(--edge)] text-[var(--ink-soft)] hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                      }`}
+                    >
+                      All relevant
+                      <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--muted)]">{companyOptions.length}c</span>
+                    </button>
+                    {companyOptions.map((company) => {
+                      const isSelected = filterState.companyIds.includes(company.id);
+
+                      return (
+                        <button
+                          key={company.id}
+                          type="button"
+                          disabled={!isOpen}
+                          onClick={() => onCompanyToggle(company.id)}
+                          title={`Filter to ${company.name}`}
+                          className={`flex h-8 w-full items-center justify-between gap-2 rounded-[0.75rem] border px-2 text-left text-[11px] font-semibold tracking-tight transition duration-300 active:scale-[0.99] ${
+                            isSelected
+                              ? 'border-[var(--edge-strong)] bg-[var(--surface-strong)] text-[var(--ink)]'
+                              : 'border-[var(--edge)] text-[var(--ink-soft)] hover:border-[var(--edge-strong)] hover:bg-[var(--surface)]'
+                          }`}
+                        >
+                          <span className="min-w-0 truncate">{company.name}</span>
+                          <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--muted)]">{company.releaseCount}r</span>
+                        </button>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <div className="rounded-[0.75rem] border border-[var(--edge)] px-2 py-2 text-[11px] leading-4 text-[var(--muted)]">
+                    Select a domain to show company filters.
+                  </div>
+                )}
+              </div>
+
+              <p className="mb-1.5 mt-3 px-1 text-[9px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">Sorting settings</p>
               <div className="grid grid-cols-1 gap-1.5">
                 {sortOptions.map((option) => {
                   const isActive = companySortMode === option.id;
@@ -5760,7 +6157,7 @@ function DesktopTimelineExperience({
 
   return (
     <section className="relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden">
-      <div className="absolute left-5 top-5 z-40 [--category-expanded-width:34rem]">
+      <div className="absolute left-5 top-5 z-40 [--category-expanded-width:40rem]">
         {modelExplorer}
       </div>
 
@@ -6456,10 +6853,10 @@ function MobileTimelineExperience({
 }
 
 export default function App() {
-  const [selectedPresetIds, setSelectedPresetIds] = useState<PresetId[]>(DEFAULT_SELECTED_PRESET_IDS);
-  const [companySortMode, setCompanySortMode] = useState<CompanySortMode>('significance');
+  const [filterState, setFilterState] = useState<TimelineFilterState>(() => getCurrentTimelineFilterState());
+  const [companySortMode, setCompanySortMode] = useState<CompanySortMode>(() => getCurrentCompanySortMode());
   const [significanceDisplayLimit, setSignificanceDisplayLimit] = useState<SignificanceDisplayLimit>(
-    DEFAULT_SIGNIFICANCE_DISPLAY_LIMIT,
+    () => getCurrentSignificanceDisplayLimit(),
   );
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(() =>
@@ -6537,10 +6934,10 @@ export default function App() {
 
   const today = useMemo(() => new Date(), []);
   const currentGlobalDay = (today.getTime() - START_DATE.getTime()) / DAY_MS;
-  const boardView = useMemo(() => getBoardView(selectedPresetIds), [selectedPresetIds]);
+  const boardView = useMemo(() => getBoardView(filterState), [filterState]);
   const visibleCompanies = useMemo(
-    () => getVisibleCompanies(companies, selectedPresetIds),
-    [selectedPresetIds],
+    () => getVisibleCompanies(companies, filterState),
+    [filterState],
   );
   const orderedVisibleCompanies = useMemo(
     () => orderCompanies(visibleCompanies, companyOrderIds, hiddenCompanyIds, companySortMode, currentGlobalDay),
@@ -6558,7 +6955,9 @@ export default function App() {
     const hiddenCompanyIdSet = new Set(hiddenCompanyIds);
     return visibleCompanies.filter((company) => hiddenCompanyIdSet.has(company.id)).length;
   }, [hiddenCompanyIds, visibleCompanies]);
-  const presetStats = useMemo(() => buildPresetStats(companies), []);
+  const domainStats = useMemo(() => buildDomainStats(companies, filterState), [filterState]);
+  const attributeStats = useMemo(() => buildAttributeStats(companies, filterState), [filterState]);
+  const companyOptions = useMemo(() => getRelevantCompanyOptions(companies, filterState), [filterState]);
   const timelineData = useMemo(
     () => buildTimelineData(displayedVisibleCompanies, currentGlobalDay),
     [currentGlobalDay, displayedVisibleCompanies],
@@ -6707,13 +7106,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const updateRoute = () => setRoute(getCurrentAppRoute());
+    const updateRoute = () => {
+      const nextHash = window.location.hash;
+
+      setRoute(parseAppRoute(nextHash));
+      setFilterState(parseTimelineFilterState(nextHash));
+      setCompanySortMode(parseCompanySortMode(nextHash));
+      setSignificanceDisplayLimit(parseSignificanceDisplayLimit(nextHash));
+    };
 
     updateRoute();
     window.addEventListener('hashchange', updateRoute);
 
     return () => window.removeEventListener('hashchange', updateRoute);
   }, []);
+
+  useEffect(() => {
+    const nextHash = serializeAppHash({
+      companySortMode,
+      filterState,
+      route,
+      significanceDisplayLimit,
+    });
+
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, '', nextHash);
+    }
+  }, [companySortMode, filterState, route, significanceDisplayLimit]);
 
   useEffect(() => {
     return () => {
@@ -6734,18 +7153,38 @@ export default function App() {
       return;
     }
 
-    setSelectedPresetIds((currentIds) => {
-      const missingPresetIds = activeArticleEntry.presets.filter((presetId) => !currentIds.includes(presetId));
+    setFilterState((currentFilterState) => {
+      const activeDomainIds = getReleaseDomainIds(activeArticleEntry.presets);
+      const activeAttributeIds = activeArticleEntry.presets.includes('open-source') ? (['open-source'] as TimelineAttributeId[]) : [];
+      const nextFilterState = normalizeTimelineFilterState({
+        ...currentFilterState,
+        attributeIds: uniqueOrdered([...currentFilterState.attributeIds, ...activeAttributeIds], ATTRIBUTE_FILTER_IDS),
+        companyIds:
+          currentFilterState.companyIds.length > 0 && !currentFilterState.companyIds.includes(activeArticleEntry.companyId)
+            ? [...currentFilterState.companyIds, activeArticleEntry.companyId]
+            : currentFilterState.companyIds,
+        domainIds: activeDomainIds.length > 0
+          ? uniqueOrdered([...currentFilterState.domainIds, ...activeDomainIds], DOMAIN_FILTER_IDS)
+          : currentFilterState.domainIds,
+      });
 
-      if (missingPresetIds.length === 0) {
-        return currentIds;
-      }
-
-      return [...currentIds, ...missingPresetIds];
+      return timelineFilterStatesMatch(currentFilterState, nextFilterState) ? currentFilterState : nextFilterState;
     });
 
     setHiddenCompanyIds((currentIds) => currentIds.filter((companyId) => companyId !== activeArticleEntry.companyId));
   }, [activeArticleEntry]);
+
+  useEffect(() => {
+    const relevantCompanyIds = new Set(companyOptions.map((company) => company.id));
+
+    setFilterState((currentFilterState) => {
+      const nextCompanyIds = currentFilterState.companyIds.filter((companyId) => relevantCompanyIds.has(companyId));
+
+      return nextCompanyIds.length === currentFilterState.companyIds.length
+        ? currentFilterState
+        : {...currentFilterState, companyIds: nextCompanyIds};
+    });
+  }, [companyOptions]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 768px)');
@@ -6845,33 +7284,71 @@ export default function App() {
     return () => window.removeEventListener('resize', positionInitialMobileView);
   }, [mobileCanvasLayout, mobileZoom, viewportSizes.mobile]);
 
-  const togglePreset = (presetId: PresetId) => {
-    setSignificanceDisplayLimit('all');
-    setSelectedPresetIds((currentIds) => {
-      if (currentIds.includes(presetId)) {
-        return currentIds.filter((currentId) => currentId !== presetId);
-      }
+  const toggleDomain = (domainId: TimelineDomainId) => {
+    setFilterState((currentFilterState) => {
+      const nextDomainIds = currentFilterState.domainIds.includes(domainId)
+        ? currentFilterState.domainIds.filter((currentId) => currentId !== domainId)
+        : uniqueOrdered([...currentFilterState.domainIds, domainId], DOMAIN_FILTER_IDS);
 
-      return [...currentIds, presetId];
+      return normalizeTimelineFilterState({...currentFilterState, companyIds: [], domainIds: nextDomainIds});
     });
   };
 
+  const toggleAttribute = (attributeId: TimelineAttributeId) => {
+    setFilterState((currentFilterState) => {
+      const nextAttributeIds = currentFilterState.attributeIds.includes(attributeId)
+        ? currentFilterState.attributeIds.filter((currentId) => currentId !== attributeId)
+        : uniqueOrdered([...currentFilterState.attributeIds, attributeId], ATTRIBUTE_FILTER_IDS);
+
+      return normalizeTimelineFilterState({...currentFilterState, attributeIds: nextAttributeIds, companyIds: []});
+    });
+  };
+
+  const setContentType = (contentType: TimelineContentType) => {
+    setFilterState((currentFilterState) => normalizeTimelineFilterState({...currentFilterState, companyIds: [], contentType}));
+  };
+
+  const toggleCompanyFilter = (companyId: string) => {
+    setFilterState((currentFilterState) => {
+      const nextCompanyIds =
+        currentFilterState.companyIds.length === 0
+          ? [companyId]
+          : currentFilterState.companyIds.includes(companyId)
+            ? currentFilterState.companyIds.filter((currentId) => currentId !== companyId)
+            : [...currentFilterState.companyIds, companyId];
+
+      return normalizeTimelineFilterState({...currentFilterState, companyIds: nextCompanyIds});
+    });
+  };
+
+  const clearCompanyFilter = () => {
+    setFilterState((currentFilterState) => ({...currentFilterState, companyIds: []}));
+  };
+
   const resetFilters = () => {
-    setSelectedPresetIds(DEFAULT_SELECTED_PRESET_IDS);
-    setCompanySortMode('significance');
+    setFilterState(createDefaultTimelineFilterState());
+    setCompanySortMode(DEFAULT_COMPANY_SORT_MODE);
     setSignificanceDisplayLimit(DEFAULT_SIGNIFICANCE_DISPLAY_LIMIT);
     setHiddenCompanyIds([]);
     setCompanyOrderIds(companies.map((company) => company.id));
   };
 
-  const selectAllPresets = () => {
-    setSignificanceDisplayLimit('all');
-    setSelectedPresetIds(modelPresets.map((preset) => preset.id));
+  const selectAllDomains = () => {
+    setFilterState({
+      attributeIds: [],
+      companyIds: [],
+      contentType: 'all',
+      domainIds: [...DOMAIN_FILTER_IDS],
+    });
   };
 
-  const clearAllPresets = () => {
-    setSignificanceDisplayLimit('all');
-    setSelectedPresetIds([]);
+  const clearAllFilters = () => {
+    setFilterState({
+      attributeIds: [],
+      companyIds: [],
+      contentType: 'all',
+      domainIds: [],
+    });
   };
 
   const hideCompany = (companyId: string) => {
@@ -6896,8 +7373,22 @@ export default function App() {
     setCompanyOrderIds((currentIds) => moveVisibleCompanyId(currentIds, displayedCompanyIds, companyId, direction));
   };
 
+  const navigateToTimelineRoute = () => {
+    window.location.hash = serializeAppHash({
+      companySortMode,
+      filterState,
+      route: {kind: 'timeline'},
+      significanceDisplayLimit,
+    });
+  };
+
   const navigateToModelSlug = (slug: string) => {
-    window.location.hash = `#/models/${encodeURIComponent(slug)}`;
+    window.location.hash = serializeAppHash({
+      companySortMode,
+      filterState,
+      route: {kind: 'model', slug},
+      significanceDisplayLimit,
+    });
   };
 
   const dismissActiveTimelineArticle = () => {
@@ -6906,7 +7397,7 @@ export default function App() {
     }
 
     lastFocusedArticleSlugRef.current = null;
-    navigateToTimeline();
+    navigateToTimelineRoute();
   };
 
   const handleTimelineBackgroundDismiss = (
@@ -6927,18 +7418,24 @@ export default function App() {
   };
 
   const explorerProps = {
+    attributeStats,
     boardView,
     companySortMode,
+    companyOptions,
+    domainStats,
+    filterState,
     isOpen: isExplorerOpen,
-    onClearAll: clearAllPresets,
+    onAttributeToggle: toggleAttribute,
+    onClearAll: clearAllFilters,
+    onClearCompanyFilter: clearCompanyFilter,
+    onCompanyToggle: toggleCompanyFilter,
     onCompanySortModeChange: setCompanySortMode,
-    onPresetToggle: togglePreset,
+    onContentTypeChange: setContentType,
+    onDomainToggle: toggleDomain,
     onReset: resetFilters,
-    onSelectAll: selectAllPresets,
+    onSelectAll: selectAllDomains,
     onSignificanceDisplayLimitChange: setSignificanceDisplayLimit,
     onToggle: () => setIsExplorerOpen((isOpen) => !isOpen),
-    presetStats,
-    selectedPresetIds,
     significanceDisplayLimit,
     totalMatchedCompanyCount: orderedVisibleCompanies.length,
     visibleCompanyCount: displayedVisibleCompanies.length,
@@ -8027,7 +8524,7 @@ export default function App() {
         {isArticleOpen ? (
           <ModelArticlePanel
             entry={activeArticleEntry}
-            onBack={navigateToTimeline}
+            onBack={navigateToTimelineRoute}
             onNavigate={navigateToModelSlug}
             requestedSlug={activeArticleSlug ?? ''}
           />

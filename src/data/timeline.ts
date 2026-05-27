@@ -565,6 +565,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini 3.1 Flash-Image', date: '2026-02-26'},
           {name: 'Gemini 3.1 Flash-Lite', date: '2026-03-03'},
           {name: 'Gemini 3.5 Flash', date: '2026-05-19', articleSlug: 'gemini-3-5-flash', tags: ['ai-race-core']},
+          {name: 'Gemini Omni', date: '2026-05-19', eventType: 'model-release', articleSlug: 'gemini-omni-flash'},
         ],
       }),
       defineProductLine({
@@ -728,6 +729,25 @@ export const companies: CompanyRecord[] = [
     ],
   }),
   defineCompany({
+    profileId: 'zoox',
+    productLines: [
+      defineProductLine({
+        id: 'zoox-driver',
+        label: 'Zoox robotaxi',
+        shortLabel: 'Zoox',
+        classId: 'vehicle-autonomy',
+        defaultPresets: ['vehicle-autonomy'],
+        releases: [
+          {name: 'Zoox founded', date: '2014-01-01', datePrecision: 'year', eventType: 'founding'},
+          {name: 'Amazon acquires Zoox', date: '2020-06-26', eventType: 'partnership'},
+          {name: 'Zoox robotaxi revealed', date: '2020-12-14', eventType: 'product-launch'},
+          {name: 'First public-road employee shuttle', date: '2023-02-11', eventType: 'public-demo'},
+          {name: 'Las Vegas robotaxi service launches', date: '2025-09-10', eventType: 'deployment'},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
     profileId: 'figure',
     productLines: [
       defineCompanyHistoryLine({
@@ -851,6 +871,21 @@ export const companies: CompanyRecord[] = [
           {name: 'Qwen3', date: '2025-04-29'},
           {name: 'Qwen3-Coder', date: '2025-07-29'},
           {name: 'Qwen3.6-35B-A3B', date: '2026-04-17'},
+        ],
+      }),
+      defineProductLine({
+        id: 'wan-video',
+        label: 'Wan video',
+        shortLabel: 'Wan',
+        classId: 'video-generation',
+        defaultPresets: ['open-source', 'video-generation'],
+        releases: [
+          {name: 'Wan2.1', date: '2025-02-25'},
+          {name: 'Wan2.1-FLF2V', date: '2025-04-17'},
+          {name: 'Wan2.1-VACE', date: '2025-05-14'},
+          {name: 'Wan2.2', date: '2025-07-28'},
+          {name: 'Wan2.2-S2V', date: '2025-08-26'},
+          {name: 'Wan2.2-Animate', date: '2025-09-19'},
         ],
       }),
     ],
@@ -1053,6 +1088,31 @@ export const companies: CompanyRecord[] = [
     ],
   }),
   defineCompany({
+    profileId: 'lightricks',
+    productLines: [
+      defineProductLine({
+        id: 'ltx-video',
+        label: 'LTX video',
+        shortLabel: 'LTX',
+        classId: 'video-generation',
+        defaultPresets: ['open-source', 'video-generation'],
+        releases: [
+          {name: 'LTX-Video v0.9.0', date: '2024-11-21'},
+          {name: 'LTX-Video v0.9.1', date: '2024-12-20'},
+          {name: 'LTX-Video v0.9.5', date: '2025-03-05'},
+          {name: 'LTXV v0.9.6', date: '2025-04-15'},
+          {name: 'LTXV-13B v0.9.7', date: '2025-05-05'},
+          {name: 'LTXV-13B distilled v0.9.7', date: '2025-05-14'},
+          {name: 'LTXV IC-LoRA controls', date: '2025-07-08'},
+          {name: 'LTXV v0.9.8', date: '2025-07-16'},
+          {name: 'LTX-2 announced', date: '2025-10-23', eventType: 'announcement'},
+          {name: 'LTX-2 open weights', date: '2026-01-03'},
+          {name: 'LTX-2.3', date: '2026-03-04', articleSlug: 'ltx-2-3'},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
     profileId: 'kuaishou-kling',
     productLines: [
       defineProductLine({
@@ -1097,6 +1157,20 @@ export const companies: CompanyRecord[] = [
           {name: 'Hunyuan3D 1.0', date: '2024-11-05'},
           {name: 'Hunyuan3D 2.0', date: '2025-01-21'},
           {name: 'Hunyuan3D 2.1', date: '2025-06-18'},
+        ],
+      }),
+      defineProductLine({
+        id: 'hunyuan-video',
+        label: 'Hunyuan video',
+        shortLabel: 'Hunyuan',
+        classId: 'video-generation',
+        defaultPresets: ['open-source', 'video-generation'],
+        releases: [
+          {name: 'HunyuanVideo', date: '2024-12-03'},
+          {name: 'HunyuanVideo-I2V', date: '2025-03-06'},
+          {name: 'HunyuanCustom', date: '2025-05-09'},
+          {name: 'HunyuanVideo-Avatar', date: '2025-05-28'},
+          {name: 'HunyuanVideo-1.5', date: '2025-11-20'},
         ],
       }),
     ],

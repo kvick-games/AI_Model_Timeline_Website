@@ -14,6 +14,7 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'tesla', name: 'Tesla', accent: '#b92f3a', logoMark: 'tesla', raceRank: 20},
   {id: 'figure', name: 'Figure', accent: '#8d95a8', logoMark: 'figure', raceRank: 21},
   {id: 'waymo', name: 'Waymo', accent: '#19a87d', raceRank: 22},
+  {id: 'zoox', name: 'Zoox', accent: '#8f6bd6', raceRank: 23},
   {id: 'midjourney', name: 'Midjourney', accent: '#c0537a', raceRank: 30},
   {id: 'stability-ai', name: 'Stability AI', accent: '#6b8e4e', raceRank: 31},
   {id: 'black-forest-labs', name: 'Black Forest Labs', accent: '#7b6bd6', raceRank: 32},
@@ -24,6 +25,7 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'bytedance-seedance', name: 'ByteDance', accent: '#5f75d6', raceRank: 37},
   {id: 'tencent-hunyuan-3d', name: 'Tencent', accent: '#327ec7', raceRank: 38},
   {id: 'tripo-ai', name: 'Tripo AI', accent: '#d15f45', raceRank: 39},
+  {id: 'lightricks', name: 'Lightricks', accent: '#4f9f8a', raceRank: 40},
 ];
 
 export const companyProfilesById = companyProfiles.reduce<Record<string, CompanyProfile>>((profiles, profile) => {
