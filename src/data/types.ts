@@ -10,7 +10,7 @@ export type ModelClassId =
   | 'robotics'
   | 'vehicle-autonomy';
 
-export type TimelineTag = 'ai-race-core' | 'major-release';
+export type TimelineTag = 'ai-race-core' | 'major-release' | 'landmark-release';
 
 export type PresetId =
   | 'llms'
