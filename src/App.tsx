@@ -314,7 +314,8 @@ function getReleaseSignificanceScore(
   );
   const tagBonus =
     (releaseTags.includes('ai-race-core') ? 10 : 0) +
-    (releaseTags.includes('major-release') ? 5 : 0);
+    (releaseTags.includes('major-release') ? 5 : 0) +
+    (releaseTags.includes('landmark-release') ? 8 : 0);
   const companyRankBonus = Math.max(0, 7 - (company.raceRank ?? 8));
   const score =
     presetBase +
@@ -1590,6 +1591,9 @@ function getTimelineWorldTransform(camera: CameraState, zoom: number) {
   return `translate3d(${-camera.x * zoom}px, ${-camera.y * zoom}px, 0) scale(${zoom})`;
 }
 
+const worldWillChangeIdleTimers = new WeakMap<HTMLElement, number>();
+const WORLD_WILL_CHANGE_IDLE_MS = 180;
+
 function applyTimelineWorldTransform(
   element: HTMLDivElement | null,
   camera: CameraState,
@@ -1601,6 +1605,22 @@ function applyTimelineWorldTransform(
 
   element.style.transform = getTimelineWorldTransform(camera, zoom);
   element.style.setProperty('--map-zoom', String(getMapZoomCssValue(zoom)));
+
+  // Promote the world to its own compositor layer while it is actively moving
+  // so pan/zoom stays smooth, then drop the hint once motion settles. A pinned
+  // `will-change: transform` layer is rasterized once at 1x and bitmap-scaled
+  // on zoom, which makes pin labels blurry; clearing it lets the browser
+  // re-rasterize text crisply at the current zoom.
+  element.style.willChange = 'transform';
+  const existingTimer = worldWillChangeIdleTimers.get(element);
+  if (existingTimer !== undefined) {
+    window.clearTimeout(existingTimer);
+  }
+  const timerId = window.setTimeout(() => {
+    element.style.willChange = 'auto';
+    worldWillChangeIdleTimers.delete(element);
+  }, WORLD_WILL_CHANGE_IDLE_MS);
+  worldWillChangeIdleTimers.set(element, timerId);
 }
 
 function getTimelineMapLabelStyle(baseFontSizePx: number) {
@@ -3267,9 +3287,28 @@ function ProductLineTimelineLane({
           ? mixHexColor(company.accent, 255, 0.12)
           : mixHexColor(company.accent, 255, 0.24);
         const labelBorderColor = toRgbaFromHex(company.accent, isLatestInLine ? 0.52 : 0.34);
-        const labelBackground = isLatestInLine ? toRgbaFromHex(company.accent, 0.12) : undefined;
+        const isLandmarkRelease = release.tags.includes('landmark-release');
+        const labelBackground = isLatestInLine
+          ? toRgbaFromHex(company.accent, 0.12)
+          : isLandmarkRelease
+            ? toRgbaFromHex(company.accent, 0.08)
+            : undefined;
         const isGeneralEvent = release.eventKind === 'event';
         const openActionLabel = isGeneralEvent ? 'Open event' : 'Open release';
+        const markerBoxShadow = isActiveArticle
+          ? `0 0 0 ${compact ? 3 : 4}px rgba(237, 242, 250, 0.92), 0 0 0 ${compact ? 7 : 8}px color-mix(in srgb, ${company.accent} 48%, transparent)`
+          : isLandmarkRelease
+            ? `0 0 0 ${compact ? 5 : 6}px color-mix(in srgb, ${company.accent} 24%, transparent), 0 0 18px color-mix(in srgb, ${company.accent} 50%, transparent), 0 0 42px color-mix(in srgb, ${company.accent} 28%, transparent)`
+            : isLatestInLine
+              ? `0 0 0 ${compact ? 4 : 5}px color-mix(in srgb, ${company.accent} 20%, transparent), 0 0 18px color-mix(in srgb, ${company.accent} 40%, transparent)`
+              : `0 0 0 4px color-mix(in srgb, ${company.accent} 11%, transparent)`;
+        const markerFilter = isActiveArticle
+          ? 'saturate(1.45) brightness(1.14)'
+          : isLandmarkRelease
+            ? 'saturate(1.38) brightness(1.1)'
+            : isLatestInLine
+              ? 'saturate(1.35) brightness(1.08)'
+              : undefined;
 
         return (
           <motion.div
@@ -3353,6 +3392,13 @@ function ProductLineTimelineLane({
                       className={`group relative block size-0 overflow-visible cursor-pointer text-left outline-none ${isActiveArticle ? 'timeline-pin--selected' : ''}`}
                     >
                     <div className="timeline-pin-marker-stack relative z-0 size-0 shrink-0">
+                      {isLandmarkRelease ? (
+                        <span
+                          aria-hidden="true"
+                          className={`${compact ? 'h-8 w-8' : 'h-10 w-10'} timeline-pin-landmark-aura absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 ${markerShapeClass}`}
+                          style={{['--pin-accent' as string]: company.accent}}
+                        />
+                      ) : null}
                       {isActiveArticle ? (
                         <span
                           aria-hidden="true"
@@ -3361,23 +3407,15 @@ function ProductLineTimelineLane({
                         />
                       ) : null}
                       <div
-                        className={`${markerSizeClass} absolute left-0 top-1/2 z-[1] -translate-x-1/2 -translate-y-1/2 border-[3px] border-[var(--surface-strong)] transition duration-300 ${markerShapeClass} ${
+                        className={`${markerSizeClass} timeline-pin-marker absolute left-0 top-1/2 z-[1] -translate-x-1/2 -translate-y-1/2 border-[3px] border-[var(--surface-strong)] transition duration-300 ${markerShapeClass} ${
                           isActiveArticle
                             ? 'timeline-pin-marker--selected scale-[1.18]'
                             : 'group-hover:scale-[1.22] group-focus-visible:scale-[1.22]'
                         }`}
                         style={{
                           backgroundColor: company.accent,
-                          boxShadow: isActiveArticle
-                            ? `0 0 0 ${compact ? 3 : 4}px rgba(237, 242, 250, 0.92), 0 0 0 ${compact ? 7 : 8}px color-mix(in srgb, ${company.accent} 48%, transparent)`
-                            : isLatestInLine
-                              ? `0 0 0 ${compact ? 4 : 5}px color-mix(in srgb, ${company.accent} 20%, transparent), 0 0 18px color-mix(in srgb, ${company.accent} 40%, transparent)`
-                              : `0 0 0 4px color-mix(in srgb, ${company.accent} 11%, transparent)`,
-                          filter: isActiveArticle
-                            ? 'saturate(1.45) brightness(1.14)'
-                            : isLatestInLine
-                              ? 'saturate(1.35) brightness(1.08)'
-                              : undefined,
+                          boxShadow: markerBoxShadow,
+                          filter: markerFilter,
                         }}
                       />
                     </div>
@@ -6177,7 +6215,7 @@ function DesktopTimelineExperience({
       >
         <div
           ref={worldRef}
-          className="relative will-change-transform"
+          className="relative"
           style={{
             height: `${canvasLayout.worldHeight}px`,
             transform: getTimelineWorldTransform(camera, zoom),
@@ -6567,7 +6605,7 @@ function MobileTimelineExperience({
       >
         <div
           ref={worldRef}
-          className="relative will-change-transform"
+          className="relative"
           style={{
             height: `${canvasLayout.worldHeight}px`,
             transform: getTimelineWorldTransform(camera, zoom),
