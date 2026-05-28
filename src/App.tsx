@@ -1411,6 +1411,44 @@ function formatQuietDaysLabel(quietDays: number) {
   return `${quietDays} ${quietDays === 1 ? 'Day' : 'Days'} since last update`;
 }
 
+function formatGapDuration(days: number): string {
+  if (days <= 0) {
+    return 'Same day';
+  }
+  if (days < 31) {
+    return `${days} ${days === 1 ? 'day' : 'days'}`;
+  }
+  const years = Math.floor(days / 365);
+  const remainderAfterYears = days - years * 365;
+  const months = Math.floor(remainderAfterYears / 30);
+  const remainingDays = remainderAfterYears - months * 30;
+  const parts: string[] = [];
+  if (years > 0) {
+    parts.push(`${years} ${years === 1 ? 'year' : 'years'}`);
+  }
+  if (months > 0) {
+    parts.push(`${months} ${months === 1 ? 'month' : 'months'}`);
+  }
+  if (remainingDays > 0 && years === 0) {
+    parts.push(`${remainingDays} ${remainingDays === 1 ? 'day' : 'days'}`);
+  }
+  return parts.length > 0 ? parts.join(', ') : `${days} days`;
+}
+
+function formatGapCadenceLabel(gap: number, averageGap: number | null): string | null {
+  if (averageGap === null || averageGap <= 0) {
+    return null;
+  }
+  const diff = gap - averageGap;
+  const magnitude = Math.abs(diff);
+  if (magnitude <= 2) {
+    return `On pace with this line's ${averageGap}-day average`;
+  }
+  return `${magnitude} ${magnitude === 1 ? 'day' : 'days'} ${
+    diff > 0 ? 'slower' : 'faster'
+  } than this line's ${averageGap}-day average`;
+}
+
 function getScaledTimelineSpacing(value: number, verticalScale = 1) {
   return Math.max(1, Math.round(value * verticalScale));
 }
@@ -1592,7 +1630,7 @@ function getTimelineWorldTransform(camera: CameraState, zoom: number) {
 }
 
 const worldWillChangeIdleTimers = new WeakMap<HTMLElement, number>();
-const WORLD_WILL_CHANGE_IDLE_MS = 180;
+const WORLD_WILL_CHANGE_IDLE_MS = 126;
 
 function applyTimelineWorldTransform(
   element: HTMLDivElement | null,
@@ -3237,7 +3275,7 @@ function ProductLineTimelineLane({
       transition={{
         opacity: TIMELINE_FILTER_ENTER_TRANSITION,
       }}
-      className="relative z-10 shrink-0"
+      className="relative z-10 shrink-0 hover:z-40 focus-within:z-40"
       style={{height: `${lineHeight}px`}}
     >
       <div
@@ -3280,6 +3318,9 @@ function ProductLineTimelineLane({
           ? getTimelineDayOffsetPx(previousRelease.globalDay, timelineStartDay)
           : leftOffsetPx;
         const connectorWidthPx = previousRelease ? Math.max(0, leftOffsetPx - previousOffsetPx) : 0;
+        const gapCadenceLabel = previousRelease
+          ? formatGapCadenceLabel(release.gap, productLine.averageGap)
+          : null;
         const rangeWidthPx = getTimelineDurationWidthPx(release.globalDay, release.endGlobalDay);
         const isLatestInLine =
           productLine.latestRelease?.name === release.name && productLine.latestRelease?.date === release.date;
@@ -3323,28 +3364,62 @@ function ProductLineTimelineLane({
             className="absolute inset-0"
           >
             {previousRelease && isConnectorVisible ? (
-              <motion.div
-                initial={{opacity: 0, scaleX: 0}}
-                animate={{opacity: isHarnessLine ? 0.72 : 0.58, scaleX: 1}}
-                transition={TIMELINE_FILTER_ENTER_TRANSITION}
-                className={`absolute top-1/2 -translate-y-1/2 origin-left ${isHarnessLine ? 'h-px' : 'h-[2px]'}`}
-                style={{
-                  backgroundColor: isHarnessLine ? harnessLineColor : company.accent,
-                  left: `${previousOffsetPx}px`,
-                  width: `${connectorWidthPx}px`,
-                }}
-              >
-                <div className="absolute left-1/2 top-3 -translate-x-1/2">
-                  <div className="timeline-map-screen-fixed">
-                    <div
-                      className="timeline-map-screen-label rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2 py-1 font-mono uppercase tracking-[0.1em] text-[var(--ink)] shadow-[var(--soft-shadow)]"
+              <>
+                <motion.div
+                  initial={{opacity: 0, scaleX: 0}}
+                  animate={{opacity: isHarnessLine ? 0.72 : 0.58, scaleX: 1}}
+                  transition={TIMELINE_FILTER_ENTER_TRANSITION}
+                  className={`pointer-events-none absolute top-1/2 -translate-y-1/2 origin-left ${
+                    isHarnessLine ? 'h-px' : 'h-[2px]'
+                  }`}
+                  style={{
+                    backgroundColor: isHarnessLine ? harnessLineColor : company.accent,
+                    left: `${previousOffsetPx}px`,
+                    width: `${connectorWidthPx}px`,
+                  }}
+                />
+                <div
+                  className="timeline-gap absolute top-1/2 z-[5] -translate-x-1/2 -translate-y-1/2 hover:z-50 focus-within:z-50"
+                  style={{
+                    left: `${previousOffsetPx + connectorWidthPx / 2}px`,
+                    ['--gap-world-width' as string]: connectorWidthPx,
+                  }}
+                >
+                  <button
+                    type="button"
+                    aria-label={`Gap of ${formatGapDuration(release.gap)} between ${previousRelease.name} and ${release.name}`}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                    className="group/gap relative flex h-6 cursor-default items-center justify-center outline-none"
+                  >
+                    <span
+                      className="timeline-gap-collapse timeline-gap-label rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-2 py-1 font-mono uppercase tracking-[0.1em] text-[var(--ink)] shadow-[var(--soft-shadow)] group-focus-visible/gap:border-[var(--edge-strong)]"
                       style={getTimelineMapLabelStyle(compact ? 9 : 10)}
                     >
                       {release.gap}d
-                    </div>
-                  </div>
+                    </span>
+                    <span
+                      role="tooltip"
+                      className="timeline-gap-tooltip pointer-events-none absolute left-1/2 top-full z-50 flex w-max max-w-[260px] flex-col gap-1 rounded-xl border border-[var(--edge-strong)] bg-[var(--surface-strong)] px-3 py-2 text-left opacity-0 shadow-[var(--panel-shadow)] transition-opacity duration-200 group-hover/gap:opacity-100 group-focus-visible/gap:opacity-100"
+                    >
+                      <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                        {previousRelease.name} → {release.name}
+                      </span>
+                      <span className="font-sans text-[13px] font-semibold leading-tight text-[var(--ink)]">
+                        {formatGapDuration(release.gap)} gap
+                      </span>
+                      <span className="font-mono text-[11px] text-[var(--ink-soft)]">
+                        {previousRelease.dateLabel} – {release.dateLabel}
+                      </span>
+                      {gapCadenceLabel ? (
+                        <span className="font-sans text-[11px] leading-snug text-[var(--muted)]">
+                          {gapCadenceLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
                 </div>
-              </motion.div>
+              </>
             ) : null}
 
             {isRangeVisible ? (
@@ -3375,7 +3450,7 @@ function ProductLineTimelineLane({
                   scale: TIMELINE_FILTER_ENTER_TRANSITION,
                   y: TIMELINE_FILTER_ENTER_TRANSITION,
                 }}
-                className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 ${isActiveArticle ? 'z-30' : 'z-20'}`}
+                className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 hover:z-50 focus-within:z-50 ${isActiveArticle ? 'z-30' : 'z-20'}`}
                 style={{left: `${leftOffsetPx}px`}}
               >
                 <div className="overflow-visible">
@@ -3453,13 +3528,24 @@ function ProductLineTimelineLane({
                     </div>
 
                     {!compact ? (
-                      <div className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 opacity-0 transition duration-300 group-hover:opacity-100">
-                        <div
-                          className="timeline-map-screen-label rounded-full border border-[var(--edge)] bg-[var(--surface-strong)] px-3 py-1 font-mono uppercase tracking-[0.12em] text-[var(--ink)] shadow-[0_18px_38px_-24px_rgba(0,0,0,0.5)]"
-                          style={getTimelineMapLabelStyle(10)}
-                        >
-                          {productLine.shortLabel} / {release.eventTypeShortLabel} / {release.dateRangeLabel}
-                        </div>
+                      <div
+                        role="tooltip"
+                        className="timeline-gap-tooltip pointer-events-none absolute left-1/2 top-8 z-50 flex w-max max-w-[280px] flex-col gap-1 rounded-xl border border-[var(--edge-strong)] bg-[var(--surface-strong)] px-3 py-2 text-left opacity-0 shadow-[var(--panel-shadow)] transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
+                      >
+                        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                          {company.name} · {productLine.shortLabel}
+                        </span>
+                        <span className="font-sans text-[13px] font-semibold leading-tight text-[var(--ink)]">
+                          {release.name}
+                        </span>
+                        <span className="font-mono text-[11px] text-[var(--ink-soft)]">
+                          {release.eventTypeLabel} · {release.dateRangeLabel}
+                        </span>
+                        {previousRelease ? (
+                          <span className="font-sans text-[11px] leading-snug text-[var(--muted)]">
+                            {formatGapDuration(release.gap)} after {previousRelease.name}
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
                     </button>

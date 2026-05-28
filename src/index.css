@@ -63,8 +63,68 @@ body {
   will-change: transform;
 }
 
+/* Gap label between releases: scales toward screen-constant size, and auto-hides
+   when the on-screen gap (world width × zoom) gets too narrow to read. */
+.timeline-gap-collapse {
+  display: inline-block;
+  opacity: clamp(0, calc((var(--gap-world-width, 9999) * var(--map-zoom, 1) - 34) / 26), 1);
+  transform: scale(
+    calc(
+      min(1, 1 / var(--map-zoom, 1)) *
+        (0.7 + 0.3 * clamp(0, calc((var(--gap-world-width, 9999) * var(--map-zoom, 1) - 34) / 26), 1))
+    )
+  );
+  transform-origin: center center;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.timeline-gap:hover .timeline-gap-collapse,
+.timeline-gap:focus-within .timeline-gap-collapse {
+  opacity: 1;
+  transform: scale(min(1, 1 / var(--map-zoom, 1)));
+  z-index: 40;
+}
+
+.timeline-gap-label {
+  font-size: calc(var(--label-size, 10) * 1px);
+}
+
+/* Counter-scales the world zoom so the tooltip stays a constant screen size. */
+.timeline-gap-tooltip {
+  transform: translateX(-50%) scale(calc(1 / var(--map-zoom, 1)));
+  transform-origin: top center;
+  margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-gap-collapse {
+    transition: none;
+  }
+}
+
 .timeline-pin-marker-stack {
   isolation: isolate;
+}
+
+.timeline-pin-landmark-aura {
+  z-index: 0;
+  border: 1px solid color-mix(in srgb, var(--pin-accent, #8b97ab) 48%, transparent);
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      color-mix(in srgb, var(--pin-accent, #8b97ab) 34%, transparent) 0%,
+      color-mix(in srgb, var(--pin-accent, #8b97ab) 16%, transparent) 42%,
+      transparent 72%
+    );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #edf2fa 16%, transparent),
+    0 0 18px color-mix(in srgb, var(--pin-accent, #8b97ab) 50%, transparent),
+    0 0 42px color-mix(in srgb, var(--pin-accent, #8b97ab) 24%, transparent);
+  opacity: 0.72;
+  pointer-events: none;
+  animation: timeline-pin-landmark-aura 3.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 
 .timeline-pin-selection-ring {
@@ -110,6 +170,19 @@ body {
   50% {
     opacity: 0.82;
     transform: translate(-50%, -50%) scale(1.14);
+  }
+}
+
+@keyframes timeline-pin-landmark-aura {
+  0%,
+  100% {
+    opacity: 0.58;
+    filter: saturate(1.08) brightness(0.98);
+  }
+
+  50% {
+    opacity: 0.92;
+    filter: saturate(1.28) brightness(1.14);
   }
 }
 
@@ -334,6 +407,11 @@ body::before {
     animation: none;
     background-position: 50% 0;
     opacity: 0.42;
+  }
+
+  .timeline-pin-landmark-aura {
+    animation: none;
+    opacity: 0.68;
   }
 }
 
