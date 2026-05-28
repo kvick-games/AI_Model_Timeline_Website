@@ -521,7 +521,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude 4.6 Sonnet', date: '2026-02-17'},
           {name: 'Claude 4.6 Opus', date: '2026-02-05'},
           {name: 'Claude 4.7 Opus', date: '2026-04-16'},
-          {name: 'Claude 4.8 Opus', date: '2026-05-28'},
+          {name: 'Claude 4.8 Opus', date: '2026-05-28', articleSlug: 'claude-opus-4-8'},
         ],
       }),
       defineProductLine({
