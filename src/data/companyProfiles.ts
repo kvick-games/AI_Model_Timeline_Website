@@ -11,10 +11,13 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'moonshot-kimi', name: 'Moonshot AI', accent: '#56a3a6', raceRank: 8},
   {id: 'qwen', name: 'Alibaba', accent: '#8c79d6', raceRank: 9},
   {id: 'zhipu-glm', name: 'Zhipu AI', accent: '#c78f38', raceRank: 10},
+  {id: 'meta-ai', name: 'Meta AI', accent: '#4d8df7', raceRank: 11},
   {id: 'tesla', name: 'Tesla', accent: '#b92f3a', logoMark: 'tesla', raceRank: 20},
   {id: 'figure', name: 'Figure', accent: '#8d95a8', logoMark: 'figure', raceRank: 21},
   {id: 'waymo', name: 'Waymo', accent: '#19a87d', raceRank: 22},
   {id: 'zoox', name: 'Zoox', accent: '#8f6bd6', raceRank: 23},
+  {id: 'wayve', name: 'Wayve', accent: '#2fb7b5', raceRank: 24},
+  {id: 'nvidia', name: 'NVIDIA', accent: '#76b900', logoMark: 'nvidia', raceRank: 25},
   {id: 'midjourney', name: 'Midjourney', accent: '#c0537a', raceRank: 30},
   {id: 'stability-ai', name: 'Stability AI', accent: '#6b8e4e', raceRank: 31},
   {id: 'black-forest-labs', name: 'Black Forest Labs', accent: '#7b6bd6', raceRank: 32},
@@ -26,6 +29,12 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'tencent-hunyuan-3d', name: 'Tencent', accent: '#327ec7', raceRank: 38},
   {id: 'tripo-ai', name: 'Tripo AI', accent: '#d15f45', raceRank: 39},
   {id: 'lightricks', name: 'Lightricks', accent: '#4f9f8a', raceRank: 40},
+  {id: 'ideogram', name: 'Ideogram', accent: '#d45f78', raceRank: 41},
+  {id: 'reve', name: 'Reve', accent: '#2aa69a', raceRank: 42},
+  {id: 'world-labs', name: 'World Labs', accent: '#7c8fb3', raceRank: 43},
+  {id: 'decart', name: 'Decart', accent: '#ca7a4b', raceRank: 44},
+  {id: 'reactor', name: 'Reactor', accent: '#7bbf58', logoMark: 'reactor', raceRank: 45},
+  {id: 'world-models-research', name: 'World Models Research', accent: '#9f8f4f', raceRank: 46},
 ];
 
 export const companyProfilesById = companyProfiles.reduce<Record<string, CompanyProfile>>((profiles, profile) => {

@@ -137,6 +137,12 @@ export const modelPresets: PresetConfig[] = [
     description: '3D asset and reconstruction models from specialized labs.',
   },
   {
+    id: 'world-models',
+    classId: 'world-models',
+    label: 'World Models',
+    description: 'Research systems that learn to simulate, predict, or interact with physical, virtual, and embodied environments.',
+  },
+  {
     id: 'coding-harnesses',
     classId: 'coding-harnesses',
     label: 'Coding Harnesses',
@@ -172,6 +178,10 @@ export const filterPresetGroups: {label: string; presetIds: PresetId[]}[] = [
     presetIds: ['image-generation', 'video-generation', 'audio-generation', '3d-generation'],
   },
   {
+    label: 'World models',
+    presetIds: ['world-models'],
+  },
+  {
     label: 'Coding tools',
     presetIds: ['coding-harnesses'],
   },
@@ -202,6 +212,10 @@ function getDefaultMarkerShape(classId: ModelClassId): ProductMarkerShape {
   }
 
   if (classId === 'audio-generation') {
+    return 'diamond';
+  }
+
+  if (classId === 'world-models') {
     return 'diamond';
   }
 
@@ -472,11 +486,12 @@ export const companies: CompanyRecord[] = [
         label: 'Sora video',
         shortLabel: 'Sora',
         classId: 'video-generation',
+        defaultClasses: ['video-generation'],
         defaultPresets: ['video-generation'],
         releases: [
           {name: 'Sora Preview', date: '2024-02-15', articleSlug: 'sora-preview', tags: ['landmark-release']},
           {name: 'Sora Turbo', date: '2024-12-09'},
-          {name: 'Sora 2', date: '2025-09-30'},
+          {name: 'Sora 2 / Sora 2 Pro', date: '2025-09-30', tags: ['major-release']},
         ],
       }),
       defineProductLine({
@@ -563,7 +578,12 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini 2.5', date: '2025-03-25', articleSlug: 'gemini-2-5', tags: ['ai-race-core', 'landmark-release']},
           {name: 'Gemini 3.0 Pro', date: '2025-11-18'},
           {name: 'Gemini 3.1 Pro (Preview)', date: '2026-02-19'},
-          {name: 'Gemini 3.1 Flash-Image', date: '2026-02-26'},
+          {
+            name: 'Gemini 3.1 Flash Image (Nano Banana 2)',
+            date: '2026-02-26',
+            classes: ['frontier-llms', 'image-generation'],
+            presets: ['llms', 'image-generation'],
+          },
           {name: 'Gemini 3.1 Flash-Lite', date: '2026-03-03'},
           {name: 'Gemini 3.5 Flash', date: '2026-05-19', articleSlug: 'gemini-3-5-flash', tags: ['ai-race-core']},
           {name: 'Gemini Omni', date: '2026-05-19', eventType: 'model-release', articleSlug: 'gemini-omni-flash'},
@@ -606,6 +626,24 @@ export const companies: CompanyRecord[] = [
             eventType: 'model-release',
             articleSlug: 'gemini-omni-flash',
           },
+        ],
+      }),
+      defineProductLine({
+        id: 'google-world-models',
+        label: 'DeepMind world models',
+        shortLabel: 'Worlds',
+        classId: 'world-models',
+        defaultPresets: ['world-models'],
+        releases: [
+          {name: 'PlaNet', date: '2018-11-12', eventType: 'research-release'},
+          {name: 'Dreamer', date: '2019-12-03', eventType: 'research-release'},
+          {name: 'DreamerV2', date: '2020-10-05', eventType: 'research-release', tags: ['major-release']},
+          {name: 'DreamerV3', date: '2023-01-10', eventType: 'research-release', tags: ['major-release']},
+          {name: 'Genie', date: '2024-02-23', eventType: 'research-release', tags: ['landmark-release']},
+          {name: 'Genie 2', date: '2024-12-04', eventType: 'research-release', tags: ['major-release']},
+          {name: 'Genie 3', date: '2025-08-05', eventType: 'research-release', tags: ['landmark-release']},
+          {name: 'Project Genie', date: '2026-01-29', eventType: 'public-demo'},
+          {name: 'Project Genie + Street View', date: '2026-05-19', eventType: 'deployment'},
         ],
       }),
       defineProductLine({
@@ -725,6 +763,32 @@ export const companies: CompanyRecord[] = [
           {name: 'Waymo One opens to all in Los Angeles', date: '2024-11-12', eventType: 'deployment'},
           {name: 'Waymo launches on Uber in Austin', date: '2025-03-04', eventType: 'deployment'},
           {name: 'Sixth-generation Waymo Driver operations', date: '2026-02-12', eventType: 'deployment'},
+        ],
+      }),
+      defineProductLine({
+        id: 'waymo-world-models',
+        label: 'Driving world models',
+        shortLabel: 'Worlds',
+        classId: 'world-models',
+        defaultPresets: ['world-models'],
+        releases: [
+          {name: 'Waymo World Model', date: '2026-02-06', eventType: 'research-release', tags: ['major-release']},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'wayve',
+    productLines: [
+      defineProductLine({
+        id: 'wayve-world-models',
+        label: 'Driving world models',
+        shortLabel: 'GAIA',
+        classId: 'world-models',
+        defaultPresets: ['world-models'],
+        releases: [
+          {name: 'GAIA-1', date: '2023-06-17', eventType: 'research-release', tags: ['major-release']},
+          {name: 'GAIA-1 technical report', date: '2023-09-29', eventType: 'research-release'},
         ],
       }),
     ],
@@ -970,20 +1034,6 @@ export const companies: CompanyRecord[] = [
     profileId: 'stability-ai',
     productLines: [
       defineProductLine({
-        id: 'stability-image',
-        label: 'Image models',
-        shortLabel: 'Image',
-        classId: 'image-generation',
-        defaultPresets: ['image-generation'],
-        releases: [
-          {name: 'Stable Diffusion 1.0', date: '2022-08-22', tags: ['landmark-release']},
-          {name: 'Stable Diffusion 2.0', date: '2022-11-24'},
-          {name: 'SDXL 1.0', date: '2023-07-26'},
-          {name: 'Stable Diffusion 3 Medium', date: '2024-06-12'},
-          {name: 'Stable Diffusion 3.5', date: '2024-10-22'},
-        ],
-      }),
-      defineProductLine({
         id: 'stability-video',
         label: 'Video models',
         shortLabel: 'Video',
@@ -1025,12 +1075,17 @@ export const companies: CompanyRecord[] = [
     productLines: [
       defineProductLine({
         id: 'flux-image',
-        label: 'FLUX models',
-        shortLabel: 'FLUX',
+        label: 'Stable Diffusion / FLUX models',
+        shortLabel: 'SD / FLUX',
         classId: 'image-generation',
         defaultPresets: ['image-generation'],
         releases: [
+          {name: 'Stable Diffusion 1.0', date: '2022-08-22', tags: ['landmark-release']},
+          {name: 'Stable Diffusion 2.0', date: '2022-11-24'},
+          {name: 'SDXL 1.0', date: '2023-07-26'},
+          {name: 'Stable Diffusion 3 Medium', date: '2024-06-12'},
           {name: 'FLUX.1', date: '2024-08-01', tags: ['landmark-release']},
+          {name: 'Stable Diffusion 3.5', date: '2024-10-22'},
           {name: 'FLUX.1 Tools', date: '2024-11-21'},
           {name: 'FLUX.1 Kontext', date: '2025-05-29'},
         ],
@@ -1051,6 +1106,19 @@ export const companies: CompanyRecord[] = [
           {name: 'Gen-3 Alpha', date: '2024-06-17'},
           {name: 'Gen-4', date: '2025-03-31'},
           {name: 'Gen-4.5', date: '2025-12-01'},
+        ],
+      }),
+      defineProductLine({
+        id: 'runway-world-models',
+        label: 'General world models',
+        shortLabel: 'GWM',
+        classId: 'world-models',
+        defaultPresets: ['world-models'],
+        releases: [
+          {name: 'General World Models research', date: '2023-12-11', eventType: 'announcement'},
+          {name: 'Runway Game Worlds', date: '2025-08-21', eventType: 'public-demo'},
+          {name: 'GWM-1', date: '2025-12-11', eventType: 'research-release', tags: ['major-release']},
+          {name: 'GWM-Robotics evaluation', date: '2026-02-27', eventType: 'research-release'},
         ],
       }),
     ],
@@ -1110,6 +1178,146 @@ export const companies: CompanyRecord[] = [
           {name: 'LTX-2 announced', date: '2025-10-23', eventType: 'announcement'},
           {name: 'LTX-2 open weights', date: '2026-01-03'},
           {name: 'LTX-2.3', date: '2026-03-04', articleSlug: 'ltx-2-3'},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'ideogram',
+    productLines: [
+      defineProductLine({
+        id: 'ideogram-image',
+        label: 'Image models',
+        shortLabel: 'Image',
+        classId: 'image-generation',
+        defaultPresets: ['image-generation'],
+        releases: [
+          {name: 'Ideogram 0.1', date: '2023-08-29'},
+          {name: 'Ideogram 1.0', date: '2024-02-28'},
+          {name: 'Ideogram 2.0', date: '2024-08-21'},
+          {name: 'Ideogram 2a', date: '2025-02-27'},
+          {name: 'Ideogram 3.0', date: '2025-03-26'},
+          {
+            name: 'Ideogram 4.0',
+            date: '2026-06-03',
+            articleSlug: 'ideogram-4-open-weight',
+            presets: ['image-generation', 'open-source'],
+            tags: ['major-release', 'open-weight'],
+          },
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'reve',
+    productLines: [
+      defineProductLine({
+        id: 'reve-image',
+        label: 'Image models',
+        shortLabel: 'Image',
+        classId: 'image-generation',
+        defaultPresets: ['image-generation'],
+        releases: [
+          {name: 'Reve 2.0', date: '2026-06-03', articleSlug: 'reve-2-0', tags: ['major-release']},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'world-models-research',
+    productLines: [
+      defineProductLine({
+        id: 'world-models-foundations',
+        label: 'Foundational papers',
+        shortLabel: 'Papers',
+        classId: 'world-models',
+        defaultPresets: ['world-models'],
+        releases: [
+          {name: 'World Models', date: '2018-03-27', eventType: 'research-release', tags: ['landmark-release']},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'decart',
+    productLines: [
+      defineProductLine({
+        id: 'decart-world-models',
+        label: 'Interactive world models',
+        shortLabel: 'Oasis',
+        classId: 'world-models',
+        defaultPresets: ['world-models', 'open-source'],
+        releases: [
+          {name: 'Oasis', date: '2024-10-31', eventType: 'research-release', tags: ['major-release', 'open-weight']},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'world-labs',
+    productLines: [
+      defineProductLine({
+        id: 'worldlabs-world-models',
+        label: 'Spatial world models',
+        shortLabel: 'Marble',
+        classId: 'world-models',
+        defaultPresets: ['world-models'],
+        releases: [
+          {name: 'Marble beta', date: '2025-09-16', eventType: 'public-demo', tags: ['major-release']},
+          {name: 'RTFM', date: '2025-10-16', eventType: 'research-release', tags: ['major-release']},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'reactor',
+    productLines: [
+      defineProductLine({
+        id: 'reactor-world-models',
+        label: 'Real-time world-model platform',
+        shortLabel: 'Reactor',
+        classId: 'world-models',
+        defaultPresets: ['world-models'],
+        releases: [
+          {
+            name: 'Reactor platform',
+            date: '2026-05-28',
+            eventType: 'product-launch',
+            articleSlug: 'reactor-real-time-world-model-platform',
+            tags: ['major-release'],
+          },
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'meta-ai',
+    productLines: [
+      defineProductLine({
+        id: 'meta-jepa-world-models',
+        label: 'JEPA world models',
+        shortLabel: 'V-JEPA',
+        classId: 'world-models',
+        defaultPresets: ['world-models', 'open-source'],
+        releases: [
+          {name: 'V-JEPA', date: '2024-02-15', eventType: 'research-release'},
+          {name: 'V-JEPA 2', date: '2025-06-11', eventType: 'research-release', tags: ['major-release', 'open-weight']},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'nvidia',
+    productLines: [
+      defineProductLine({
+        id: 'nvidia-cosmos',
+        label: 'Cosmos world foundation models',
+        shortLabel: 'Cosmos',
+        classId: 'world-models',
+        defaultPresets: ['world-models', 'open-source'],
+        releases: [
+          {name: 'Cosmos WFMs', date: '2025-01-06', eventType: 'research-release', tags: ['major-release', 'open-weight']},
+          {name: 'Cosmos 3', date: '2026-06-01', eventType: 'research-release', tags: ['major-release', 'open-weight']},
         ],
       }),
     ],

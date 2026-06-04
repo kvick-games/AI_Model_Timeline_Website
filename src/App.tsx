@@ -96,6 +96,10 @@ const DOMAIN_FILTER_GROUPS: {label: string; domainIds: TimelineDomainId[]}[] = [
     domainIds: ['image-generation', 'video-generation', 'audio-generation', '3d-generation'],
   },
   {
+    label: 'World models',
+    domainIds: ['world-models'],
+  },
+  {
     label: 'Coding tools',
     domainIds: ['coding-harnesses'],
   },
@@ -228,6 +232,8 @@ function getPresetSignificanceBase(presetId: PresetId) {
       return 74;
     case 'video-generation':
       return 68;
+    case 'world-models':
+      return 70;
     case 'audio-generation':
       return 66;
     case 'image-generation':
@@ -543,7 +549,9 @@ const ARTICLE_LOGO_ASSET_PATHS: Partial<Record<ArticleLogoMark, string>> = {
   cursor: 'logos/cursor.svg',
   figure: 'logos/figure.svg',
   google: 'logos/google.svg',
+  nvidia: 'logos/nvidia.svg',
   openai: 'logos/openai.svg',
+  reactor: 'logos/reactor.svg',
   tesla: 'logos/tesla.svg',
   xai: 'logos/xai.svg',
 };
@@ -2269,6 +2277,10 @@ function ModelClassIcon({classId, className}: {classId: ModelClassId; className?
 
   if (classId === '3d-generation') {
     return <Box className={iconClassName} strokeWidth={1.8} />;
+  }
+
+  if (classId === 'world-models') {
+    return <Layers3 className={iconClassName} strokeWidth={1.8} />;
   }
 
   if (classId === 'coding-harnesses') {

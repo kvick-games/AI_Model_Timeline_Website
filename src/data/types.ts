@@ -5,12 +5,13 @@ export type ModelClassId =
   | 'video-generation'
   | 'audio-generation'
   | '3d-generation'
+  | 'world-models'
   | 'coding-harnesses'
   | 'events'
   | 'robotics'
   | 'vehicle-autonomy';
 
-export type TimelineTag = 'ai-race-core' | 'major-release' | 'landmark-release';
+export type TimelineTag = 'ai-race-core' | 'major-release' | 'landmark-release' | 'open-weight';
 
 export type PresetId =
   | 'llms'
@@ -19,6 +20,7 @@ export type PresetId =
   | 'video-generation'
   | 'audio-generation'
   | '3d-generation'
+  | 'world-models'
   | 'coding-harnesses'
   | 'events'
   | 'robotics'
@@ -95,7 +97,9 @@ export type ArticleLogoMark =
   | 'generic'
   | 'google'
   | 'gpt'
+  | 'nvidia'
   | 'openai'
+  | 'reactor'
   | 'figure'
   | 'tesla'
   | 'sora'
