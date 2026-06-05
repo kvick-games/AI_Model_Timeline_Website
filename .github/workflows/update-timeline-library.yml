@@ -1,0 +1,77 @@
+name: Update Timeline Library
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 10 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Use HTTPS for GitHub git dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf ssh://git@github.com/
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Find latest library tag
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest_tag="$(gh api repos/kvick-games/timeline-library/tags --paginate --jq '.[].name' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
+          if [ -z "$latest_tag" ]; then
+            echo "No semver tags found for kvick-games/timeline-library" >&2
+            exit 1
+          fi
+
+          current_spec="$(node -p "require('./package.json').dependencies['@kvick-games/timeline-library']")"
+          current_tag="${current_spec##*#}"
+
+          echo "tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          if [ "$latest_tag" = "$current_tag" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update dependency
+        if: steps.latest.outputs.changed == 'true'
+        run: npm install "@kvick-games/timeline-library@github:kvick-games/timeline-library#${{ steps.latest.outputs.tag }}"
+
+      - name: Typecheck
+        if: steps.latest.outputs.changed == 'true'
+        run: npm run lint
+
+      - name: Build
+        if: steps.latest.outputs.changed == 'true'
+        run: npm run build
+
+      - name: Open update pull request
+        if: steps.latest.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "Update timeline library to ${{ steps.latest.outputs.tag }}"
+          branch: codex/update-timeline-library
+          delete-branch: true
+          title: "Update timeline library to ${{ steps.latest.outputs.tag }}"
+          body: |
+            Updates `@kvick-games/timeline-library` to `${{ steps.latest.outputs.tag }}`.
+
+            Verification:
+            - `npm run lint`
+            - `npm run build`
