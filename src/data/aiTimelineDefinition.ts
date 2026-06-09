@@ -1,5 +1,6 @@
 import type {TimelineDefinition, TimelineTag} from '@kvick-games/timeline-library';
 import {modelReleaseIndexBySlug} from './releaseIndex';
+import {publicAssetPath} from './publicAssets';
 import {companies, modelPresets, timelineEventTypes} from './timeline';
 
 export const aiTimelineDefinition = {
@@ -59,15 +60,15 @@ export const aiTimelineDefinition = {
   ],
   groups: companies,
   logoAssetPaths: {
-    anthropic: 'logos/anthropic.svg',
-    cursor: 'logos/cursor.svg',
-    figure: 'logos/figure.svg',
-    google: 'logos/google.svg',
-    nvidia: 'logos/nvidia.svg',
-    openai: 'logos/openai.svg',
-    reactor: 'logos/reactor.svg',
-    tesla: 'logos/tesla.svg',
-    xai: 'logos/xai.svg',
+    anthropic: publicAssetPath('logos/anthropic.svg'),
+    cursor: publicAssetPath('logos/cursor.svg'),
+    figure: publicAssetPath('logos/figure.svg'),
+    google: publicAssetPath('logos/google.svg'),
+    nvidia: publicAssetPath('logos/nvidia.svg'),
+    openai: publicAssetPath('logos/openai.svg'),
+    reactor: publicAssetPath('logos/reactor.svg'),
+    tesla: publicAssetPath('logos/tesla.svg'),
+    xai: publicAssetPath('logos/xai.svg'),
   },
   routeItemPathPrefix: 'models',
   scoring: {

@@ -1,4 +1,5 @@
 import type {ModelArticle} from '../types';
+import {publicAssetPath} from '../publicAssets';
 
 export const article: ModelArticle = {
   "slug": "figure-f03-livestream",
@@ -19,7 +20,7 @@ export const article: ModelArticle = {
   "summary": "The May 13-17, 2026 livestream marked a notable Figure milestone because it put a repetitive logistics task in front of the public for days. Figure framed the work as autonomous package sorting by multiple humanoids, with the robots detecting barcodes, reorienting packages, and keeping the conveyor moving.",
   "impact": "For humanoid robotics, the event shifted attention from single-task highlight reels toward duration, reliability claims, multi-robot handoff behavior, and publicity-ready human comparisons. It made operational endurance a visible benchmark in the AI robotics timeline.",
   "media": {
-    "src": "articles/figure-f03-livestream.png",
+    "src": publicAssetPath("articles/figure-f03-livestream.png"),
     "alt": "Screenshot of the Figure F.03 livestream showing a human and a Figure robot sorting packages side by side on X.",
     "caption": "By the fourth-day publicity beat, Figure framed the stream as a direct “Man vs. Machine” package-sorting comparison, with public counters for time, package totals, and live chat reaction."
   },

@@ -1,4 +1,5 @@
 import type {ModelArticle} from '../types';
+import {publicAssetPath} from '../publicAssets';
 
 export const article: ModelArticle = {
   "slug": "claude-opus-4-8",
@@ -18,7 +19,7 @@ export const article: ModelArticle = {
   "summary": "Claude Opus 4.8 is the latest step in Anthropic's flagship Opus track, arriving roughly six weeks after Opus 4.7. Anthropic's launch benchmarks show it leading Opus 4.7, GPT-5.5, and Gemini 3.1 Pro on most agentic tasks, with GPT-5.5 still ahead on terminal coding.",
   "impact": "The update keeps Anthropic at the frontier as rival labs ship on a similarly compressed schedule, reinforcing Opus as the high-capability anchor of the Claude family.",
   "media": {
-    "src": "articles/claude-opus-4-8.png",
+    "src": publicAssetPath("articles/claude-opus-4-8.png"),
     "alt": "Benchmark comparison table for Claude Opus 4.8 against Opus 4.7, GPT-5.5, and Gemini 3.1 Pro across agentic coding, terminal coding, reasoning, computer use, knowledge work, and financial analysis.",
     "caption": "Anthropic's launch benchmarks: Opus 4.8 leads on SWE-Bench Pro (69.2%), Humanity's Last Exam, OSWorld-Verified (83.4%), GDPval-AA (1890), and Finance Agent v2 (53.9%), while GPT-5.5 stays ahead on Terminal-Bench 2.1 (78.2% vs 74.6%)."
   },
