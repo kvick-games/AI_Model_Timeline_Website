@@ -458,6 +458,7 @@ export const companies: CompanyRecord[] = [
           {name: 'GPT-4', date: '2023-03-14', tags: ['landmark-release']},
           {name: 'GPT-4 Turbo', date: '2023-11-06'},
           {name: 'GPT-4o', date: '2024-05-13', articleSlug: 'gpt-4o', tags: ['ai-race-core', 'landmark-release']},
+          {name: 'GPT-4o mini', date: '2024-07-18', tags: ['major-release']},
           {name: 'o1', date: '2024-12-05'},
           {name: 'o3', date: '2025-04-16'},
           {name: 'GPT-5', date: '2025-08-07'},
