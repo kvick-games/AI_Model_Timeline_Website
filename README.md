@@ -29,6 +29,12 @@ The app presents model launches on a single horizontal timeline so you can compa
 - Motion
 - TypeScript
 
+## Timeline library
+
+The reusable timeline renderer is consumed from `@kvick-games/timeline-library`, pinned to a GitHub tag. The current AI model site is an adapter in `src/data/aiTimelineDefinition.ts` that passes grouped timeline data, facets, event types, copy, scoring, article index data, and logo assets into `TimelineExperience`.
+
+To create a new timeline around different content, build a new `TimelineDefinition` with your own groups, lanes, dated items, filter groups, labels, scoring, and article index, then render `<TimelineExperience definition={yourDefinition} />`.
+
 ## Local development
 
 1. Install dependencies: `npm install`
