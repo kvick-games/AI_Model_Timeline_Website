@@ -330,3 +330,10 @@ button[data-timeline-pin] > .z-\[2\] {
     --tw-translate-y: calc(var(--spacing) * -0);
   }
 }
+
+@media (hover: none), (pointer: coarse) {
+  [data-row-focus-label] {
+    display: none !important;
+    pointer-events: none !important;
+  }
+}
