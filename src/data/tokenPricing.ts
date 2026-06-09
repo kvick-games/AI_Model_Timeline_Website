@@ -626,7 +626,7 @@ export const tokenPricingBySlug = tokenPricingRecords.reduce<Record<string, Toke
   return records;
 }, {});
 
-function formatUsdPerMillion(value: number) {
+function formatUsdPerMillionValue(value: number) {
   const fractionDigits = (() => {
     if (Number.isInteger(value)) {
       return {minimumFractionDigits: 0, maximumFractionDigits: 0};
@@ -643,7 +643,11 @@ function formatUsdPerMillion(value: number) {
     return {minimumFractionDigits: 0, maximumFractionDigits: 6};
   })();
 
-  return `$${value.toLocaleString('en-US', fractionDigits)}`;
+  return value.toLocaleString('en-US', fractionDigits);
+}
+
+function formatUsdPerMillion(value: number) {
+  return `$${formatUsdPerMillionValue(value)}`;
 }
 
 function formatDateForFact(input: string) {
@@ -657,10 +661,10 @@ function formatDateForFact(input: string) {
 
 export function formatTokenPricingBadge(record: TokenPricingRecord) {
   if (record.billingModel === 'combined') {
-    return `${formatUsdPerMillion(record.inputUsdPerMillion)} flat`;
+    return `${formatUsdPerMillionValue(record.inputUsdPerMillion)} flat`;
   }
 
-  return `${formatUsdPerMillion(record.inputUsdPerMillion)} / ${formatUsdPerMillion(record.outputUsdPerMillion)}`;
+  return `${formatUsdPerMillionValue(record.inputUsdPerMillion)} / ${formatUsdPerMillionValue(record.outputUsdPerMillion)}`;
 }
 
 export function formatTokenPricingFact(record: TokenPricingRecord) {

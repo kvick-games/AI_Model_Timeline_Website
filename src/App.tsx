@@ -1,6 +1,6 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useLayoutEffect, useMemo, useState} from 'react';
 import {TimelineExperience} from '@kvick-games/timeline-library';
-import {BadgeDollarSign} from 'lucide-react';
+import {Banknote} from 'lucide-react';
 import {createPortal} from 'react-dom';
 import {aiTimelineDefinition} from './data/aiTimelineDefinition';
 import {modelReleaseIndex} from './data/releaseIndex';
@@ -15,6 +15,7 @@ const COST_OVERLAY_STORAGE_KEY = 'ai-timeline-cost-overlay';
 const FILTER_PANEL_SELECTOR = '[data-filter-panel]';
 const FILTER_PANEL_TOGGLE_HOST_ATTRIBUTE = 'data-token-cost-filter-toggle-host';
 const TIMELINE_PIN_SELECTOR = 'button[data-timeline-pin]';
+const TOKEN_COST_BADGE_SELECTOR = '[data-token-cost-badge]';
 
 type PinCostAnnotation = {
   label: string;
@@ -35,6 +36,33 @@ function clearCostAttributes(pin: HTMLButtonElement) {
   pin.removeAttribute('data-token-cost-label');
   pin.removeAttribute('data-token-cost-tier');
   pin.removeAttribute('data-token-cost-title');
+  pin.querySelector(TOKEN_COST_BADGE_SELECTOR)?.remove();
+}
+
+function syncCostBadge(pin: HTMLButtonElement, label: string) {
+  let badge = pin.querySelector<HTMLSpanElement>(TOKEN_COST_BADGE_SELECTOR);
+
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.setAttribute('data-token-cost-badge', '');
+    badge.setAttribute('aria-hidden', 'true');
+
+    const icon = document.createElement('span');
+    icon.setAttribute('data-token-cost-badge-icon', '');
+    icon.textContent = '$';
+
+    const labelElement = document.createElement('span');
+    labelElement.setAttribute('data-token-cost-badge-label', '');
+
+    badge.append(icon, labelElement);
+    pin.appendChild(badge);
+  }
+
+  const labelElement = badge.querySelector<HTMLSpanElement>('[data-token-cost-badge-label]');
+
+  if (labelElement) {
+    labelElement.textContent = label;
+  }
 }
 
 function TimelineCostOverlay({enabled}: {enabled: boolean}) {
@@ -62,7 +90,7 @@ function TimelineCostOverlay({enabled}: {enabled: boolean}) {
     return annotations;
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let animationFrame = 0;
 
     const annotatePins = () => {
@@ -78,6 +106,7 @@ function TimelineCostOverlay({enabled}: {enabled: boolean}) {
         pin.setAttribute('data-token-cost-label', annotation.label);
         pin.setAttribute('data-token-cost-tier', annotation.tier);
         pin.setAttribute('data-token-cost-title', annotation.title);
+        syncCostBadge(pin, annotation.label);
       });
     };
 
@@ -109,19 +138,23 @@ function TimelineCostOverlay({enabled}: {enabled: boolean}) {
 function FilterPanelCostTogglePortal({enabled, onToggle}: {enabled: boolean; onToggle: () => void}) {
   const [hostElement, setHostElement] = useState<HTMLElement | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let animationFrame = 0;
+    let retryInterval = 0;
+    let retryTimeout = 0;
 
     const syncHostElement = () => {
       const filterPanel = document.querySelector<HTMLElement>(FILTER_PANEL_SELECTOR);
-      const panelContent = filterPanel?.firstElementChild;
+      const panelContent = filterPanel?.firstElementChild as HTMLElement | null | undefined;
 
-      if (!(panelContent instanceof HTMLElement)) {
+      if (!panelContent) {
         setHostElement(null);
         return;
       }
 
-      let host = panelContent.querySelector<HTMLElement>(`:scope > [${FILTER_PANEL_TOGGLE_HOST_ATTRIBUTE}]`);
+      let host = Array.from(panelContent.children).find((child) =>
+        child.hasAttribute(FILTER_PANEL_TOGGLE_HOST_ATTRIBUTE),
+      ) as HTMLElement | undefined;
 
       if (!host) {
         host = document.createElement('div');
@@ -138,6 +171,8 @@ function FilterPanelCostTogglePortal({enabled, onToggle}: {enabled: boolean; onT
     };
 
     syncHostElement();
+    retryTimeout = window.setTimeout(syncHostElement, 100);
+    retryInterval = window.setInterval(syncHostElement, 400);
 
     const observer = new MutationObserver(scheduleHostSync);
     observer.observe(document.body, {
@@ -149,6 +184,8 @@ function FilterPanelCostTogglePortal({enabled, onToggle}: {enabled: boolean; onT
 
     return () => {
       window.cancelAnimationFrame(animationFrame);
+      window.clearInterval(retryInterval);
+      window.clearTimeout(retryTimeout);
       observer.disconnect();
     };
   }, []);
@@ -168,8 +205,9 @@ function FilterPanelCostTogglePortal({enabled, onToggle}: {enabled: boolean; onT
         title={enabled ? 'Hide token costs' : 'Show token costs'}
         onClick={onToggle}
       >
-        <span className="token-cost-panel-toggle-icon">
-          <BadgeDollarSign aria-hidden="true" size={16} strokeWidth={2} />
+        <span className="token-cost-panel-toggle-icon" aria-hidden="true">
+          <Banknote size={18} strokeWidth={1.9} />
+          <span className="token-cost-panel-toggle-icon-coin">$</span>
         </span>
         <span className="token-cost-panel-toggle-copy">
           <span className="token-cost-panel-toggle-label">Costs</span>
