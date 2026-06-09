@@ -17,3 +17,22 @@ body {
   height: 100%;
   overflow: hidden;
 }
+
+button[data-timeline-pin] > .z-\[2\] {
+  left: 0;
+  --tw-translate-y: calc(var(--spacing) * -8);
+  --tw-translate-x: calc(var(--spacing) * -1);
+}
+
+@media (hover: hover) {
+  button[data-timeline-pin]:hover > .z-\[2\],
+  button[data-timeline-pin]:focus-visible > .z-\[2\] {
+    --tw-translate-y: calc(var(--spacing) * -10);
+  }
+}
+
+@media (max-width: 767px) {
+  button[data-timeline-pin] > .z-\[2\] {
+    --tw-translate-y: calc(var(--spacing) * -0);
+  }
+}
