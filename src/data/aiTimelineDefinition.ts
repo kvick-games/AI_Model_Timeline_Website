@@ -3,9 +3,23 @@ import {modelReleaseIndexBySlug} from './releaseIndex';
 import {publicAssetPath} from './publicAssets';
 import {companies, modelPresets, timelineEventTypes} from './timeline';
 
+const attributeFilterIds = ['open-source'];
+
+const routeArticleIndexBySlug = Object.fromEntries(
+  Object.entries(modelReleaseIndexBySlug).map(([slug, entry]) => [
+    slug,
+    {
+      ...entry,
+      // TimelineExperience widens active-route filters from article presets.
+      // Keep article routing metadata filter-neutral so opening an entry preserves user-selected filters.
+      presets: [],
+    },
+  ]),
+);
+
 export const aiTimelineDefinition = {
-  articleIndexBySlug: modelReleaseIndexBySlug,
-  attributeFilterIds: ['open-source'],
+  articleIndexBySlug: routeArticleIndexBySlug,
+  attributeFilterIds,
   contentTypeOptions: [
     {
       id: 'all',
