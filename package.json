@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
-    "@kvick-games/timeline-library": "github:kvick-games/timeline-library#4ab47b444bfe9c686035f4c579682d1a81759e11",
+    "@kvick-games/timeline-library": "github:kvick-games/timeline-library#39469168dc9f78b4cca3fed951efd3aa8776b642",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "better-sqlite3": "^12.4.1",
