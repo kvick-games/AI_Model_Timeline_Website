@@ -580,15 +580,19 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini 2.5', date: '2025-03-25', articleSlug: 'gemini-2-5', tags: ['ai-race-core', 'landmark-release']},
           {name: 'Gemini 3.0 Pro', date: '2025-11-18'},
           {name: 'Gemini 3.1 Pro (Preview)', date: '2026-02-19'},
-          {
-            name: 'Gemini 3.1 Flash Image (Nano Banana 2)',
-            date: '2026-02-26',
-            classes: ['frontier-llms', 'image-generation'],
-            presets: ['llms', 'image-generation'],
-          },
           {name: 'Gemini 3.1 Flash-Lite', date: '2026-03-03'},
           {name: 'Gemini 3.5 Flash', date: '2026-05-19', articleSlug: 'gemini-3-5-flash', tags: ['ai-race-core']},
           {name: 'Gemini Omni', date: '2026-05-19', eventType: 'model-release', articleSlug: 'gemini-omni-flash'},
+        ],
+      }),
+      defineProductLine({
+        id: 'google-image',
+        label: 'Image models',
+        shortLabel: 'Image',
+        classId: 'image-generation',
+        defaultPresets: ['image-generation'],
+        releases: [
+          {name: 'Gemini 3.1 Flash Image (Nano Banana 2)', date: '2026-02-26'},
         ],
       }),
       defineProductLine({
