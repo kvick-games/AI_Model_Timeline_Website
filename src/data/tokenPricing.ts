@@ -95,6 +95,10 @@ const sources = {
     label: 'xAI: Grok 4.1 Fast',
     url: 'https://x.ai/news/grok-4-1-fast',
   },
+  kimiK27CodePricing: {
+    label: 'Kimi API pricing: Kimi K2.7 Code',
+    url: 'https://platform.kimi.ai/docs/pricing/chat-k27-code',
+  },
 } as const;
 
 function pricingArticle({
@@ -905,6 +909,20 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
     sourceLabel: sources.geminiPricing.label,
     sourceUrl: sources.geminiPricing.url,
     note: 'Current standard Gemini API price; batch, flex, priority, grounding, and audio pricing differ.',
+  },
+  {
+    slug: 'kimi-k2-7-code',
+    basis: 'current',
+    billingModel: 'input-output',
+    inputUsdPerMillion: 0.95,
+    outputUsdPerMillion: 4,
+    cachedInputUsdPerMillion: 0.19,
+    pricedAt: '2026-06-12',
+    providerLabel: 'Moonshot AI',
+    modelLabel: 'Kimi K2.7 Code',
+    sourceLabel: sources.kimiK27CodePricing.label,
+    sourceUrl: sources.kimiK27CodePricing.url,
+    note: 'Official Kimi API price for Kimi K2.7 Code; taxes, promotions, and nonstandard billing modes may differ.',
   },
   {
     slug: 'xai-xai-grok-grok-4-1-2025-11-17',

@@ -970,6 +970,12 @@ export const companies: CompanyRecord[] = [
           {name: 'Kimi Chat', date: '2023-10-09'},
           {name: 'Kimi k1.5', date: '2025-01-20'},
           {name: 'Kimi K2', date: '2025-07-11'},
+          {
+            name: 'Kimi K2.7 Code',
+            date: '2026-06-12',
+            articleSlug: 'kimi-k2-7-code',
+            tags: ['ai-race-core', 'major-release', 'open-weight'],
+          },
         ],
       }),
     ],
