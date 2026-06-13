@@ -1,6 +1,7 @@
-import {useLayoutEffect, useMemo, useState} from 'react';
+import {useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {TimelineExperience} from '@kvick-games/timeline-library';
-import {Banknote} from 'lucide-react';
+import type {LucideIcon} from 'lucide-react';
+import {Banknote, Flag, Handshake, Megaphone, Play, Radio, Rocket} from 'lucide-react';
 import {createPortal} from 'react-dom';
 import {aiTimelineDefinition} from './data/aiTimelineDefinition';
 import {modelReleaseIndex} from './data/releaseIndex';
@@ -21,6 +22,27 @@ type PinCostAnnotation = {
   label: string;
   tier: string;
   title: string;
+};
+
+type PinEventAnnotation = {
+  eventType: string;
+  eventTypeLabel: string;
+  Icon: LucideIcon;
+};
+
+type EventPinPortal = {
+  annotation: PinEventAnnotation;
+  key: string;
+  pin: HTMLButtonElement;
+};
+
+const EVENT_TYPE_ICONS: Record<string, LucideIcon> = {
+  announcement: Megaphone,
+  deployment: Rocket,
+  founding: Flag,
+  livestream: Radio,
+  partnership: Handshake,
+  'public-demo': Play,
 };
 
 function getInitialCostOverlayState() {
@@ -135,6 +157,122 @@ function TimelineCostOverlay({enabled}: {enabled: boolean}) {
   return null;
 }
 
+function clearEventAttributes(pin: HTMLButtonElement) {
+  pin.removeAttribute('data-timeline-event-type');
+  pin.removeAttribute('data-timeline-event-label');
+  pin.removeAttribute('data-timeline-event-portal-id');
+}
+
+function TimelineEventIcons() {
+  const portalId = useRef(0);
+  const lastSignature = useRef('');
+  const [eventPinPortals, setEventPinPortals] = useState<EventPinPortal[]>([]);
+
+  const annotationsByAriaLabel = useMemo(() => {
+    const annotations = new Map<string, PinEventAnnotation>();
+
+    modelReleaseIndex.forEach((entry) => {
+      if (entry.eventKind !== 'event') {
+        return;
+      }
+
+      const Icon = EVENT_TYPE_ICONS[entry.eventType] ?? Megaphone;
+      const annotation = {
+        eventType: entry.eventType,
+        eventTypeLabel: entry.eventTypeLabel,
+        Icon,
+      };
+
+      annotations.set(`Open event for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+      annotations.set(`Open release for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+    });
+
+    return annotations;
+  }, []);
+
+  useLayoutEffect(() => {
+    let animationFrame = 0;
+
+    const annotatePins = () => {
+      const nextEventPinPortals: EventPinPortal[] = [];
+
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach((pin) => {
+        const ariaLabel = pin.getAttribute('aria-label');
+        const annotation = ariaLabel ? annotationsByAriaLabel.get(ariaLabel) : undefined;
+
+        if (!annotation) {
+          clearEventAttributes(pin);
+          return;
+        }
+
+        let pinPortalId = pin.getAttribute('data-timeline-event-portal-id');
+
+        if (!pinPortalId) {
+          pinPortalId = `event-pin-${portalId.current}`;
+          portalId.current += 1;
+          pin.setAttribute('data-timeline-event-portal-id', pinPortalId);
+        }
+
+        pin.setAttribute('data-timeline-event-type', annotation.eventType);
+        pin.setAttribute('data-timeline-event-label', annotation.eventTypeLabel);
+
+        nextEventPinPortals.push({
+          annotation,
+          key: pinPortalId,
+          pin,
+        });
+      });
+
+      const nextSignature = nextEventPinPortals
+        .map(({annotation, key}) => `${key}:${annotation.eventType}`)
+        .join('|');
+
+      if (nextSignature !== lastSignature.current) {
+        lastSignature.current = nextSignature;
+        setEventPinPortals(nextEventPinPortals);
+      }
+    };
+
+    const scheduleAnnotation = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(annotatePins);
+    };
+
+    annotatePins();
+
+    const observer = new MutationObserver(scheduleAnnotation);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['aria-label', 'data-timeline-pin'],
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      lastSignature.current = '';
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach(clearEventAttributes);
+    };
+  }, [annotationsByAriaLabel]);
+
+  return (
+    <>
+      {eventPinPortals.map(({annotation, key, pin}) => {
+        const Icon = annotation.Icon;
+
+        return createPortal(
+          <span className="timeline-event-pin-icon" data-timeline-event-icon="" aria-hidden="true">
+            <Icon size={13} strokeWidth={2.5} />
+          </span>,
+          pin,
+          key,
+        );
+      })}
+    </>
+  );
+}
+
 function FilterPanelCostTogglePortal({enabled, onToggle}: {enabled: boolean; onToggle: () => void}) {
   const [hostElement, setHostElement] = useState<HTMLElement | null>(null);
 
@@ -233,6 +371,7 @@ export default function App() {
 
   return (
     <div className={`timeline-shell${showCostOverlay ? ' token-cost-overlay-enabled' : ''}`}>
+      <TimelineEventIcons />
       <TimelineCostOverlay enabled={showCostOverlay} />
       <FilterPanelCostTogglePortal enabled={showCostOverlay} onToggle={toggleCostOverlay} />
       <TimelineExperience definition={aiTimelineDefinition} />

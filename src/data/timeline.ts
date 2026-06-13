@@ -539,6 +539,13 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude 4.7 Opus', date: '2026-04-16'},
           {name: 'Claude 4.8 Opus', date: '2026-05-28', articleSlug: 'claude-opus-4-8'},
           {name: 'Claude Fable 5', date: '2026-06-09', articleSlug: 'claude-fable-5', tags: ['ai-race-core', 'landmark-release']},
+          {
+            name: 'Fable/Mythos access suspended',
+            date: '2026-06-12',
+            eventType: 'announcement',
+            articleSlug: 'claude-fable-mythos-access',
+            tags: ['ai-race-core'],
+          },
         ],
       }),
       defineProductLine({
@@ -581,8 +588,9 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini 3.0 Pro', date: '2025-11-18'},
           {name: 'Gemini 3.1 Pro (Preview)', date: '2026-02-19'},
           {
-            name: 'Gemini 3.1 Flash Image (Nano Banana 2)',
+            name: 'Gemini 3.1 Flash Image',
             date: '2026-02-26',
+            articleSlug: 'google-google-gemini-gemini-3-1-flash-image-nano-banana-2-2026-02-26',
             classes: ['frontier-llms', 'image-generation'],
             presets: ['llms', 'image-generation'],
           },
