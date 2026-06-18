@@ -68,6 +68,10 @@ export const aiTimelineDefinition = {
       domainIds: ['coding-harnesses'],
     },
     {
+      label: 'Events',
+      domainIds: ['events'],
+    },
+    {
       label: 'Embodied AI',
       domainIds: ['robotics', 'vehicle-autonomy'],
     },
@@ -81,6 +85,7 @@ export const aiTimelineDefinition = {
     nvidia: publicAssetPath('logos/nvidia.svg'),
     openai: publicAssetPath('logos/openai.svg'),
     reactor: publicAssetPath('logos/reactor.svg'),
+    spacex: publicAssetPath('logos/spacex.svg'),
     tesla: publicAssetPath('logos/tesla.svg'),
     xai: publicAssetPath('logos/xai.svg'),
   },
@@ -90,12 +95,14 @@ export const aiTimelineDefinition = {
       switch (eventTypeId) {
         case 'model-release':
           return 5;
+        case 'acquisition':
         case 'coding-harness-release':
           return 4;
         case 'product-launch':
         case 'research-release':
           return 3;
         case 'deployment':
+        case 'policy-action':
           return 2;
         case 'partnership':
           return 1;
@@ -152,7 +159,7 @@ export const aiTimelineDefinition = {
     {id: 'alphabetical', label: 'A–Z'},
   ],
   startDate: '1998-01-01',
-  wideLogoMarks: ['figure'],
+  wideLogoMarks: ['figure', 'spacex'],
   copy: {
     allRelevantLabel: 'All relevant',
     articleBackLabel: 'Timeline',

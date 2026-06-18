@@ -319,6 +319,26 @@ button[data-timeline-pin][data-timeline-event-type="livestream"] {
   --timeline-event-marker-clip: polygon(22% 0, 78% 0, 100% 22%, 100% 78%, 78% 100%, 22% 100%, 0 78%, 0 22%);
 }
 
+button[data-timeline-pin][data-timeline-event-type="acquisition"] {
+  --timeline-event-accent: #7f8ba0;
+  --timeline-event-accent-soft: rgba(124, 156, 240, 0.18);
+  --timeline-event-border: rgba(229, 236, 248, 0.86);
+  --timeline-event-ink: #f7fbff;
+  --timeline-event-label-bg: rgba(45, 58, 82, 0.34);
+  --timeline-event-label-border: rgba(174, 190, 220, 0.62);
+  --timeline-event-marker-clip: polygon(50% 0, 94% 18%, 94% 82%, 50% 100%, 6% 82%, 6% 18%);
+}
+
+button[data-timeline-pin][data-timeline-event-type="policy-action"] {
+  --timeline-event-accent: #c6a35d;
+  --timeline-event-accent-soft: rgba(198, 163, 93, 0.22);
+  --timeline-event-border: rgba(242, 216, 157, 0.82);
+  --timeline-event-ink: #fff4d6;
+  --timeline-event-label-bg: rgba(98, 79, 34, 0.24);
+  --timeline-event-label-border: rgba(226, 190, 111, 0.58);
+  --timeline-event-marker-clip: polygon(50% 0, 93% 16%, 100% 62%, 50% 100%, 0 62%, 7% 16%);
+}
+
 button[data-timeline-pin][data-timeline-event-type] .timeline-pin-marker {
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.44), rgba(4, 8, 13, 0.28)),
@@ -333,6 +353,27 @@ button[data-timeline-pin][data-timeline-event-type] .timeline-pin-marker {
   clip-path: var(--timeline-event-marker-clip);
   height: 1.38rem !important;
   width: 1.38rem !important;
+}
+
+button[data-timeline-pin][data-grok-composer-phase] {
+  overflow: visible;
+}
+
+button[data-timeline-pin][data-timeline-event-type="acquisition"] .timeline-pin-marker {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.42), rgba(7, 11, 18, 0.22)),
+    linear-gradient(90deg, #7c9cf0 0 48%, #777f90 52% 100%) !important;
+}
+
+button[data-timeline-pin][data-grok-composer-phase="post-acquisition"] .timeline-pin-marker {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.34), rgba(6, 10, 16, 0.28)),
+    linear-gradient(135deg, #777f90 0 64%, #7c9cf0 65% 100%) !important;
+  border-color: rgba(226, 234, 246, 0.78) !important;
+  box-shadow:
+    0 0 0 4px rgba(119, 127, 144, 0.16),
+    0 8px 18px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
 }
 
 button[data-timeline-pin][data-timeline-event-type] .timeline-pin-landmark-aura,
@@ -397,6 +438,39 @@ button[data-timeline-pin][data-timeline-event-type] .timeline-event-pin-icon svg
   width: 0.92rem;
 }
 
+button[data-timeline-pin][data-timeline-event-type="acquisition"] .timeline-event-pin-icon {
+  color: #f7fbff;
+  filter:
+    drop-shadow(0 1px 2px rgba(2, 7, 14, 0.88))
+    drop-shadow(0 0 3px rgba(2, 7, 14, 0.56));
+}
+
+button[data-timeline-pin] [data-grok-composer-badge] {
+  align-items: center;
+  background:
+    linear-gradient(145deg, rgba(248, 251, 255, 0.18), rgba(28, 34, 44, 0.76)),
+    rgba(28, 34, 44, 0.88);
+  border: 1px solid rgba(226, 234, 246, 0.5);
+  border-radius: 5px;
+  box-shadow:
+    0 7px 16px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: #f7fbff;
+  display: inline-flex;
+  font: 800 0.54rem/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  justify-content: center;
+  left: 0.62rem;
+  letter-spacing: 0;
+  min-width: 1.42rem;
+  padding: 0.14rem 0.24rem;
+  pointer-events: none;
+  position: absolute;
+  text-transform: none;
+  top: -1.24rem;
+  transform: rotate(-11deg);
+  z-index: 21;
+}
+
 button[data-timeline-pin] > .z-\[2\] {
   left: 0;
   --tw-translate-y: calc(var(--spacing) * -8);
@@ -443,6 +517,25 @@ button[data-timeline-pin] > .z-\[2\] {
   button[data-timeline-pin][data-timeline-event-type] .timeline-event-pin-icon svg {
     height: 0.78rem;
     width: 0.78rem;
+  }
+
+  button[data-timeline-pin] [data-grok-composer-badge] {
+    border-radius: 4px;
+    font-size: 0.48rem;
+    left: 0.52rem;
+    min-width: 1.24rem;
+    padding: 0.12rem 0.2rem;
+    top: -1.02rem;
+  }
+
+  button[data-timeline-pin][data-timeline-event-type="policy-action"] > .z-\[2\] {
+    --tw-translate-x: calc(var(--spacing) * -20);
+    --tw-translate-y: calc(var(--spacing) * -16);
+  }
+
+  button[data-timeline-pin][data-timeline-event-type="acquisition"] > .z-\[2\] {
+    --tw-translate-x: calc(var(--spacing) * -24);
+    --tw-translate-y: calc(var(--spacing) * -4);
   }
 
   button[data-timeline-pin] > .z-\[2\] {

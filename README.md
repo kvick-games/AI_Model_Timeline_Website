@@ -17,8 +17,8 @@ The app presents model launches on a single horizontal timeline so you can compa
 - gap labels showing the number of days between releases or events
 - multi-day event ranges for livestreams, conferences, showcases, and other dated industry moments
 - article panels for notable releases and events, with source links, official logo marks, and event-specific calendar icons
-- current Cursor Composer coverage, including Composer 1, 1.5, 2, 2.5, and the Cursor / SpaceXAI partnership event
-- official provider logos for OpenAI, Anthropic, Google, xAI, Figure, Tesla, and Cursor
+- current Cursor Composer coverage, including Composer 1, 1.5, 2, 2.5, the Cursor / SpaceXAI partnership, the Composer -> Grok Composer acquisition marker, the mirrored Grok Build rebrand marker, and SpaceX/xAI/Cursor acquisition events
+- official provider logos for OpenAI, Anthropic, Google, xAI, SpaceX, Figure, Tesla, and Cursor
 - grayscale shader treatment behind the timeline widget so the background art stays readable under the board
 
 ## Tech stack

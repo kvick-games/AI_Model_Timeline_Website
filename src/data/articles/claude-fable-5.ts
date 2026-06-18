@@ -41,6 +41,10 @@ export const article: ModelArticle = {
     {
       "label": "Safety fallback",
       "value": "Claude Opus 4.8 for flagged domains"
+    },
+    {
+      "label": "Access note",
+      "value": "Fable/Mythos access suspended June 12, 2026"
     }
   ],
   "sections": [
@@ -54,7 +58,7 @@ export const article: ModelArticle = {
     {
       "heading": "How access works",
       "body": [
-        "Fable 5 is available through Claude and the Claude API under the developer model ID claude-fable-5.",
+        "At launch, Fable 5 was available through Claude and the Claude API under the developer model ID claude-fable-5.",
         "Anthropic priced both Fable 5 and Mythos 5 at $10 per million input tokens and $50 per million output tokens, while noting a staged rollout for subscription-plan access because of expected demand."
       ]
     },
@@ -63,6 +67,13 @@ export const article: ModelArticle = {
       "body": [
         "Fable 5 is the first public Claude release to make Mythos-class capability broadly accessible, shifting Anthropic's frontier story from the Opus line to a higher model tier.",
         "The release also makes safeguards a defining product feature: requests flagged in domains such as cybersecurity, biology and chemistry, or model distillation are handled by Claude Opus 4.8 instead of the Fable 5 model."
+      ]
+    },
+    {
+      "heading": "Access changed after launch",
+      "body": [
+        "On June 12, 2026, Anthropic said a U.S. government export-control directive required it to suspend access to Fable 5 and Mythos 5 for foreign nationals, which led the company to disable both models for all customers while it sought to restore access.",
+        "The timeline records that as a separate policy-action event because the suspension was an availability and governance marker rather than part of the original model launch."
       ]
     }
   ],

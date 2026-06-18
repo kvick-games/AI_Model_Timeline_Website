@@ -5,7 +5,7 @@ export const article: ModelArticle = {
   "release": {
     "companyId": "anthropic",
     "productLineId": "anthropic-claude",
-    "name": "Fable/Mythos access suspended",
+    "name": "US order suspends Fable/Mythos",
     "date": "2026-06-12"
   },
   "logo": {
@@ -16,7 +16,7 @@ export const article: ModelArticle = {
   "title": "A U.S. directive forced Anthropic to suspend Fable 5 and Mythos 5 access",
   "dek": "Anthropic said a U.S. government export-control directive required it to suspend access to Fable 5 and Mythos 5 for foreign nationals, leading the company to disable both models for all customers while it sought to restore access.",
   "summary": "The June 12, 2026 statement turned Claude Fable 5 and Mythos 5 from a launch story into a policy and availability event. Anthropic said the directive targeted foreign-national access, but compliance required an abrupt customer-wide suspension of the two Mythos-class models.",
-  "impact": "The event matters because it made government intervention, jailbreak evidence, model safeguards, and customer availability part of the same Claude timeline only days after Fable 5 launched.",
+  "impact": "The event matters because it made government intervention, potential narrow jailbreak evidence, model safeguards, and customer availability part of the same Claude timeline only days after Fable 5 launched.",
   "facts": [
     {
       "label": "Provider",
@@ -35,6 +35,10 @@ export const article: ModelArticle = {
       "value": "Not affected"
     },
     {
+      "label": "Event type",
+      "value": "Policy action"
+    },
+    {
       "label": "Directive time",
       "value": "5:21pm ET"
     }
@@ -50,8 +54,8 @@ export const article: ModelArticle = {
     {
       "heading": "Why the directive landed",
       "body": [
-        "Anthropic said the government did not provide specific details of its national security concern in the letter, but that Anthropic understood the concern involved a potential Fable 5 jailbreak.",
-        "Anthropic disputed that the reported technique showed a unique Mythos-class risk, saying the demonstrated capability appeared available from other public models as well."
+        "Anthropic said the government did not provide specific details of its national security concern in the letter, but that Anthropic understood the concern involved a potential narrow Fable 5 jailbreak.",
+        "Anthropic disputed that the reported technique showed a unique Mythos-class risk, saying the demonstrated capability appeared available from other public models as well and did not affect access to other Claude models."
       ]
     },
     {
@@ -68,8 +72,12 @@ export const article: ModelArticle = {
       "url": "https://www.anthropic.com/news/fable-mythos-access"
     },
     {
-      "label": "Anthropic on X: Fable/Mythos access statement",
-      "url": "https://x.com/AnthropicAI/status/2065597531644743999"
+      "label": "Anthropic: Claude Fable 5 and Claude Mythos 5",
+      "url": "https://www.anthropic.com/news/claude-fable-5-mythos-5"
+    },
+    {
+      "label": "WIRED: Anthropic takes Claude Fable 5 offline",
+      "url": "https://www.wired.com/story/anthropic-says-us-government-ordered-it-to-shut-down-mythos-models/"
     }
   ]
 };

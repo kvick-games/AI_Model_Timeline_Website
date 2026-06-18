@@ -42,6 +42,8 @@ export type TimelineEventTypeId =
   | 'product-launch'
   | 'research-release'
   | 'announcement'
+  | 'acquisition'
+  | 'policy-action'
   | 'partnership'
   | 'public-demo'
   | 'deployment'
@@ -101,6 +103,7 @@ export type ArticleLogoMark =
   | 'openai'
   | 'reactor'
   | 'figure'
+  | 'spacex'
   | 'tesla'
   | 'sora'
   | 'xai';

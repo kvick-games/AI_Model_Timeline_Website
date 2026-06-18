@@ -5,6 +5,7 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'anthropic', name: 'Anthropic', accent: '#d38b14', logoMark: 'anthropic', raceRank: 2},
   {id: 'google', name: 'Google', accent: '#2d6ed8', logoMark: 'google', raceRank: 3},
   {id: 'xai', name: 'xAI', accent: '#777f90', logoMark: 'xai', raceRank: 4},
+  {id: 'spacex', name: 'SpaceX', accent: '#9aa4b2', logoMark: 'spacex', raceRank: 4.5},
   {id: 'cursor', name: 'Cursor', accent: '#7c9cf0', logoMark: 'cursor', raceRank: 5},
   {id: 'deepseek', name: 'DeepSeek', accent: '#4d8bd6', logoMark: 'deepseek', raceRank: 6},
   {id: 'mistral-ai', name: 'Mistral AI', accent: '#ff9f1c', raceRank: 7},

@@ -1,7 +1,7 @@
 import {useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {TimelineExperience} from '@kvick-games/timeline-library';
 import type {LucideIcon} from 'lucide-react';
-import {Banknote, Flag, Handshake, Megaphone, Play, Radio, Rocket} from 'lucide-react';
+import {Banknote, Flag, GitMerge, Handshake, Megaphone, Play, Radio, Rocket, ShieldAlert} from 'lucide-react';
 import {createPortal} from 'react-dom';
 import {aiTimelineDefinition} from './data/aiTimelineDefinition';
 import {modelReleaseIndex} from './data/releaseIndex';
@@ -15,6 +15,8 @@ import {
 const COST_OVERLAY_STORAGE_KEY = 'ai-timeline-cost-overlay';
 const FILTER_PANEL_SELECTOR = '[data-filter-panel]';
 const FILTER_PANEL_TOGGLE_HOST_ATTRIBUTE = 'data-token-cost-filter-toggle-host';
+const GROK_COMPOSER_BADGE_SELECTOR = '[data-grok-composer-badge]';
+const GROK_COMPOSER_TRANSITION_DATE = '2026-06-16';
 const TIMELINE_PIN_SELECTOR = 'button[data-timeline-pin]';
 const TOKEN_COST_BADGE_SELECTOR = '[data-token-cost-badge]';
 
@@ -30,6 +32,12 @@ type PinEventAnnotation = {
   Icon: LucideIcon;
 };
 
+type PinComposerOwnershipAnnotation = {
+  label: string;
+  phase: 'transition' | 'post-acquisition';
+  title: string;
+};
+
 type EventPinPortal = {
   annotation: PinEventAnnotation;
   key: string;
@@ -37,11 +45,13 @@ type EventPinPortal = {
 };
 
 const EVENT_TYPE_ICONS: Record<string, LucideIcon> = {
+  acquisition: GitMerge,
   announcement: Megaphone,
   deployment: Rocket,
   founding: Flag,
   livestream: Radio,
   partnership: Handshake,
+  'policy-action': ShieldAlert,
   'public-demo': Play,
 };
 
@@ -153,6 +163,107 @@ function TimelineCostOverlay({enabled}: {enabled: boolean}) {
       document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach(clearCostAttributes);
     };
   }, [annotationsByAriaLabel, enabled]);
+
+  return null;
+}
+
+function clearComposerOwnershipAttributes(pin: HTMLButtonElement) {
+  pin.removeAttribute('data-grok-composer-label');
+  pin.removeAttribute('data-grok-composer-phase');
+  pin.removeAttribute('data-grok-composer-title');
+  pin.querySelector(GROK_COMPOSER_BADGE_SELECTOR)?.remove();
+}
+
+function syncGrokComposerBadge(pin: HTMLButtonElement, label: string) {
+  let badge = pin.querySelector<HTMLSpanElement>(GROK_COMPOSER_BADGE_SELECTOR);
+
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.setAttribute('data-grok-composer-badge', '');
+    badge.setAttribute('aria-hidden', 'true');
+    pin.appendChild(badge);
+  }
+
+  badge.textContent = label;
+}
+
+function TimelineComposerOwnership() {
+  const annotationsByAriaLabel = useMemo(() => {
+    const annotations = new Map<string, PinComposerOwnershipAnnotation>();
+
+    modelReleaseIndex.forEach((entry) => {
+      if (entry.companyId !== 'cursor' || entry.productLineId !== 'cursor-composer') {
+        return;
+      }
+
+      if (entry.date < GROK_COMPOSER_TRANSITION_DATE) {
+        return;
+      }
+
+      const isTransition = entry.date === GROK_COMPOSER_TRANSITION_DATE && entry.eventType === 'acquisition';
+      const annotation: PinComposerOwnershipAnnotation = {
+        label: isTransition ? 'Acquired' : 'xAI',
+        phase: isTransition ? 'transition' : 'post-acquisition',
+        title: isTransition
+          ? 'SpaceX acquisition bridge from Composer to Grok Composer'
+          : 'Post-acquisition Grok Composer release',
+      };
+      const eventNoun = entry.eventKind === 'event' ? 'event' : 'release';
+
+      annotations.set(`Open ${eventNoun} for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+      annotations.set(`Open release for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+    });
+
+    return annotations;
+  }, []);
+
+  useLayoutEffect(() => {
+    let animationFrame = 0;
+
+    const annotatePins = () => {
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach((pin) => {
+        const ariaLabel = pin.getAttribute('aria-label');
+        const annotation = ariaLabel ? annotationsByAriaLabel.get(ariaLabel) : undefined;
+
+        if (!annotation) {
+          clearComposerOwnershipAttributes(pin);
+          return;
+        }
+
+        pin.setAttribute('data-grok-composer-label', annotation.label);
+        pin.setAttribute('data-grok-composer-phase', annotation.phase);
+        pin.setAttribute('data-grok-composer-title', annotation.title);
+
+        if (annotation.phase === 'post-acquisition') {
+          syncGrokComposerBadge(pin, annotation.label);
+          return;
+        }
+
+        pin.querySelector(GROK_COMPOSER_BADGE_SELECTOR)?.remove();
+      });
+    };
+
+    const scheduleAnnotation = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(annotatePins);
+    };
+
+    annotatePins();
+
+    const observer = new MutationObserver(scheduleAnnotation);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['aria-label', 'data-timeline-pin'],
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach(clearComposerOwnershipAttributes);
+    };
+  }, [annotationsByAriaLabel]);
 
   return null;
 }
@@ -372,6 +483,7 @@ export default function App() {
   return (
     <div className={`timeline-shell${showCostOverlay ? ' token-cost-overlay-enabled' : ''}`}>
       <TimelineEventIcons />
+      <TimelineComposerOwnership />
       <TimelineCostOverlay enabled={showCostOverlay} />
       <FilterPanelCostTogglePortal enabled={showCostOverlay} onToggle={toggleCostOverlay} />
       <TimelineExperience definition={aiTimelineDefinition} />
