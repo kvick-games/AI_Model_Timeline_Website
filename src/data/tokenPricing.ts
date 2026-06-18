@@ -99,6 +99,10 @@ const sources = {
     label: 'Kimi API pricing: Kimi K2.7 Code',
     url: 'https://platform.kimi.ai/docs/pricing/chat-k27-code',
   },
+  zAiPricing: {
+    label: 'Z.ai API pricing',
+    url: 'https://docs.z.ai/guides/overview/pricing',
+  },
 } as const;
 
 function pricingArticle({
@@ -923,6 +927,20 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
     sourceLabel: sources.kimiK27CodePricing.label,
     sourceUrl: sources.kimiK27CodePricing.url,
     note: 'Official Kimi API price for Kimi K2.7 Code; taxes, promotions, and nonstandard billing modes may differ.',
+  },
+  {
+    slug: 'glm-5-2',
+    basis: 'current',
+    billingModel: 'input-output',
+    inputUsdPerMillion: 1.4,
+    outputUsdPerMillion: 4.4,
+    cachedInputUsdPerMillion: 0.26,
+    pricedAt: '2026-06-16',
+    providerLabel: 'Zhipu AI / Z.ai',
+    modelLabel: 'GLM-5.2',
+    sourceLabel: sources.zAiPricing.label,
+    sourceUrl: sources.zAiPricing.url,
+    note: 'Official Z.ai API price for GLM-5.2; cached-input storage is listed as a limited-time free item.',
   },
   {
     slug: 'xai-xai-grok-grok-4-1-2025-11-17',
