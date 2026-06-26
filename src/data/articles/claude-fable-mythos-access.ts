@@ -4,7 +4,7 @@ export const article: ModelArticle = {
   "slug": "claude-fable-mythos-access",
   "release": {
     "companyId": "anthropic",
-    "productLineId": "anthropic-claude",
+    "productLineId": "anthropic-events",
     "name": "US order suspends Fable/Mythos",
     "date": "2026-06-12"
   },

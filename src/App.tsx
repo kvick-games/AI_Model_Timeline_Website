@@ -38,6 +38,11 @@ type PinComposerOwnershipAnnotation = {
   title: string;
 };
 
+type PinLatestReleaseAnnotation = {
+  accent: string;
+  title: string;
+};
+
 type EventPinPortal = {
   annotation: PinEventAnnotation;
   key: string;
@@ -49,6 +54,7 @@ const EVENT_TYPE_ICONS: Record<string, LucideIcon> = {
   announcement: Megaphone,
   deployment: Rocket,
   founding: Flag,
+  'historical-milestone': Flag,
   livestream: Radio,
   partnership: Handshake,
   'policy-action': ShieldAlert,
@@ -262,6 +268,76 @@ function TimelineComposerOwnership() {
       window.cancelAnimationFrame(animationFrame);
       observer.disconnect();
       document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach(clearComposerOwnershipAttributes);
+    };
+  }, [annotationsByAriaLabel]);
+
+  return null;
+}
+
+function clearLatestReleaseAttributes(pin: HTMLButtonElement) {
+  pin.removeAttribute('data-timeline-latest-release');
+  pin.removeAttribute('data-timeline-latest-title');
+  pin.style.removeProperty('--timeline-latest-accent');
+}
+
+function TimelineLatestReleaseLabels() {
+  const annotationsByAriaLabel = useMemo(() => {
+    const annotations = new Map<string, PinLatestReleaseAnnotation>();
+
+    modelReleaseIndex.forEach((entry) => {
+      if (entry.eventKind !== 'release' || entry.nextName !== null) {
+        return;
+      }
+
+      const annotation = {
+        accent: entry.accent,
+        title: `Latest ${entry.productLineLabel} release`,
+      };
+
+      annotations.set(`Open release for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+    });
+
+    return annotations;
+  }, []);
+
+  useLayoutEffect(() => {
+    let animationFrame = 0;
+
+    const annotatePins = () => {
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach((pin) => {
+        const ariaLabel = pin.getAttribute('aria-label');
+        const annotation = ariaLabel ? annotationsByAriaLabel.get(ariaLabel) : undefined;
+
+        if (!annotation) {
+          clearLatestReleaseAttributes(pin);
+          return;
+        }
+
+        pin.setAttribute('data-timeline-latest-release', '');
+        pin.setAttribute('data-timeline-latest-title', annotation.title);
+        pin.style.setProperty('--timeline-latest-accent', annotation.accent);
+      });
+    };
+
+    const scheduleAnnotation = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(annotatePins);
+    };
+
+    annotatePins();
+
+    const observer = new MutationObserver(scheduleAnnotation);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['aria-label', 'data-timeline-pin'],
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach(clearLatestReleaseAttributes);
     };
   }, [annotationsByAriaLabel]);
 
@@ -484,6 +560,7 @@ export default function App() {
     <div className={`timeline-shell${showCostOverlay ? ' token-cost-overlay-enabled' : ''}`}>
       <TimelineEventIcons />
       <TimelineComposerOwnership />
+      <TimelineLatestReleaseLabels />
       <TimelineCostOverlay enabled={showCostOverlay} />
       <FilterPanelCostTogglePortal enabled={showCostOverlay} onToggle={toggleCostOverlay} />
       <TimelineExperience definition={aiTimelineDefinition} />

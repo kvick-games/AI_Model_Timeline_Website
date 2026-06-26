@@ -27,6 +27,13 @@ export const timelineEventTypes: TimelineEventTypeConfig[] = [
     description: 'The founding or incorporation date for the company behind a tracked product line.',
   },
   {
+    id: 'historical-milestone',
+    kind: 'event',
+    label: 'Historical milestone',
+    shortLabel: 'Milestone',
+    description: 'A globally significant AI history milestone that changed the field or public trajectory.',
+  },
+  {
     id: 'model-release',
     kind: 'release',
     label: 'Model release',
@@ -115,6 +122,12 @@ export const timelineEventTypesById = timelineEventTypes.reduce<Record<TimelineE
 
 export const modelPresets: PresetConfig[] = [
   {
+    id: 'ai-history',
+    classId: 'ai-history',
+    label: 'AI History',
+    description: 'The most significant global milestones in AI history across research, products, policy, and public adoption.',
+  },
+  {
     id: 'llms',
     classId: 'frontier-llms',
     label: 'LLMs',
@@ -184,6 +197,10 @@ export const modelPresets: PresetConfig[] = [
 
 export const filterPresetGroups: {label: string; presetIds: PresetId[]}[] = [
   {
+    label: 'Global timeline',
+    presetIds: ['ai-history'],
+  },
+  {
     label: 'Models & labs',
     presetIds: ['llms', 'open-source'],
   },
@@ -213,6 +230,10 @@ export const filterPresetGroups: {label: string; presetIds: PresetId[]}[] = [
 export const presetGroups = filterPresetGroups;
 
 function getDefaultMarkerShape(classId: ModelClassId): ProductMarkerShape {
+  if (classId === 'ai-history') {
+    return 'square';
+  }
+
   if (classId === 'coding-harnesses') {
     return 'square';
   }
@@ -455,11 +476,87 @@ export function getReleaseTags(
 
 export const companies: CompanyRecord[] = [
   defineCompany({
+    profileId: 'ai-history',
+    productLines: [
+      defineProductLine({
+        id: 'ai-history-milestones',
+        label: 'Major AI milestones',
+        shortLabel: 'History',
+        classId: 'ai-history',
+        defaultPresets: ['ai-history'],
+        markerShape: 'square',
+        releases: [
+          {
+            name: 'Turing Test proposed',
+            date: '1950-10-01',
+            datePrecision: 'month',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'Dartmouth AI workshop',
+            date: '1956-07-01',
+            datePrecision: 'month',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'Deep Blue defeats Kasparov',
+            date: '1997-05-11',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'AlexNet wins ImageNet',
+            date: '2012-09-30',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'AlphaGo defeats Lee Sedol',
+            date: '2016-03-15',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'Transformer paper posted',
+            date: '2017-06-12',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'ChatGPT launches',
+            date: '2022-11-30',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
     profileId: 'openai',
     productLines: [
       defineCompanyHistoryLine({
         foundedDate: '2015-12-11',
         name: 'OpenAI founded',
+      }),
+      defineProductLine({
+        id: 'openai-events',
+        label: 'OpenAI events',
+        shortLabel: 'Events',
+        classId: 'events',
+        defaultClasses: ['events', 'ai-history'],
+        defaultPresets: ['events', 'ai-history'],
+        markerShape: 'square',
+        releases: [
+          {
+            name: 'GPT-5.6 requires government approval',
+            date: '2026-06-26',
+            eventType: 'policy-action',
+            tags: ['ai-race-core', 'global-milestone'],
+          },
+        ],
       }),
       defineProductLine({
         id: 'openai-gpt',
@@ -553,12 +650,23 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude 4.7 Opus', date: '2026-04-16'},
           {name: 'Claude 4.8 Opus', date: '2026-05-28', articleSlug: 'claude-opus-4-8'},
           {name: 'Claude Fable 5', date: '2026-06-09', articleSlug: 'claude-fable-5', tags: ['ai-race-core', 'landmark-release']},
+        ],
+      }),
+      defineProductLine({
+        id: 'anthropic-events',
+        label: 'Anthropic events',
+        shortLabel: 'Events',
+        classId: 'events',
+        defaultClasses: ['events', 'ai-history'],
+        defaultPresets: ['events', 'ai-history'],
+        markerShape: 'square',
+        releases: [
           {
             name: 'US order suspends Fable/Mythos',
             date: '2026-06-12',
             eventType: 'policy-action',
             articleSlug: 'claude-fable-mythos-access',
-            tags: ['ai-race-core'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
         ],
       }),
@@ -703,7 +811,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Grok 4', date: '2025-07-09'},
           {name: 'Grok 4.1', date: '2025-11-17'},
           {name: 'Grok 4.20', date: '2026-02-17'},
-          {name: 'Grok 4.3 (Beta)', date: '2026-04-17'},
+          {name: 'Grok 4.3', date: '2026-04-17', tags: ['ai-race-core']},
         ],
       }),
       defineProductLine({
@@ -720,9 +828,9 @@ export const companies: CompanyRecord[] = [
             date: '2026-06-16',
             eventType: 'acquisition',
             articleSlug: 'grok-composer-rebrand-acquisition',
-            classes: ['frontier-llms', 'coding-harnesses'],
-            presets: ['llms', 'coding-harnesses'],
-            tags: ['ai-race-core'],
+            classes: ['ai-history'],
+            presets: ['ai-history'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
         ],
       }),
@@ -731,8 +839,8 @@ export const companies: CompanyRecord[] = [
         label: 'xAI events',
         shortLabel: 'Events',
         classId: 'events',
-        defaultClasses: ['frontier-llms', 'events'],
-        defaultPresets: ['llms', 'events'],
+        defaultClasses: ['ai-history'],
+        defaultPresets: ['ai-history'],
         markerShape: 'square',
         releases: [
           {
@@ -740,14 +848,14 @@ export const companies: CompanyRecord[] = [
             date: '2026-02-02',
             eventType: 'acquisition',
             articleSlug: 'xai-spacex-acquisition',
-            tags: ['ai-race-core'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
           {
             name: 'SpaceX acquires Cursor',
             date: '2026-06-16',
             eventType: 'acquisition',
             articleSlug: 'xai-spacex-cursor-acquisition',
-            tags: ['ai-race-core'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
         ],
       }),
@@ -761,8 +869,8 @@ export const companies: CompanyRecord[] = [
         label: 'SpaceX events',
         shortLabel: 'Events',
         classId: 'events',
-        defaultClasses: ['frontier-llms', 'coding-harnesses', 'events'],
-        defaultPresets: ['llms', 'coding-harnesses', 'events'],
+        defaultClasses: ['ai-history'],
+        defaultPresets: ['ai-history'],
         markerShape: 'square',
         releases: [
           {
@@ -770,23 +878,21 @@ export const companies: CompanyRecord[] = [
             date: '2026-02-02',
             eventType: 'acquisition',
             articleSlug: 'spacex-xai-acquisition',
-            classes: ['frontier-llms', 'events'],
-            presets: ['llms', 'events'],
-            tags: ['ai-race-core'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
           {
             name: 'SpaceX/Cursor training partnership',
             date: '2026-04-21',
             eventType: 'partnership',
             articleSlug: 'spacex-cursor-training-partnership',
-            tags: ['ai-race-core'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
           {
             name: 'SpaceX acquires Cursor',
             date: '2026-06-16',
             eventType: 'acquisition',
             articleSlug: 'spacex-cursor-acquisition',
-            tags: ['ai-race-core'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
         ],
       }),
@@ -981,7 +1087,9 @@ export const companies: CompanyRecord[] = [
             date: '2026-06-16',
             eventType: 'acquisition',
             articleSlug: 'composer-grok-composer-acquisition',
-            tags: ['ai-race-core'],
+            classes: ['ai-history'],
+            presets: ['ai-history'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
         ],
       }),
@@ -990,7 +1098,8 @@ export const companies: CompanyRecord[] = [
         label: 'Cursor events',
         shortLabel: 'Events',
         classId: 'events',
-        defaultPresets: ['events'],
+        defaultClasses: ['ai-history'],
+        defaultPresets: ['ai-history'],
         markerShape: 'square',
         releases: [
           {
@@ -998,7 +1107,7 @@ export const companies: CompanyRecord[] = [
             date: '2026-04-21',
             eventType: 'partnership',
             articleSlug: 'cursor-spacex-partnership',
-            tags: ['ai-race-core'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
         ],
       }),

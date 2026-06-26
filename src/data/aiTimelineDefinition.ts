@@ -38,7 +38,7 @@ export const aiTimelineDefinition = {
     },
   ],
   defaultClassId: 'frontier-llms',
-  defaultDisplayLimit: 5,
+  defaultDisplayLimit: 6,
   defaultEventTypeId: 'model-release',
   defaultFilterState: {
     attributeIds: [],
@@ -47,10 +47,14 @@ export const aiTimelineDefinition = {
     domainIds: ['llms'],
   },
   defaultSortMode: 'significance',
-  displayLimits: [5, 10, 20, 'all'],
+  displayLimits: [5, 6, 10, 20, 'all'],
   eventTypes: timelineEventTypes,
   facets: modelPresets,
   filterGroups: [
+    {
+      label: 'Global',
+      domainIds: ['ai-history'],
+    },
     {
       label: 'Models',
       domainIds: ['llms'],
@@ -94,6 +98,7 @@ export const aiTimelineDefinition = {
     getEventTypeSignificanceBonus(eventTypeId: string) {
       switch (eventTypeId) {
         case 'model-release':
+        case 'historical-milestone':
           return 5;
         case 'acquisition':
         case 'coding-harness-release':
@@ -116,6 +121,8 @@ export const aiTimelineDefinition = {
     },
     getFacetSignificanceBase(facetId: string) {
       switch (facetId) {
+        case 'ai-history':
+          return 92;
         case 'llms':
           return 82;
         case 'open-source':
@@ -149,7 +156,8 @@ export const aiTimelineDefinition = {
       return (
         (tags.includes('ai-race-core') ? 10 : 0) +
         (tags.includes('major-release') ? 5 : 0) +
-        (tags.includes('landmark-release') ? 8 : 0)
+        (tags.includes('landmark-release') ? 8 : 0) +
+        (tags.includes('global-milestone') ? 12 : 0)
       );
     },
   },
@@ -158,7 +166,7 @@ export const aiTimelineDefinition = {
     {id: 'latest', label: 'Latest release'},
     {id: 'alphabetical', label: 'A–Z'},
   ],
-  startDate: '1998-01-01',
+  startDate: '1950-01-01',
   wideLogoMarks: ['figure', 'spacex'],
   copy: {
     allRelevantLabel: 'All relevant',
@@ -173,7 +181,7 @@ export const aiTimelineDefinition = {
       `${label} shows selected product lines together. Use zoom when the field gets dense.`,
     contentTypeHeading: 'Content type',
     defaultBoardDescription:
-      'Explore important AI milestones across LLMs, open-source labs, generative media, audio, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.',
+      'Explore important AI milestones across global AI history, LLMs, open-source labs, generative media, audio, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.',
     displayedRowsHeading: 'Displayed rows',
     emptyBoardDescription:
       'Add releases tagged to the selected product lines and the same timeline, summary cards, and recency markers will render here.',

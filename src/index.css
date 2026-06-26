@@ -471,6 +471,20 @@ button[data-timeline-pin] [data-grok-composer-badge] {
   z-index: 21;
 }
 
+button[data-timeline-pin][data-timeline-latest-release]:not([data-timeline-event-type]):not([aria-current="page"]) .timeline-map-screen-label {
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--timeline-latest-accent, #8b97ab) 26%, rgba(16, 20, 29, 0.96)),
+      color-mix(in srgb, var(--timeline-latest-accent, #8b97ab) 12%, rgba(9, 13, 19, 0.96))
+    ) !important;
+  border-color: color-mix(in srgb, var(--timeline-latest-accent, #8b97ab) 58%, rgba(237, 242, 250, 0.34)) !important;
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 18px color-mix(in srgb, var(--timeline-latest-accent, #8b97ab) 22%, transparent) !important;
+}
+
 button[data-timeline-pin] > .z-\[2\] {
   left: 0;
   --tw-translate-y: calc(var(--spacing) * -8);

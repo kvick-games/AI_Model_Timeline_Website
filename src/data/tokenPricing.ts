@@ -1033,7 +1033,7 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
     }),
   },
   {
-    slug: 'xai-xai-grok-grok-4-3-beta-2026-04-17',
+    slug: 'xai-xai-grok-grok-4-3-2026-04-17',
     basis: 'current',
     billingModel: 'input-output',
     inputUsdPerMillion: 1.25,
@@ -1050,7 +1050,7 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
       logo: 'xai',
       modelLabel: 'Grok 4.3',
       productLineId: 'xai-grok',
-      releaseName: 'Grok 4.3 (Beta)',
+      releaseName: 'Grok 4.3',
       eyebrow: 'Upgrade at zero delta',
       title: 'Grok 4.3 shipped a generation jump with no price change at all',
       dek: 'Grok 4.3 took over Grok 4.20’s exact rate card — $1.25 in, $2.50 out, $0.20 cached — making the upgrade free for anyone already calling the API.',

@@ -1,6 +1,7 @@
 import type {CompanyProfile} from './types';
 
 export const companyProfiles: CompanyProfile[] = [
+  {id: 'ai-history', name: 'AI History', accent: '#c7d1e0', logoMark: 'calendar', raceRank: 0},
   {id: 'openai', name: 'OpenAI', accent: '#139a74', logoMark: 'openai', raceRank: 1},
   {id: 'anthropic', name: 'Anthropic', accent: '#d38b14', logoMark: 'anthropic', raceRank: 2},
   {id: 'google', name: 'Google', accent: '#2d6ed8', logoMark: 'google', raceRank: 3},
@@ -11,7 +12,7 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'mistral-ai', name: 'Mistral AI', accent: '#ff9f1c', raceRank: 7},
   {id: 'moonshot-kimi', name: 'Moonshot AI', accent: '#56a3a6', raceRank: 8},
   {id: 'qwen', name: 'Alibaba', accent: '#8c79d6', raceRank: 9},
-  {id: 'zhipu-glm', name: 'Zhipu AI', accent: '#c78f38', raceRank: 10},
+  {id: 'zhipu-glm', name: 'Zhipu AI', accent: '#c78f38', raceRank: 4.8},
   {id: 'meta-ai', name: 'Meta AI', accent: '#4d8df7', raceRank: 11},
   {id: 'tesla', name: 'Tesla', accent: '#b92f3a', logoMark: 'tesla', raceRank: 20},
   {id: 'figure', name: 'Figure', accent: '#8d95a8', logoMark: 'figure', raceRank: 21},
