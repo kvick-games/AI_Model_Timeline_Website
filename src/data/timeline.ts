@@ -728,6 +728,7 @@ export const companies: CompanyRecord[] = [
             date: '2026-02-26',
             articleSlug: 'google-google-gemini-gemini-3-1-flash-image-nano-banana-2-2026-02-26',
           },
+          {name: 'Nano Banana 2 Lite', date: '2026-06-30', articleSlug: 'nano-banana-2-lite', tags: ['major-release']},
         ],
       }),
       defineProductLine({
@@ -766,6 +767,13 @@ export const companies: CompanyRecord[] = [
             date: '2026-05-19',
             eventType: 'model-release',
             articleSlug: 'gemini-omni-flash',
+          },
+          {
+            name: 'Gemini Omni Flash API preview',
+            date: '2026-06-30',
+            eventType: 'deployment',
+            articleSlug: 'gemini-omni-flash-api-preview',
+            tags: ['major-release'],
           },
         ],
       }),
