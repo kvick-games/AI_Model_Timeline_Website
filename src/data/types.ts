@@ -1,4 +1,5 @@
 export type ModelClassId =
+  | 'ai-history'
   | 'frontier-llms'
   | 'open-source-llms'
   | 'image-generation'
@@ -11,9 +12,10 @@ export type ModelClassId =
   | 'robotics'
   | 'vehicle-autonomy';
 
-export type TimelineTag = 'ai-race-core' | 'major-release' | 'landmark-release' | 'open-weight';
+export type TimelineTag = 'ai-race-core' | 'major-release' | 'landmark-release' | 'open-weight' | 'global-milestone';
 
 export type PresetId =
+  | 'ai-history'
   | 'llms'
   | 'open-source'
   | 'image-generation'
@@ -37,11 +39,14 @@ export type TimelineEventKind = 'release' | 'event';
 
 export type TimelineEventTypeId =
   | 'founding'
+  | 'historical-milestone'
   | 'model-release'
   | 'coding-harness-release'
   | 'product-launch'
   | 'research-release'
   | 'announcement'
+  | 'acquisition'
+  | 'policy-action'
   | 'partnership'
   | 'public-demo'
   | 'deployment'
@@ -101,6 +106,7 @@ export type ArticleLogoMark =
   | 'openai'
   | 'reactor'
   | 'figure'
+  | 'spacex'
   | 'tesla'
   | 'sora'
   | 'xai';

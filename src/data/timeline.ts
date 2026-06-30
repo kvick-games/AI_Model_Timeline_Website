@@ -27,6 +27,13 @@ export const timelineEventTypes: TimelineEventTypeConfig[] = [
     description: 'The founding or incorporation date for the company behind a tracked product line.',
   },
   {
+    id: 'historical-milestone',
+    kind: 'event',
+    label: 'Historical milestone',
+    shortLabel: 'Milestone',
+    description: 'A globally significant AI history milestone that changed the field or public trajectory.',
+  },
+  {
     id: 'model-release',
     kind: 'release',
     label: 'Model release',
@@ -60,6 +67,20 @@ export const timelineEventTypes: TimelineEventTypeConfig[] = [
     label: 'Announcement',
     shortLabel: 'Announce',
     description: 'A public reveal or roadmap milestone without a shipped release artifact.',
+  },
+  {
+    id: 'acquisition',
+    kind: 'event',
+    label: 'Acquisition',
+    shortLabel: 'Acquire',
+    description: 'A company acquisition, merger, ownership transfer, or acquisition-option exercise.',
+  },
+  {
+    id: 'policy-action',
+    kind: 'event',
+    label: 'Policy action',
+    shortLabel: 'Policy',
+    description: 'A government, regulatory, legal, or platform-policy action affecting availability.',
   },
   {
     id: 'partnership',
@@ -100,6 +121,12 @@ export const timelineEventTypesById = timelineEventTypes.reduce<Record<TimelineE
 );
 
 export const modelPresets: PresetConfig[] = [
+  {
+    id: 'ai-history',
+    classId: 'ai-history',
+    label: 'AI History',
+    description: 'The most significant global milestones in AI history across research, products, policy, and public adoption.',
+  },
   {
     id: 'llms',
     classId: 'frontier-llms',
@@ -170,6 +197,10 @@ export const modelPresets: PresetConfig[] = [
 
 export const filterPresetGroups: {label: string; presetIds: PresetId[]}[] = [
   {
+    label: 'Global timeline',
+    presetIds: ['ai-history'],
+  },
+  {
     label: 'Models & labs',
     presetIds: ['llms', 'open-source'],
   },
@@ -199,6 +230,10 @@ export const filterPresetGroups: {label: string; presetIds: PresetId[]}[] = [
 export const presetGroups = filterPresetGroups;
 
 function getDefaultMarkerShape(classId: ModelClassId): ProductMarkerShape {
+  if (classId === 'ai-history') {
+    return 'square';
+  }
+
   if (classId === 'coding-harnesses') {
     return 'square';
   }
@@ -441,11 +476,87 @@ export function getReleaseTags(
 
 export const companies: CompanyRecord[] = [
   defineCompany({
+    profileId: 'ai-history',
+    productLines: [
+      defineProductLine({
+        id: 'ai-history-milestones',
+        label: 'Major AI milestones',
+        shortLabel: 'History',
+        classId: 'ai-history',
+        defaultPresets: ['ai-history'],
+        markerShape: 'square',
+        releases: [
+          {
+            name: 'Turing Test proposed',
+            date: '1950-10-01',
+            datePrecision: 'month',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'Dartmouth AI workshop',
+            date: '1956-07-01',
+            datePrecision: 'month',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'Deep Blue defeats Kasparov',
+            date: '1997-05-11',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'AlexNet wins ImageNet',
+            date: '2012-09-30',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'AlphaGo defeats Lee Sedol',
+            date: '2016-03-15',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'Transformer paper posted',
+            date: '2017-06-12',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+          {
+            name: 'ChatGPT launches',
+            date: '2022-11-30',
+            eventType: 'historical-milestone',
+            tags: ['global-milestone'],
+          },
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
     profileId: 'openai',
     productLines: [
       defineCompanyHistoryLine({
         foundedDate: '2015-12-11',
         name: 'OpenAI founded',
+      }),
+      defineProductLine({
+        id: 'openai-events',
+        label: 'OpenAI events',
+        shortLabel: 'Events',
+        classId: 'events',
+        defaultClasses: ['events', 'ai-history'],
+        defaultPresets: ['events', 'ai-history'],
+        markerShape: 'square',
+        releases: [
+          {
+            name: 'GPT-5.6 requires government approval',
+            date: '2026-06-26',
+            eventType: 'policy-action',
+            tags: ['ai-race-core', 'global-milestone'],
+          },
+        ],
       }),
       defineProductLine({
         id: 'openai-gpt',
@@ -539,6 +650,25 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude 4.7 Opus', date: '2026-04-16'},
           {name: 'Claude 4.8 Opus', date: '2026-05-28', articleSlug: 'claude-opus-4-8'},
           {name: 'Claude Fable 5', date: '2026-06-09', articleSlug: 'claude-fable-5', tags: ['ai-race-core', 'landmark-release']},
+          {name: 'Claude Sonnet 5', date: '2026-06-30', articleSlug: 'claude-sonnet-5', tags: ['ai-race-core', 'major-release']},
+        ],
+      }),
+      defineProductLine({
+        id: 'anthropic-events',
+        label: 'Anthropic events',
+        shortLabel: 'Events',
+        classId: 'events',
+        defaultClasses: ['events', 'ai-history'],
+        defaultPresets: ['events', 'ai-history'],
+        markerShape: 'square',
+        releases: [
+          {
+            name: 'US order suspends Fable/Mythos',
+            date: '2026-06-12',
+            eventType: 'policy-action',
+            articleSlug: 'claude-fable-mythos-access',
+            tags: ['ai-race-core', 'global-milestone'],
+          },
         ],
       }),
       defineProductLine({
@@ -574,6 +704,7 @@ export const companies: CompanyRecord[] = [
         classId: 'frontier-llms',
         defaultPresets: ['llms'],
         releases: [
+          {name: 'Bard', date: '2023-03-21', eventType: 'product-launch'},
           {name: 'Gemini 1.0', date: '2023-12-06'},
           {name: 'Gemini 1.5', date: '2024-02-15'},
           {name: 'Gemini 2.0', date: '2025-02-05'},
@@ -592,7 +723,11 @@ export const companies: CompanyRecord[] = [
         classId: 'image-generation',
         defaultPresets: ['image-generation'],
         releases: [
-          {name: 'Gemini 3.1 Flash Image (Nano Banana 2)', date: '2026-02-26'},
+          {
+            name: 'Gemini 3.1 Flash Image (Nano Banana 2)',
+            date: '2026-02-26',
+            articleSlug: 'google-google-gemini-gemini-3-1-flash-image-nano-banana-2-2026-02-26',
+          },
         ],
       }),
       defineProductLine({
@@ -684,7 +819,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Grok 4', date: '2025-07-09'},
           {name: 'Grok 4.1', date: '2025-11-17'},
           {name: 'Grok 4.20', date: '2026-02-17'},
-          {name: 'Grok 4.3 (Beta)', date: '2026-04-17'},
+          {name: 'Grok 4.3', date: '2026-04-17', tags: ['ai-race-core']},
         ],
       }),
       defineProductLine({
@@ -696,6 +831,77 @@ export const companies: CompanyRecord[] = [
         markerShape: 'square',
         releases: [
           {name: 'Grok Build (Beta)', date: '2026-05-14', eventType: 'coding-harness-release'},
+          {
+            name: 'Grok Composer rebrand',
+            date: '2026-06-16',
+            eventType: 'acquisition',
+            articleSlug: 'grok-composer-rebrand-acquisition',
+            classes: ['ai-history'],
+            presets: ['ai-history'],
+            tags: ['ai-race-core', 'global-milestone'],
+          },
+        ],
+      }),
+      defineProductLine({
+        id: 'xai-events',
+        label: 'xAI events',
+        shortLabel: 'Events',
+        classId: 'events',
+        defaultClasses: ['ai-history'],
+        defaultPresets: ['ai-history'],
+        markerShape: 'square',
+        releases: [
+          {
+            name: 'SpaceX acquires xAI',
+            date: '2026-02-02',
+            eventType: 'acquisition',
+            articleSlug: 'xai-spacex-acquisition',
+            tags: ['ai-race-core', 'global-milestone'],
+          },
+          {
+            name: 'SpaceX acquires Cursor',
+            date: '2026-06-16',
+            eventType: 'acquisition',
+            articleSlug: 'xai-spacex-cursor-acquisition',
+            tags: ['ai-race-core', 'global-milestone'],
+          },
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'spacex',
+    productLines: [
+      defineProductLine({
+        id: 'spacex-events',
+        label: 'SpaceX events',
+        shortLabel: 'Events',
+        classId: 'events',
+        defaultClasses: ['ai-history'],
+        defaultPresets: ['ai-history'],
+        markerShape: 'square',
+        releases: [
+          {
+            name: 'SpaceX acquires xAI',
+            date: '2026-02-02',
+            eventType: 'acquisition',
+            articleSlug: 'spacex-xai-acquisition',
+            tags: ['ai-race-core', 'global-milestone'],
+          },
+          {
+            name: 'SpaceX/Cursor training partnership',
+            date: '2026-04-21',
+            eventType: 'partnership',
+            articleSlug: 'spacex-cursor-training-partnership',
+            tags: ['ai-race-core', 'global-milestone'],
+          },
+          {
+            name: 'SpaceX acquires Cursor',
+            date: '2026-06-16',
+            eventType: 'acquisition',
+            articleSlug: 'spacex-cursor-acquisition',
+            tags: ['ai-race-core', 'global-milestone'],
+          },
         ],
       }),
     ],
@@ -873,16 +1079,26 @@ export const companies: CompanyRecord[] = [
       }),
       defineProductLine({
         id: 'cursor-composer',
-        label: 'Composer models',
+        label: 'Composer -> Grok Composer models',
         shortLabel: 'Composer',
         classId: 'coding-harnesses',
-        defaultPresets: ['coding-harnesses'],
+        defaultClasses: ['frontier-llms', 'coding-harnesses'],
+        defaultPresets: ['llms', 'coding-harnesses'],
         markerShape: 'square',
         releases: [
           {name: 'Composer 1', date: '2025-10-29', articleSlug: 'composer-1', tags: ['major-release']},
           {name: 'Composer 1.5', date: '2026-02-09', articleSlug: 'composer-1-5', tags: ['major-release']},
           {name: 'Composer 2', date: '2026-03-19', articleSlug: 'composer-2', tags: ['ai-race-core']},
           {name: 'Composer 2.5', date: '2026-05-18', articleSlug: 'composer-2-5', tags: ['ai-race-core']},
+          {
+            name: 'Composer -> Grok Composer',
+            date: '2026-06-16',
+            eventType: 'acquisition',
+            articleSlug: 'composer-grok-composer-acquisition',
+            classes: ['ai-history'],
+            presets: ['ai-history'],
+            tags: ['ai-race-core', 'global-milestone'],
+          },
         ],
       }),
       defineProductLine({
@@ -890,7 +1106,8 @@ export const companies: CompanyRecord[] = [
         label: 'Cursor events',
         shortLabel: 'Events',
         classId: 'events',
-        defaultPresets: ['events'],
+        defaultClasses: ['ai-history'],
+        defaultPresets: ['ai-history'],
         markerShape: 'square',
         releases: [
           {
@@ -898,7 +1115,7 @@ export const companies: CompanyRecord[] = [
             date: '2026-04-21',
             eventType: 'partnership',
             articleSlug: 'cursor-spacex-partnership',
-            tags: ['ai-race-core'],
+            tags: ['ai-race-core', 'global-milestone'],
           },
         ],
       }),
@@ -974,6 +1191,12 @@ export const companies: CompanyRecord[] = [
           {name: 'Kimi Chat', date: '2023-10-09'},
           {name: 'Kimi k1.5', date: '2025-01-20'},
           {name: 'Kimi K2', date: '2025-07-11'},
+          {
+            name: 'Kimi K2.7 Code',
+            date: '2026-06-12',
+            articleSlug: 'kimi-k2-7-code',
+            tags: ['ai-race-core', 'major-release', 'open-weight'],
+          },
         ],
       }),
     ],
@@ -991,6 +1214,7 @@ export const companies: CompanyRecord[] = [
           {name: 'GLM-4', date: '2024-01-16'},
           {name: 'GLM-4-9B', date: '2024-06-05'},
           {name: 'GLM-4.5', date: '2025-07-28'},
+          {name: 'GLM-5.2', date: '2026-06-13', articleSlug: 'glm-5-2', tags: ['ai-race-core', 'major-release', 'open-weight']},
         ],
       }),
     ],
@@ -1338,8 +1562,15 @@ export const companies: CompanyRecord[] = [
         classId: 'video-generation',
         defaultPresets: ['video-generation'],
         releases: [
-          {name: 'Kling', date: '2024-06-06'},
-          {name: 'Kling 2.0', date: '2025-04-15'},
+          {name: 'Kling', date: '2024-06-06', tags: ['landmark-release']},
+          {name: 'Kling 1.5', date: '2024-09-19'},
+          {name: 'Kling 1.6', date: '2024-12-19', tags: ['major-release']},
+          {name: 'Kling 2.0', date: '2025-04-15', tags: ['major-release']},
+          {name: 'Kling 2.1', date: '2025-05-26'},
+          {name: 'Kling 2.5 Turbo', date: '2025-09-23', tags: ['major-release']},
+          {name: 'Kling O1', date: '2025-12-01', tags: ['major-release']},
+          {name: 'Kling Video 2.6', date: '2025-12-03', tags: ['major-release']},
+          {name: 'Kling 3.0', date: '2026-02-05', articleSlug: 'kling-3-0', tags: ['major-release', 'landmark-release']},
         ],
       }),
     ],

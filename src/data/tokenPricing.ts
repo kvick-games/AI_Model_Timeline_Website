@@ -95,6 +95,14 @@ const sources = {
     label: 'xAI: Grok 4.1 Fast',
     url: 'https://x.ai/news/grok-4-1-fast',
   },
+  kimiK27CodePricing: {
+    label: 'Kimi API pricing: Kimi K2.7 Code',
+    url: 'https://platform.kimi.ai/docs/pricing/chat-k27-code',
+  },
+  zAiPricing: {
+    label: 'Z.ai API pricing',
+    url: 'https://docs.z.ai/guides/overview/pricing',
+  },
 } as const;
 
 function pricingArticle({
@@ -907,6 +915,34 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
     note: 'Current standard Gemini API price; batch, flex, priority, grounding, and audio pricing differ.',
   },
   {
+    slug: 'kimi-k2-7-code',
+    basis: 'current',
+    billingModel: 'input-output',
+    inputUsdPerMillion: 0.95,
+    outputUsdPerMillion: 4,
+    cachedInputUsdPerMillion: 0.19,
+    pricedAt: '2026-06-12',
+    providerLabel: 'Moonshot AI',
+    modelLabel: 'Kimi K2.7 Code',
+    sourceLabel: sources.kimiK27CodePricing.label,
+    sourceUrl: sources.kimiK27CodePricing.url,
+    note: 'Official Kimi API price for Kimi K2.7 Code; taxes, promotions, and nonstandard billing modes may differ.',
+  },
+  {
+    slug: 'glm-5-2',
+    basis: 'current',
+    billingModel: 'input-output',
+    inputUsdPerMillion: 1.4,
+    outputUsdPerMillion: 4.4,
+    cachedInputUsdPerMillion: 0.26,
+    pricedAt: '2026-06-16',
+    providerLabel: 'Zhipu AI / Z.ai',
+    modelLabel: 'GLM-5.2',
+    sourceLabel: sources.zAiPricing.label,
+    sourceUrl: sources.zAiPricing.url,
+    note: 'Official Z.ai API price for GLM-5.2; cached-input storage is listed as a limited-time free item.',
+  },
+  {
     slug: 'xai-xai-grok-grok-4-1-2025-11-17',
     basis: 'launch-era',
     billingModel: 'input-output',
@@ -997,7 +1033,7 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
     }),
   },
   {
-    slug: 'xai-xai-grok-grok-4-3-beta-2026-04-17',
+    slug: 'xai-xai-grok-grok-4-3-2026-04-17',
     basis: 'current',
     billingModel: 'input-output',
     inputUsdPerMillion: 1.25,
@@ -1014,7 +1050,7 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
       logo: 'xai',
       modelLabel: 'Grok 4.3',
       productLineId: 'xai-grok',
-      releaseName: 'Grok 4.3 (Beta)',
+      releaseName: 'Grok 4.3',
       eyebrow: 'Upgrade at zero delta',
       title: 'Grok 4.3 shipped a generation jump with no price change at all',
       dek: 'Grok 4.3 took over Grok 4.20’s exact rate card — $1.25 in, $2.50 out, $0.20 cached — making the upgrade free for anyone already calling the API.',

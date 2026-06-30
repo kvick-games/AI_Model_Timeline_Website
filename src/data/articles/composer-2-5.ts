@@ -55,6 +55,12 @@ export const article: ModelArticle = {
         "As a historical note, Composer 2.5 landed in a period when heavy coding-agent use was becoming expensive for general users. Cursor was making a cost-performance argument: a Composer model that could be discussed alongside Claude 4.7 Opus and GPT-5.5, but with Standard pricing that made repeated coding sessions easier to justify.",
         "The launch page also made the SpaceXAI thread harder to separate from the model roadmap. Cursor said it was training a significantly larger model from scratch with SpaceXAI using Colossus 2, which made the Composer line one of the first public foundation-model efforts tied directly to that new training partnership."
       ]
+    },
+    {
+      "heading": "Postscript: Grok Composer",
+      "body": [
+        "After SpaceX exercised its option to acquire Cursor on June 16, 2026, this timeline treats later Composer-family work as Grok Composer while keeping Composer 2.5 under its original Cursor release name."
+      ]
     }
   ],
   "sources": [
@@ -69,6 +75,14 @@ export const article: ModelArticle = {
     {
       "label": "Cursor: Composer 2.5 announcement on X",
       "url": "https://x.com/cursor_ai/status/2056415413077233983"
+    },
+    {
+      "label": "TechCrunch: SpaceX to acquire Cursor",
+      "url": "https://techcrunch.com/2026/06/16/spacex-to-acquire-cursor-for-60b-in-stock-days-after-blockbuster-ipo/"
+    },
+    {
+      "label": "SpaceX acquisition announcement on X",
+      "url": "https://x.com/SpaceX/status/2066873915717136548"
     }
   ]
 };

@@ -1,6 +1,7 @@
-import {useLayoutEffect, useMemo, useState} from 'react';
+import {useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {TimelineExperience} from '@kvick-games/timeline-library';
-import {Banknote} from 'lucide-react';
+import type {LucideIcon} from 'lucide-react';
+import {Banknote, Flag, GitMerge, Handshake, Megaphone, Play, Radio, Rocket, ShieldAlert} from 'lucide-react';
 import {createPortal} from 'react-dom';
 import {aiTimelineDefinition} from './data/aiTimelineDefinition';
 import {modelReleaseIndex} from './data/releaseIndex';
@@ -14,6 +15,8 @@ import {
 const COST_OVERLAY_STORAGE_KEY = 'ai-timeline-cost-overlay';
 const FILTER_PANEL_SELECTOR = '[data-filter-panel]';
 const FILTER_PANEL_TOGGLE_HOST_ATTRIBUTE = 'data-token-cost-filter-toggle-host';
+const GROK_COMPOSER_BADGE_SELECTOR = '[data-grok-composer-badge]';
+const GROK_COMPOSER_TRANSITION_DATE = '2026-06-16';
 const TIMELINE_PIN_SELECTOR = 'button[data-timeline-pin]';
 const TOKEN_COST_BADGE_SELECTOR = '[data-token-cost-badge]';
 
@@ -21,6 +24,41 @@ type PinCostAnnotation = {
   label: string;
   tier: string;
   title: string;
+};
+
+type PinEventAnnotation = {
+  eventType: string;
+  eventTypeLabel: string;
+  Icon: LucideIcon;
+};
+
+type PinComposerOwnershipAnnotation = {
+  label: string;
+  phase: 'transition' | 'post-acquisition';
+  title: string;
+};
+
+type PinLatestReleaseAnnotation = {
+  accent: string;
+  title: string;
+};
+
+type EventPinPortal = {
+  annotation: PinEventAnnotation;
+  key: string;
+  pin: HTMLButtonElement;
+};
+
+const EVENT_TYPE_ICONS: Record<string, LucideIcon> = {
+  acquisition: GitMerge,
+  announcement: Megaphone,
+  deployment: Rocket,
+  founding: Flag,
+  'historical-milestone': Flag,
+  livestream: Radio,
+  partnership: Handshake,
+  'policy-action': ShieldAlert,
+  'public-demo': Play,
 };
 
 function getInitialCostOverlayState() {
@@ -135,6 +173,293 @@ function TimelineCostOverlay({enabled}: {enabled: boolean}) {
   return null;
 }
 
+function clearComposerOwnershipAttributes(pin: HTMLButtonElement) {
+  pin.removeAttribute('data-grok-composer-label');
+  pin.removeAttribute('data-grok-composer-phase');
+  pin.removeAttribute('data-grok-composer-title');
+  pin.querySelector(GROK_COMPOSER_BADGE_SELECTOR)?.remove();
+}
+
+function syncGrokComposerBadge(pin: HTMLButtonElement, label: string) {
+  let badge = pin.querySelector<HTMLSpanElement>(GROK_COMPOSER_BADGE_SELECTOR);
+
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.setAttribute('data-grok-composer-badge', '');
+    badge.setAttribute('aria-hidden', 'true');
+    pin.appendChild(badge);
+  }
+
+  badge.textContent = label;
+}
+
+function TimelineComposerOwnership() {
+  const annotationsByAriaLabel = useMemo(() => {
+    const annotations = new Map<string, PinComposerOwnershipAnnotation>();
+
+    modelReleaseIndex.forEach((entry) => {
+      if (entry.companyId !== 'cursor' || entry.productLineId !== 'cursor-composer') {
+        return;
+      }
+
+      if (entry.date < GROK_COMPOSER_TRANSITION_DATE) {
+        return;
+      }
+
+      const isTransition = entry.date === GROK_COMPOSER_TRANSITION_DATE && entry.eventType === 'acquisition';
+      const annotation: PinComposerOwnershipAnnotation = {
+        label: isTransition ? 'Acquired' : 'xAI',
+        phase: isTransition ? 'transition' : 'post-acquisition',
+        title: isTransition
+          ? 'SpaceX acquisition bridge from Composer to Grok Composer'
+          : 'Post-acquisition Grok Composer release',
+      };
+      const eventNoun = entry.eventKind === 'event' ? 'event' : 'release';
+
+      annotations.set(`Open ${eventNoun} for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+      annotations.set(`Open release for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+    });
+
+    return annotations;
+  }, []);
+
+  useLayoutEffect(() => {
+    let animationFrame = 0;
+
+    const annotatePins = () => {
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach((pin) => {
+        const ariaLabel = pin.getAttribute('aria-label');
+        const annotation = ariaLabel ? annotationsByAriaLabel.get(ariaLabel) : undefined;
+
+        if (!annotation) {
+          clearComposerOwnershipAttributes(pin);
+          return;
+        }
+
+        pin.setAttribute('data-grok-composer-label', annotation.label);
+        pin.setAttribute('data-grok-composer-phase', annotation.phase);
+        pin.setAttribute('data-grok-composer-title', annotation.title);
+
+        if (annotation.phase === 'post-acquisition') {
+          syncGrokComposerBadge(pin, annotation.label);
+          return;
+        }
+
+        pin.querySelector(GROK_COMPOSER_BADGE_SELECTOR)?.remove();
+      });
+    };
+
+    const scheduleAnnotation = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(annotatePins);
+    };
+
+    annotatePins();
+
+    const observer = new MutationObserver(scheduleAnnotation);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['aria-label', 'data-timeline-pin'],
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach(clearComposerOwnershipAttributes);
+    };
+  }, [annotationsByAriaLabel]);
+
+  return null;
+}
+
+function clearLatestReleaseAttributes(pin: HTMLButtonElement) {
+  pin.removeAttribute('data-timeline-latest-release');
+  pin.removeAttribute('data-timeline-latest-title');
+  pin.style.removeProperty('--timeline-latest-accent');
+}
+
+function TimelineLatestReleaseLabels() {
+  const annotationsByAriaLabel = useMemo(() => {
+    const annotations = new Map<string, PinLatestReleaseAnnotation>();
+
+    modelReleaseIndex.forEach((entry) => {
+      if (entry.eventKind !== 'release' || entry.nextName !== null) {
+        return;
+      }
+
+      const annotation = {
+        accent: entry.accent,
+        title: `Latest ${entry.productLineLabel} release`,
+      };
+
+      annotations.set(`Open release for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+    });
+
+    return annotations;
+  }, []);
+
+  useLayoutEffect(() => {
+    let animationFrame = 0;
+
+    const annotatePins = () => {
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach((pin) => {
+        const ariaLabel = pin.getAttribute('aria-label');
+        const annotation = ariaLabel ? annotationsByAriaLabel.get(ariaLabel) : undefined;
+
+        if (!annotation) {
+          clearLatestReleaseAttributes(pin);
+          return;
+        }
+
+        pin.setAttribute('data-timeline-latest-release', '');
+        pin.setAttribute('data-timeline-latest-title', annotation.title);
+        pin.style.setProperty('--timeline-latest-accent', annotation.accent);
+      });
+    };
+
+    const scheduleAnnotation = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(annotatePins);
+    };
+
+    annotatePins();
+
+    const observer = new MutationObserver(scheduleAnnotation);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['aria-label', 'data-timeline-pin'],
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach(clearLatestReleaseAttributes);
+    };
+  }, [annotationsByAriaLabel]);
+
+  return null;
+}
+
+function clearEventAttributes(pin: HTMLButtonElement) {
+  pin.removeAttribute('data-timeline-event-type');
+  pin.removeAttribute('data-timeline-event-label');
+  pin.removeAttribute('data-timeline-event-portal-id');
+}
+
+function TimelineEventIcons() {
+  const portalId = useRef(0);
+  const lastSignature = useRef('');
+  const [eventPinPortals, setEventPinPortals] = useState<EventPinPortal[]>([]);
+
+  const annotationsByAriaLabel = useMemo(() => {
+    const annotations = new Map<string, PinEventAnnotation>();
+
+    modelReleaseIndex.forEach((entry) => {
+      if (entry.eventKind !== 'event') {
+        return;
+      }
+
+      const Icon = EVENT_TYPE_ICONS[entry.eventType] ?? Megaphone;
+      const annotation = {
+        eventType: entry.eventType,
+        eventTypeLabel: entry.eventTypeLabel,
+        Icon,
+      };
+
+      annotations.set(`Open event for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+      annotations.set(`Open release for ${entry.name}, ${entry.dateRangeLabel}`, annotation);
+    });
+
+    return annotations;
+  }, []);
+
+  useLayoutEffect(() => {
+    let animationFrame = 0;
+
+    const annotatePins = () => {
+      const nextEventPinPortals: EventPinPortal[] = [];
+
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach((pin) => {
+        const ariaLabel = pin.getAttribute('aria-label');
+        const annotation = ariaLabel ? annotationsByAriaLabel.get(ariaLabel) : undefined;
+
+        if (!annotation) {
+          clearEventAttributes(pin);
+          return;
+        }
+
+        let pinPortalId = pin.getAttribute('data-timeline-event-portal-id');
+
+        if (!pinPortalId) {
+          pinPortalId = `event-pin-${portalId.current}`;
+          portalId.current += 1;
+          pin.setAttribute('data-timeline-event-portal-id', pinPortalId);
+        }
+
+        pin.setAttribute('data-timeline-event-type', annotation.eventType);
+        pin.setAttribute('data-timeline-event-label', annotation.eventTypeLabel);
+
+        nextEventPinPortals.push({
+          annotation,
+          key: pinPortalId,
+          pin,
+        });
+      });
+
+      const nextSignature = nextEventPinPortals
+        .map(({annotation, key}) => `${key}:${annotation.eventType}`)
+        .join('|');
+
+      if (nextSignature !== lastSignature.current) {
+        lastSignature.current = nextSignature;
+        setEventPinPortals(nextEventPinPortals);
+      }
+    };
+
+    const scheduleAnnotation = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(annotatePins);
+    };
+
+    annotatePins();
+
+    const observer = new MutationObserver(scheduleAnnotation);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['aria-label', 'data-timeline-pin'],
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      lastSignature.current = '';
+      document.querySelectorAll<HTMLButtonElement>(TIMELINE_PIN_SELECTOR).forEach(clearEventAttributes);
+    };
+  }, [annotationsByAriaLabel]);
+
+  return (
+    <>
+      {eventPinPortals.map(({annotation, key, pin}) => {
+        const Icon = annotation.Icon;
+
+        return createPortal(
+          <span className="timeline-event-pin-icon" data-timeline-event-icon="" aria-hidden="true">
+            <Icon size={13} strokeWidth={2.5} />
+          </span>,
+          pin,
+          key,
+        );
+      })}
+    </>
+  );
+}
+
 function FilterPanelCostTogglePortal({enabled, onToggle}: {enabled: boolean; onToggle: () => void}) {
   const [hostElement, setHostElement] = useState<HTMLElement | null>(null);
 
@@ -233,6 +558,9 @@ export default function App() {
 
   return (
     <div className={`timeline-shell${showCostOverlay ? ' token-cost-overlay-enabled' : ''}`}>
+      <TimelineEventIcons />
+      <TimelineComposerOwnership />
+      <TimelineLatestReleaseLabels />
       <TimelineCostOverlay enabled={showCostOverlay} />
       <FilterPanelCostTogglePortal enabled={showCostOverlay} onToggle={toggleCostOverlay} />
       <TimelineExperience definition={aiTimelineDefinition} />
