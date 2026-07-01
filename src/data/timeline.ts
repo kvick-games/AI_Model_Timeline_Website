@@ -669,6 +669,13 @@ export const companies: CompanyRecord[] = [
             articleSlug: 'claude-fable-mythos-access',
             tags: ['ai-race-core', 'global-milestone'],
           },
+          {
+            name: 'Fable/Mythos access restored',
+            date: '2026-07-01',
+            eventType: 'policy-action',
+            articleSlug: 'claude-fable-mythos-restored',
+            tags: ['ai-race-core', 'global-milestone'],
+          },
         ],
       }),
       defineProductLine({
