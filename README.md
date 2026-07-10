@@ -11,14 +11,14 @@ Live site: https://kvick-games.github.io/AI_Model_Timeline_Website/
 The app presents model launches on a single horizontal timeline so you can compare release cadence across companies and product lines at a glance. It includes:
 
 - provider rows that expand into compact product-line lanes when multiple selected lines are active
-- filter groups for frontier LLMs, open-source systems, Mistral, coding harnesses, creative generation including audio, events, robotics, and vehicle autonomy
+- filter groups for frontier LLMs, open-source systems, Mistral, coding harnesses, creative generation including audio, voice models, events, robotics, and vehicle autonomy
 - draggable, pannable, and zoomable timeline navigation for dense release windows
 - month and year guides across the full timeline, plus a live "Today" marker
 - gap labels showing the number of days between releases or events
 - multi-day event ranges for livestreams, conferences, showcases, and other dated industry moments
 - article panels for notable releases and events, with source links, official logo marks, and event-specific calendar icons
-- current Cursor Composer coverage, including Composer 1, 1.5, 2, 2.5, the Cursor / SpaceXAI partnership, the Composer -> Grok Composer acquisition marker, the mirrored Grok Build rebrand marker, and SpaceX/xAI/Cursor acquisition events
-- official provider logos for OpenAI, Anthropic, Google, xAI, SpaceX, Figure, Tesla, and Cursor
+- current Cursor Composer coverage, including Composer 1, 1.5, 2, 2.5, the Cursor / SpaceXAI partnership, the Composer -> Grok Composer acquisition marker, the mirrored Grok Build rebrand marker, and SpaceX/SpaceXAI/Cursor acquisition events
+- official provider logos for OpenAI, Anthropic, Google, SpaceXAI, SpaceX, Figure, Tesla, and Cursor
 - grayscale shader treatment behind the timeline widget so the background art stays readable under the board
 
 ## Tech stack
@@ -40,6 +40,19 @@ To create a new timeline around different content, build a new `TimelineDefiniti
 1. Install dependencies: `npm install`
 2. Start the dev server: `npm run dev`
 3. Build for production: `npm run build`
+
+## Codex automation
+
+The repo includes a durable Codex automation prompt at `.codex/automations/ai-news-maintenance.md`. Use it to create a Codex project automation that checks for major AI model releases and high-signal AI industry updates around 10am and 4pm America/Los_Angeles every day.
+
+Recommended Codex automation setup:
+
+1. Create a project automation from the Codex app.
+2. Use a dedicated background worktree so scheduled edits stay separate from local work.
+3. Use the prompt in `.codex/automations/ai-news-maintenance.md`.
+4. Schedule two daily runs: 10:00 AM and 4:00 PM America/Los_Angeles.
+
+When a run finds a source-backed update that clears the significance bar, Codex should update the timeline data, add article files as needed, run `npm run lint` and `npm run build`, then prepare a draft pull request. If nothing clears the bar, the automation should report that no PR is needed.
 
 ## GitHub Pages deployment
 

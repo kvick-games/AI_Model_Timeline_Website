@@ -88,12 +88,16 @@ const sources = {
     url: 'https://developers.googleblog.com/gemini-15-flash-updates-google-ai-studio-gemini-api/',
   },
   xAiPricing: {
-    label: 'xAI API pricing',
+    label: 'SpaceXAI API pricing',
     url: 'https://docs.x.ai/developers/pricing',
   },
   xAiGrok41Fast: {
-    label: 'xAI: Grok 4.1 Fast',
+    label: 'SpaceXAI: Grok 4.1 Fast',
     url: 'https://x.ai/news/grok-4-1-fast',
+  },
+  axiosGrok45: {
+    label: 'Axios: SpaceXAI releases Grok 4.5',
+    url: 'https://www.axios.com/2026/07/08/spacexai-grok-new-model',
   },
   kimiK27CodePricing: {
     label: 'Kimi API pricing: Kimi K2.7 Code',
@@ -964,7 +968,7 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
     outputUsdPerMillion: 0.5,
     cachedInputUsdPerMillion: 0.05,
     pricedAt: '2025-11-17',
-    providerLabel: 'xAI',
+    providerLabel: 'SpaceXAI',
     modelLabel: 'Grok 4.1 Fast',
     sourceLabel: sources.xAiGrok41Fast.label,
     sourceUrl: sources.xAiGrok41Fast.url,
@@ -977,8 +981,8 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
       productLineId: 'xai-grok',
       releaseName: 'Grok 4.1',
       eyebrow: 'Late entrant, low price',
-      title: 'Grok 4.1 Fast was xAI buying its way into the API market',
-      dek: 'A late entrant can’t win on trust or ecosystem, so xAI led with 20-cent input tokens — using price, not benchmarks, as the wedge into developer workloads.',
+      title: 'Grok 4.1 Fast was SpaceXAI buying its way into the API market',
+      dek: 'A late entrant can’t win on trust or ecosystem, so SpaceXAI led with 20-cent input tokens — using price, not benchmarks, as the wedge into developer workloads.',
       summary:
         'Grok 4.1 Fast launched at $0.20 input and $0.50 output per million tokens, undercutting the established cheap tiers from a provider with everything to prove and nothing to cannibalize.',
       impact:
@@ -988,7 +992,7 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
         {
           heading: 'What changed',
           body: [
-            'xAI’s first seriously developer-priced API tier arrived at rates that made it among the cheapest credible agentic models available — with cached input at $0.05 per million tokens.',
+            'SpaceXAI’s first seriously developer-priced API tier arrived at rates that made it among the cheapest credible agentic models available — with cached input at $0.05 per million tokens.',
             'The "Fast" branding marks a positioning choice: rather than chase the flagship benchmark race, the priced API product targeted the high-volume tool-calling traffic where unit cost decides everything.',
           ],
         },
@@ -1010,7 +1014,7 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
     outputUsdPerMillion: 2.5,
     cachedInputUsdPerMillion: 0.2,
     pricedAt: PRICED_AT_CURRENT,
-    providerLabel: 'xAI',
+    providerLabel: 'SpaceXAI',
     modelLabel: 'Grok 4.20',
     sourceLabel: sources.xAiPricing.label,
     sourceUrl: sources.xAiPricing.url,
@@ -1054,7 +1058,7 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
     outputUsdPerMillion: 2.5,
     cachedInputUsdPerMillion: 0.2,
     pricedAt: PRICED_AT_CURRENT,
-    providerLabel: 'xAI',
+    providerLabel: 'SpaceXAI',
     modelLabel: 'Grok 4.3',
     sourceLabel: sources.xAiPricing.label,
     sourceUrl: sources.xAiPricing.url,
@@ -1085,11 +1089,24 @@ export const tokenPricingRecords: TokenPricingRecord[] = [
           heading: 'Why it mattered',
           body: [
             'By 2026 the dramatic launch-day price cut had become rare; the dominant pattern was this one, where prices hold and improvement compounds silently inside an existing line item.',
-            'It closes this timeline’s xAI arc cleanly: enter with a price wedge, hold the unusual ratio, then compete on cadence — shipping better models faster at the same price.',
+            'It closes this timeline’s SpaceXAI arc cleanly: enter with a price wedge, hold the unusual ratio, then compete on cadence — shipping better models faster at the same price.',
           ],
         },
       ],
     }),
+  },
+  {
+    slug: 'grok-4-5',
+    basis: 'launch-era',
+    billingModel: 'input-output',
+    inputUsdPerMillion: 2,
+    outputUsdPerMillion: 6,
+    pricedAt: '2026-07-08',
+    providerLabel: 'SpaceXAI',
+    modelLabel: 'Grok 4.5',
+    sourceLabel: sources.axiosGrok45.label,
+    sourceUrl: sources.axiosGrok45.url,
+    note: 'Reported launch pricing from Axios coverage; official SpaceXAI pricing docs may list different terms once Grok 4.5 appears on the rate card.',
   },
 ];
 

@@ -43,15 +43,15 @@ export const article: ModelArticle = {
     {
       "heading": "What changed",
       "body": [
-        "SpaceX exercised the acquisition option that had been attached to the April model-training partnership with Cursor. The timeline records that as a dated ownership event inside the Composer lane, not as a separate xAI model family.",
+        "SpaceX exercised the acquisition option that had been attached to the April model-training partnership with Cursor. The timeline records that as a dated ownership event inside the Composer lane, not as a separate SpaceXAI model family.",
         "The historical Composer releases keep their original names. Releases after the acquisition should use the Grok Composer name so the board shows both continuity and the new SpaceXAI ownership."
       ]
     },
     {
       "heading": "Why it mattered",
       "body": [
-        "Cursor had already said training scale was the bottleneck for making Composer more capable, and the April partnership gave the team access to xAI's Colossus infrastructure.",
-        "xAI then shipped Composer 2.5 inside Grok Build before the acquisition, which made the naming collision visible: the same coding model line was now appearing in both Cursor's model story and SpaceXAI's developer tooling.",
+        "Cursor had already said training scale was the bottleneck for making Composer more capable, and the April partnership gave the team access to SpaceXAI's Colossus infrastructure.",
+        "SpaceXAI then shipped Composer 2.5 inside Grok Build before the acquisition, which made the naming collision visible: the same coding model line was now appearing in both Cursor's model story and SpaceXAI's developer tooling.",
         "Treating the June 16 event as a bridge preserves the product history. Composer began as Cursor's own coding model; Grok Composer is the post-acquisition continuation of that line."
       ]
     }
@@ -70,7 +70,7 @@ export const article: ModelArticle = {
       "url": "https://cursor.com/blog/spacex-model-training"
     },
     {
-      "label": "xAI: Composer 2.5 in Grok Build",
+      "label": "SpaceXAI: Composer 2.5 in Grok Build",
       "url": "https://x.ai/news/composer-2-5"
     }
   ]

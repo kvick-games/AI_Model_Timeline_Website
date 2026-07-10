@@ -208,7 +208,7 @@ function TimelineComposerOwnership() {
 
       const isTransition = entry.date === GROK_COMPOSER_TRANSITION_DATE && entry.eventType === 'acquisition';
       const annotation: PinComposerOwnershipAnnotation = {
-        label: isTransition ? 'Acquired' : 'xAI',
+        label: isTransition ? 'Acquired' : 'SpaceXAI',
         phase: isTransition ? 'transition' : 'post-acquisition',
         title: isTransition
           ? 'SpaceX acquisition bridge from Composer to Grok Composer'

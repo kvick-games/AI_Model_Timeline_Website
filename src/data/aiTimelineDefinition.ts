@@ -64,6 +64,10 @@ export const aiTimelineDefinition = {
       domainIds: ['image-generation', 'video-generation', 'audio-generation', '3d-generation'],
     },
     {
+      label: 'Voice interfaces',
+      domainIds: ['voice-models'],
+    },
+    {
       label: 'World models',
       domainIds: ['world-models'],
     },
@@ -135,6 +139,8 @@ export const aiTimelineDefinition = {
           return 68;
         case 'audio-generation':
           return 66;
+        case 'voice-models':
+          return 67;
         case 'image-generation':
           return 64;
         case 'robotics':
@@ -181,7 +187,7 @@ export const aiTimelineDefinition = {
       `${label} shows selected product lines together. Use zoom when the field gets dense.`,
     contentTypeHeading: 'Content type',
     defaultBoardDescription:
-      'Explore important AI milestones across global AI history, LLMs, open-source labs, generative media, audio, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.',
+      'Explore important AI milestones across global AI history, LLMs, open-source labs, generative media, audio, voice models, coding tools, events, robotics, vehicle autonomy, and the companies shaping them.',
     displayedRowsHeading: 'Displayed rows',
     emptyBoardDescription:
       'Add releases tagged to the selected product lines and the same timeline, summary cards, and recency markers will render here.',
@@ -190,7 +196,7 @@ export const aiTimelineDefinition = {
     emptyDataDetail:
       'The page has no company data to render. Add at least one provider with product lines and release dates before rendering the timeline.',
     emptyDataTitle: 'Timeline data is missing',
-    filterPanelLabel: 'Filters',
+    filterPanelLabel: '',
     groupPluralLabel: 'companies',
     latestDesktopLabel: 'Latest company on the board',
     latestMobileLabel: 'Latest',

@@ -14,9 +14,9 @@ export const article: ModelArticle = {
   },
   "eyebrow": "SpaceX acquisition event",
   "title": "SpaceX's Cursor acquisition became its own AI timeline row",
-  "dek": "On June 16, 2026, SpaceX exercised its option to acquire Cursor, creating a SpaceX-side ownership marker beside the existing xAI and Cursor Composer entries.",
-  "summary": "This entry records the acquisition from SpaceX's row. The Cursor row preserves the Composer-to-Grok-Composer lineage, the xAI row mirrors the Grok Build rebrand and acquisition context, and the SpaceX row shows the acquiring company as a first-class participant.",
-  "impact": "Adding SpaceX as an adjacent row makes the ownership structure legible without splitting the Composer family. It keeps SpaceX's corporate action attached to xAI while still showing Cursor as the origin of the coding model line.",
+  "dek": "On June 16, 2026, SpaceX exercised its option to acquire Cursor, creating a SpaceX-side ownership marker beside the existing SpaceXAI and Cursor Composer entries.",
+  "summary": "This entry records the acquisition from SpaceX's row. The Cursor row preserves the Composer-to-Grok-Composer lineage, the SpaceXAI row mirrors the Grok Build rebrand and acquisition context, and the SpaceX row shows the acquiring company as a first-class participant.",
+  "impact": "Adding SpaceX as an adjacent row makes the ownership structure legible without splitting the Composer family. It keeps SpaceX's corporate action attached to SpaceXAI while still showing Cursor as the origin of the coding model line.",
   "facts": [
     {
       "label": "Company timeline",
@@ -44,7 +44,7 @@ export const article: ModelArticle = {
       "heading": "What changed",
       "body": [
         "SpaceX's acquisition moved Cursor from the April model-training partnership into a SpaceX-owned developer tooling and model-training story.",
-        "The timeline now shows that corporate event in three connected places: Cursor for lineage, xAI for Grok Build and SpaceXAI context, and SpaceX for the acquiring company."
+        "The timeline now shows that corporate event in three connected places: Cursor for lineage, SpaceXAI for Grok Build context, and SpaceX for the acquiring company."
       ]
     },
     {
@@ -69,7 +69,7 @@ export const article: ModelArticle = {
       "url": "https://cursor.com/blog/spacex-model-training"
     },
     {
-      "label": "xAI: Composer 2.5 in Grok Build",
+      "label": "SpaceXAI: Composer 2.5 in Grok Build",
       "url": "https://x.ai/news/composer-2-5"
     }
   ]

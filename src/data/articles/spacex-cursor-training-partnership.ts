@@ -14,9 +14,9 @@ export const article: ModelArticle = {
   },
   "eyebrow": "SpaceX partnership event",
   "title": "SpaceX became the compute side of Cursor's Composer push",
-  "dek": "On April 21, 2026, Cursor announced a SpaceX partnership that would let its team use xAI's Colossus infrastructure to scale Composer model training.",
-  "summary": "This SpaceX-side marker keeps the partnership visible next to xAI while the Cursor row continues to show the Composer lineage. The event matters because Cursor publicly described compute as the bottleneck for pushing Composer further, and SpaceXAI supplied the infrastructure story around Colossus.",
-  "impact": "For the timeline, the partnership is the pre-acquisition bridge between SpaceXAI's compute ambitions and Cursor's agentic coding product loop. It explains why SpaceX later appears beside xAI and Cursor in the June acquisition markers.",
+  "dek": "On April 21, 2026, Cursor announced a SpaceX partnership that would let its team use SpaceXAI's Colossus infrastructure to scale Composer model training.",
+  "summary": "This SpaceX-side marker keeps the partnership visible next to SpaceXAI while the Cursor row continues to show the Composer lineage. The event matters because Cursor publicly described compute as the bottleneck for pushing Composer further, and SpaceXAI supplied the infrastructure story around Colossus.",
+  "impact": "For the timeline, the partnership is the pre-acquisition bridge between SpaceXAI's compute ambitions and Cursor's agentic coding product loop. It explains why SpaceX later appears beside SpaceXAI and Cursor in the June acquisition markers.",
   "facts": [
     {
       "label": "Company timeline",
@@ -28,7 +28,7 @@ export const article: ModelArticle = {
     },
     {
       "label": "Infrastructure",
-      "value": "xAI Colossus"
+      "value": "SpaceXAI Colossus"
     },
     {
       "label": "Model line",
@@ -44,7 +44,7 @@ export const article: ModelArticle = {
       "heading": "What changed",
       "body": [
         "Cursor said it was partnering with SpaceX to accelerate model training after the Composer releases had shown that larger training runs translated into more capable coding models.",
-        "The announcement connected Cursor's software-engineering model roadmap to SpaceXAI's infrastructure, specifically xAI's Colossus cluster."
+        "The announcement connected Cursor's software-engineering model roadmap to SpaceXAI's infrastructure, specifically SpaceXAI's Colossus cluster."
       ]
     },
     {

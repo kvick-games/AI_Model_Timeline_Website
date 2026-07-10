@@ -14,8 +14,8 @@ export const article: ModelArticle = {
   },
   "eyebrow": "Compute partnership",
   "title": "Cursor and SpaceXAI turned Composer into a compute race",
-  "dek": "On April 21, 2026, Cursor announced a SpaceX partnership to accelerate model training, giving the Composer line access to xAI Colossus infrastructure after Cursor described compute as its bottleneck.",
-  "summary": "The SpaceXAI partnership mattered because it moved Composer from an IDE-model story into the larger frontier-compute contest. Cursor said each step up in compute had translated into more capable Composer models, and that the partnership would let its team leverage xAI Colossus infrastructure to scale model intelligence.",
+  "dek": "On April 21, 2026, Cursor announced a SpaceX partnership to accelerate model training, giving the Composer line access to SpaceXAI Colossus infrastructure after Cursor described compute as its bottleneck.",
+  "summary": "The SpaceXAI partnership mattered because it moved Composer from an IDE-model story into the larger frontier-compute contest. Cursor said each step up in compute had translated into more capable Composer models, and that the partnership would let its team leverage SpaceXAI Colossus infrastructure to scale model intelligence.",
   "impact": "For the AI timeline, the deal marked SpaceXAI trying to turn Colossus-scale infrastructure into a path toward the same frontier territory occupied by Anthropic, OpenAI, and Google, with Cursor as a high-usage coding surface for that push.",
   "facts": [
     {
@@ -28,7 +28,7 @@ export const article: ModelArticle = {
     },
     {
       "label": "Infrastructure",
-      "value": "xAI Colossus"
+      "value": "SpaceXAI Colossus"
     },
     {
       "label": "Model line",
@@ -44,7 +44,7 @@ export const article: ModelArticle = {
       "heading": "What changed",
       "body": [
         "Cursor publicly framed the partnership as a way to accelerate model training after Composer 1, Composer 1.5, and Composer 2 had each used more training scale to improve coding ability.",
-        "The announcement made compute the explicit bottleneck. Cursor said it wanted to push training further and would use xAI Colossus infrastructure to dramatically scale the intelligence of its models."
+        "The announcement made compute the explicit bottleneck. Cursor said it wanted to push training further and would use SpaceXAI Colossus infrastructure to dramatically scale the intelligence of its models."
       ]
     },
     {

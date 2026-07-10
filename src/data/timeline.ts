@@ -158,6 +158,12 @@ export const modelPresets: PresetConfig[] = [
     description: 'Text-to-audio, music, sound-effect, and audio-editing model releases.',
   },
   {
+    id: 'voice-models',
+    classId: 'voice-models',
+    label: 'Voice Models',
+    description: 'Speech-to-speech, realtime voice, speech recognition, text-to-speech, and live translation model releases.',
+  },
+  {
     id: '3d-generation',
     classId: '3d-generation',
     label: '3D Generation',
@@ -209,6 +215,10 @@ export const filterPresetGroups: {label: string; presetIds: PresetId[]}[] = [
     presetIds: ['image-generation', 'video-generation', 'audio-generation', '3d-generation'],
   },
   {
+    label: 'Voice interfaces',
+    presetIds: ['voice-models'],
+  },
+  {
     label: 'World models',
     presetIds: ['world-models'],
   },
@@ -247,6 +257,10 @@ function getDefaultMarkerShape(classId: ModelClassId): ProductMarkerShape {
   }
 
   if (classId === 'audio-generation') {
+    return 'diamond';
+  }
+
+  if (classId === 'voice-models') {
     return 'diamond';
   }
 
@@ -578,6 +592,31 @@ export const companies: CompanyRecord[] = [
           {name: 'GPT-5.3', date: '2026-02-05'},
           {name: 'GPT-5.4', date: '2026-03-05'},
           {name: 'GPT-5.5', date: '2026-04-23'},
+          {name: 'GPT-5.6 Sol / Terra / Luna', date: '2026-07-09', tags: ['ai-race-core', 'major-release']},
+        ],
+      }),
+      defineProductLine({
+        id: 'openai-voice',
+        label: 'Voice models',
+        shortLabel: 'Voice',
+        classId: 'voice-models',
+        defaultPresets: ['voice-models'],
+        releases: [
+          {
+            name: 'Whisper',
+            date: '2022-09-21',
+            eventType: 'research-release',
+            presets: ['voice-models', 'open-source'],
+            tags: ['landmark-release', 'open-weight'],
+          },
+          {name: 'ChatGPT Voice', date: '2023-09-25', eventType: 'product-launch', tags: ['major-release']},
+          {name: 'Voice Engine preview', date: '2024-03-29', eventType: 'announcement'},
+          {name: 'GPT-4o Advanced Voice Mode', date: '2024-09-24', tags: ['landmark-release']},
+          {name: 'GPT-4o Realtime API', date: '2024-10-01', eventType: 'product-launch', tags: ['major-release']},
+          {name: 'gpt-4o Transcribe / TTS', date: '2025-03-20', tags: ['major-release']},
+          {name: 'gpt-realtime', date: '2025-08-28', tags: ['major-release']},
+          {name: 'GPT-Realtime-2 / Translate / Whisper', date: '2026-05-07', tags: ['major-release']},
+          {name: 'GPT-Live', date: '2026-07-08', tags: ['ai-race-core', 'landmark-release']},
         ],
       }),
       defineProductLine({
@@ -724,6 +763,19 @@ export const companies: CompanyRecord[] = [
         ],
       }),
       defineProductLine({
+        id: 'google-voice',
+        label: 'Gemini voice',
+        shortLabel: 'Voice',
+        classId: 'voice-models',
+        defaultPresets: ['voice-models'],
+        releases: [
+          {name: 'Gemini Live', date: '2024-08-13', eventType: 'product-launch', tags: ['major-release']},
+          {name: 'Gemini 2.0 Multimodal Live API', date: '2024-12-11', eventType: 'product-launch'},
+          {name: 'Gemini 2.5 Flash Native Audio', date: '2025-05-23', tags: ['major-release']},
+          {name: 'Gemini 3.5 Live Translate', date: '2026-06-09', tags: ['major-release']},
+        ],
+      }),
+      defineProductLine({
         id: 'google-image',
         label: 'Image models',
         shortLabel: 'Image',
@@ -835,6 +887,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Grok 4.1', date: '2025-11-17'},
           {name: 'Grok 4.20', date: '2026-02-17'},
           {name: 'Grok 4.3', date: '2026-04-17', tags: ['ai-race-core']},
+          {name: 'Grok 4.5', date: '2026-07-08', articleSlug: 'grok-4-5', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -859,7 +912,7 @@ export const companies: CompanyRecord[] = [
       }),
       defineProductLine({
         id: 'xai-events',
-        label: 'xAI events',
+        label: 'SpaceXAI events',
         shortLabel: 'Events',
         classId: 'events',
         defaultClasses: ['ai-history'],
@@ -867,7 +920,7 @@ export const companies: CompanyRecord[] = [
         markerShape: 'square',
         releases: [
           {
-            name: 'SpaceX acquires xAI',
+            name: 'SpaceXAI formation',
             date: '2026-02-02',
             eventType: 'acquisition',
             articleSlug: 'xai-spacex-acquisition',
@@ -897,7 +950,7 @@ export const companies: CompanyRecord[] = [
         markerShape: 'square',
         releases: [
           {
-            name: 'SpaceX acquires xAI',
+            name: 'SpaceXAI formation',
             date: '2026-02-02',
             eventType: 'acquisition',
             articleSlug: 'spacex-xai-acquisition',
@@ -916,6 +969,82 @@ export const companies: CompanyRecord[] = [
             eventType: 'acquisition',
             articleSlug: 'spacex-cursor-acquisition',
             tags: ['ai-race-core', 'global-milestone'],
+          },
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'hume-ai',
+    productLines: [
+      defineProductLine({
+        id: 'hume-evi',
+        label: 'Empathic Voice Interface',
+        shortLabel: 'EVI',
+        classId: 'voice-models',
+        defaultPresets: ['voice-models'],
+        releases: [
+          {name: 'EVI 2', date: '2024-09-11', tags: ['major-release']},
+          {name: 'EVI 3', date: '2025-05-29', tags: ['major-release']},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'elevenlabs',
+    productLines: [
+      defineProductLine({
+        id: 'elevenlabs-voice',
+        label: 'Speech models',
+        shortLabel: 'Eleven',
+        classId: 'voice-models',
+        defaultPresets: ['voice-models'],
+        releases: [
+          {name: 'Eleven Multilingual v2', date: '2023-08-22', tags: ['major-release']},
+          {name: 'Eleven Turbo v2.5', date: '2024-07-19'},
+          {name: 'Eleven Flash', date: '2024-12-18', tags: ['major-release']},
+          {name: 'Eleven v3', date: '2025-06-03', tags: ['major-release']},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'sesame',
+    productLines: [
+      defineProductLine({
+        id: 'sesame-csm',
+        label: 'Conversational Speech Model',
+        shortLabel: 'CSM',
+        classId: 'voice-models',
+        defaultPresets: ['voice-models'],
+        releases: [
+          {name: 'CSM preview', date: '2025-02-27', eventType: 'public-demo', tags: ['major-release']},
+          {
+            name: 'CSM 1B open weights',
+            date: '2025-03-13',
+            eventType: 'research-release',
+            presets: ['voice-models', 'open-source'],
+            tags: ['major-release', 'open-weight'],
+          },
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'kyutai',
+    productLines: [
+      defineProductLine({
+        id: 'kyutai-voice',
+        label: 'Realtime voice models',
+        shortLabel: 'Moshi',
+        classId: 'voice-models',
+        defaultPresets: ['voice-models', 'open-source'],
+        releases: [
+          {
+            name: 'Moshi',
+            date: '2024-07-03',
+            eventType: 'research-release',
+            tags: ['landmark-release', 'open-weight'],
           },
         ],
       }),
@@ -1539,6 +1668,21 @@ export const companies: CompanyRecord[] = [
     profileId: 'meta-ai',
     productLines: [
       defineProductLine({
+        id: 'meta-muse-spark',
+        label: 'Muse Spark models',
+        shortLabel: 'Muse Spark',
+        classId: 'frontier-llms',
+        defaultPresets: ['llms'],
+        releases: [
+          {
+            name: 'Muse Spark 1.1',
+            date: '2026-07-09',
+            articleSlug: 'muse-spark-1-1',
+            tags: ['ai-race-core', 'major-release'],
+          },
+        ],
+      }),
+      defineProductLine({
         id: 'meta-jepa-world-models',
         label: 'JEPA world models',
         shortLabel: 'V-JEPA',
@@ -1603,6 +1747,16 @@ export const companies: CompanyRecord[] = [
           {name: 'Seedance 1.0', date: '2025-06-11'},
           {name: 'Seedance 1.5 Pro', date: '2025-12-16'},
           {name: 'Seedance 2.0', date: '2026-02-12', articleSlug: 'seedance-2-0', tags: ['major-release', 'landmark-release']},
+        ],
+      }),
+      defineProductLine({
+        id: 'seedream-image',
+        label: 'Seedream image',
+        shortLabel: 'Seedream',
+        classId: 'image-generation',
+        defaultPresets: ['image-generation'],
+        releases: [
+          {name: 'Seedream 5.0 Pro', date: '2026-07-08', articleSlug: 'seedream-5-0-pro', tags: ['major-release']},
         ],
       }),
     ],
