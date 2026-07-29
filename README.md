@@ -54,6 +54,12 @@ Recommended Codex automation setup:
 
 When a run finds a source-backed update that clears the significance bar, Codex should update the timeline data, add article files as needed, run `npm run lint` and `npm run build`, then prepare a draft pull request. If nothing clears the bar, the automation should report that no PR is needed.
 
+## Director mode
+
+Use the **Director** button in the timeline to build a record-ready update showcase. The studio selects nodes from the last 14 days by default, supports manual node selection, and previews landscape, vertical, or square social formats. Choose a pace, edit the headline, copy the generated post caption, then play the automated camera tour and record the clean stage with your preferred screen recorder.
+
+Keyboard controls during a showcase: Space pauses or resumes, Left and Right move between scenes, and Escape exits Director mode.
+
 ## GitHub Pages deployment
 
 This repo includes a GitHub Actions workflow that builds the Vite app and publishes the `dist` output to GitHub Pages.

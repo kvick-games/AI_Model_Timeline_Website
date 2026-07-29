@@ -592,7 +592,7 @@ export const companies: CompanyRecord[] = [
           {name: 'GPT-5.3', date: '2026-02-05'},
           {name: 'GPT-5.4', date: '2026-03-05'},
           {name: 'GPT-5.5', date: '2026-04-23'},
-          {name: 'GPT-5.6 Sol / Terra / Luna', date: '2026-07-09', tags: ['ai-race-core', 'major-release']},
+          {name: 'GPT-5.6 Sol launch', date: '2026-07-09', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -690,6 +690,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude 4.8 Opus', date: '2026-05-28', articleSlug: 'claude-opus-4-8'},
           {name: 'Claude Fable 5', date: '2026-06-09', articleSlug: 'claude-fable-5', tags: ['ai-race-core', 'landmark-release']},
           {name: 'Claude Sonnet 5', date: '2026-06-30', articleSlug: 'claude-sonnet-5', tags: ['ai-race-core', 'major-release']},
+          {name: 'Claude Opus 5', date: '2026-07-24', articleSlug: 'claude-opus-5', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -709,7 +710,7 @@ export const companies: CompanyRecord[] = [
             tags: ['ai-race-core', 'global-milestone'],
           },
           {
-            name: 'Fable/Mythos access restored',
+            name: 'Fable access restored',
             date: '2026-07-01',
             eventType: 'policy-action',
             articleSlug: 'claude-fable-mythos-restored',
@@ -760,6 +761,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini 3.1 Flash-Lite', date: '2026-03-03'},
           {name: 'Gemini 3.5 Flash', date: '2026-05-19', articleSlug: 'gemini-3-5-flash', tags: ['ai-race-core']},
           {name: 'Gemini Omni', date: '2026-05-19', eventType: 'model-release', articleSlug: 'gemini-omni-flash'},
+          {name: 'Gemini 3.6 Flash', date: '2026-07-21', articleSlug: 'gemini-3-6-flash', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -1306,6 +1308,21 @@ export const companies: CompanyRecord[] = [
         ],
       }),
       defineProductLine({
+        id: 'qwen-image',
+        label: 'Qwen image',
+        shortLabel: 'Qwen Image',
+        classId: 'image-generation',
+        defaultPresets: ['image-generation'],
+        releases: [
+          {
+            name: 'Qwen-Image-3.0',
+            date: '2026-07-22',
+            articleSlug: 'qwen-image-3-0',
+            tags: ['major-release'],
+          },
+        ],
+      }),
+      defineProductLine({
         id: 'wan-video',
         label: 'Wan video',
         shortLabel: 'Wan',
@@ -1340,6 +1357,14 @@ export const companies: CompanyRecord[] = [
             date: '2026-06-12',
             articleSlug: 'kimi-k2-7-code',
             tags: ['ai-race-core', 'major-release', 'open-weight'],
+          },
+          {
+            name: 'Kimi K3',
+            date: '2026-07-16',
+            articleSlug: 'kimi-k3',
+            classes: ['frontier-llms'],
+            presets: ['llms'],
+            tags: ['ai-race-core', 'major-release', 'landmark-release'],
           },
         ],
       }),

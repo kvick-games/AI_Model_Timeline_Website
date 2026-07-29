@@ -1,5 +1,7 @@
-import {useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {lazy, Suspense, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {TimelineExperience} from '@kvick-games/timeline-library';
+import type {TimelineExperienceController} from '@kvick-games/timeline-library';
+import {FilmStrip} from '@phosphor-icons/react';
 import type {LucideIcon} from 'lucide-react';
 import {Banknote, Flag, GitMerge, Handshake, Megaphone, Play, Radio, Rocket, ShieldAlert} from 'lucide-react';
 import {createPortal} from 'react-dom';
@@ -19,6 +21,9 @@ const GROK_COMPOSER_BADGE_SELECTOR = '[data-grok-composer-badge]';
 const GROK_COMPOSER_TRANSITION_DATE = '2026-06-16';
 const TIMELINE_PIN_SELECTOR = 'button[data-timeline-pin]';
 const TOKEN_COST_BADGE_SELECTOR = '[data-token-cost-badge]';
+const DirectorStudio = lazy(() =>
+  import('./director/DirectorStudio').then((module) => ({default: module.DirectorStudio})),
+);
 
 type PinCostAnnotation = {
   label: string;
@@ -547,6 +552,8 @@ function FilterPanelCostTogglePortal({enabled, onToggle}: {enabled: boolean; onT
 
 export default function App() {
   const [showCostOverlay, setShowCostOverlay] = useState(getInitialCostOverlayState);
+  const [showDirector, setShowDirector] = useState(false);
+  const timelineControllerRef = useRef<TimelineExperienceController>(null);
 
   const toggleCostOverlay = () => {
     setShowCostOverlay((currentValue) => {
@@ -557,13 +564,34 @@ export default function App() {
   };
 
   return (
-    <div className={`timeline-shell${showCostOverlay ? ' token-cost-overlay-enabled' : ''}`}>
+    <div className={`timeline-shell${showCostOverlay ? ' token-cost-overlay-enabled' : ''}${showDirector ? ' director-open' : ''}`}>
       <TimelineEventIcons />
       <TimelineComposerOwnership />
       <TimelineLatestReleaseLabels />
       <TimelineCostOverlay enabled={showCostOverlay} />
       <FilterPanelCostTogglePortal enabled={showCostOverlay} onToggle={toggleCostOverlay} />
-      <TimelineExperience definition={aiTimelineDefinition} />
+      <TimelineExperience
+        controllerRef={timelineControllerRef}
+        definition={aiTimelineDefinition}
+        presentation={showDirector}
+      />
+      {!showDirector ? (
+        <button type="button" className="director-launcher" onClick={() => setShowDirector(true)}>
+          <FilmStrip size={18} weight="regular" />
+          Director
+        </button>
+      ) : null}
+      {showDirector && timelineControllerRef.current ? (
+        <Suspense
+          fallback={(
+            <div className="director-loading-panel" role="status" aria-label="Loading Director mode">
+              <span /><span /><span />
+            </div>
+          )}
+        >
+          <DirectorStudio controllerRef={timelineControllerRef} onClose={() => setShowDirector(false)} />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

@@ -5,11 +5,11 @@ export const article: ModelArticle = {
   "release": {
     "companyId": "anthropic",
     "productLineId": "anthropic-events",
-    "name": "Fable/Mythos access restored",
+    "name": "Fable access restored",
     "date": "2026-07-01"
   },
   "logo": {
-    "modelLabel": "Fable/Mythos",
+    "modelLabel": "Fable 5",
     "modelMark": "claude"
   },
   "eyebrow": "Claude access restored",
