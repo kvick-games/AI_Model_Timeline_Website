@@ -1305,6 +1305,14 @@ export const companies: CompanyRecord[] = [
           {name: 'Qwen3', date: '2025-04-29'},
           {name: 'Qwen3-Coder', date: '2025-07-29'},
           {name: 'Qwen3.6-35B-A3B', date: '2026-04-17'},
+          {
+            name: 'Qwen3.8-Max',
+            date: '2026-08-03',
+            articleSlug: 'qwen-3-8-max',
+            classes: ['frontier-llms'],
+            presets: ['llms'],
+            tags: ['ai-race-core', 'major-release', 'landmark-release'],
+          },
         ],
       }),
       defineProductLine({
