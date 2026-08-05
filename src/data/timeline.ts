@@ -1497,6 +1497,21 @@ export const companies: CompanyRecord[] = [
           {name: 'FLUX.1 Kontext', date: '2025-05-29'},
         ],
       }),
+      defineProductLine({
+        id: 'flux-video',
+        label: 'FLUX video',
+        shortLabel: 'FLUX',
+        classId: 'video-generation',
+        defaultPresets: ['open-source', 'video-generation'],
+        releases: [
+          {
+            name: 'FLUX 3',
+            date: '2026-08-04',
+            articleSlug: 'flux-3-video',
+            tags: ['major-release'],
+          },
+        ],
+      }),
     ],
   }),
   defineCompany({
