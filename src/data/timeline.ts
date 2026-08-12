@@ -890,6 +890,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Grok 4.20', date: '2026-02-17'},
           {name: 'Grok 4.3', date: '2026-04-17', tags: ['ai-race-core']},
           {name: 'Grok 4.5', date: '2026-07-08', articleSlug: 'grok-4-5', tags: ['ai-race-core', 'major-release']},
+          {name: 'Grok 4.6', date: '2026-08-12', articleSlug: 'grok-4-6', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
