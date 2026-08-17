@@ -1225,6 +1225,22 @@ export const companies: CompanyRecord[] = [
         ],
       }),
       defineProductLine({
+        id: 'cursor-origin',
+        label: 'Origin code hosting',
+        shortLabel: 'Origin',
+        classId: 'coding-harnesses',
+        defaultPresets: ['coding-harnesses'],
+        releases: [
+          {
+            name: 'Origin',
+            date: '2026-08-17',
+            eventType: 'product-launch',
+            articleSlug: 'cursor-origin',
+            tags: ['major-release'],
+          },
+        ],
+      }),
+      defineProductLine({
         id: 'cursor-composer',
         label: 'Composer -> Grok Composer models',
         shortLabel: 'Composer',
