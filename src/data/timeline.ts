@@ -1409,6 +1409,7 @@ export const companies: CompanyRecord[] = [
           {name: 'GLM-4-9B', date: '2024-06-05'},
           {name: 'GLM-4.5', date: '2025-07-28'},
           {name: 'GLM-5.2', date: '2026-06-13', articleSlug: 'glm-5-2', tags: ['ai-race-core', 'major-release', 'open-weight']},
+          {name: 'GLM-5.3', date: '2026-08-14', articleSlug: 'glm-5-3', tags: ['ai-race-core', 'major-release', 'open-weight']},
         ],
       }),
     ],
