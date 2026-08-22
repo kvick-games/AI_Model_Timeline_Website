@@ -762,6 +762,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini 3.5 Flash', date: '2026-05-19', articleSlug: 'gemini-3-5-flash', tags: ['ai-race-core']},
           {name: 'Gemini Omni', date: '2026-05-19', eventType: 'model-release', articleSlug: 'gemini-omni-flash'},
           {name: 'Gemini 3.6 Flash', date: '2026-07-21', articleSlug: 'gemini-3-6-flash', tags: ['ai-race-core', 'major-release']},
+          {name: 'Gemini 3.7 Flash', date: '2026-08-13', articleSlug: 'gemini-3-7-flash', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
