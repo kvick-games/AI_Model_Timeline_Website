@@ -822,7 +822,8 @@ export const companies: CompanyRecord[] = [
         label: 'Gemini Omni',
         shortLabel: 'Omni',
         classId: 'video-generation',
-        defaultPresets: ['video-generation'],
+        defaultClasses: ['frontier-llms', 'video-generation'],
+        defaultPresets: ['llms', 'video-generation'],
         releases: [
           {
             name: 'Gemini Omni',
@@ -835,6 +836,8 @@ export const companies: CompanyRecord[] = [
             date: '2026-06-30',
             eventType: 'deployment',
             articleSlug: 'gemini-omni-flash-api-preview',
+            presets: ['video-generation'],
+            classes: ['video-generation'],
             tags: ['major-release'],
           },
           {
