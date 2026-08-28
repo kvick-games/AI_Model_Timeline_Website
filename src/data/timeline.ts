@@ -837,6 +837,13 @@ export const companies: CompanyRecord[] = [
             articleSlug: 'gemini-omni-flash-api-preview',
             tags: ['major-release'],
           },
+          {
+            name: 'Gemini Omni 1.1 Flash',
+            date: '2026-08-27',
+            eventType: 'model-release',
+            articleSlug: 'gemini-omni-1-1-flash',
+            tags: ['ai-race-core', 'major-release'],
+          },
         ],
       }),
       defineProductLine({
