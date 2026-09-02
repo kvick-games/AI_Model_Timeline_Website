@@ -691,6 +691,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude Fable 5', date: '2026-06-09', articleSlug: 'claude-fable-5', tags: ['ai-race-core', 'landmark-release']},
           {name: 'Claude Sonnet 5', date: '2026-06-30', articleSlug: 'claude-sonnet-5', tags: ['ai-race-core', 'major-release']},
           {name: 'Claude Opus 5', date: '2026-07-24', articleSlug: 'claude-opus-5', tags: ['ai-race-core', 'major-release']},
+          {name: 'Claude Fable 5.1', date: '2026-09-01', articleSlug: 'claude-fable-5-1', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
