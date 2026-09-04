@@ -764,6 +764,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini Omni', date: '2026-05-19', eventType: 'model-release', articleSlug: 'gemini-omni-flash'},
           {name: 'Gemini 3.6 Flash', date: '2026-07-21', articleSlug: 'gemini-3-6-flash', tags: ['ai-race-core', 'major-release']},
           {name: 'Gemini 3.7 Flash', date: '2026-08-13', articleSlug: 'gemini-3-7-flash', tags: ['ai-race-core', 'major-release']},
+          {name: 'Gemini 3.8 Flash', date: '2026-09-02', articleSlug: 'gemini-3-8-flash', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -1372,6 +1373,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Wan2.2', date: '2025-07-28'},
           {name: 'Wan2.2-S2V', date: '2025-08-26'},
           {name: 'Wan2.2-Animate', date: '2025-09-19'},
+          {name: 'Wan3.0', date: '2026-08-06', articleSlug: 'wan3-0', tags: ['major-release']},
         ],
       }),
     ],
@@ -1742,6 +1744,12 @@ export const companies: CompanyRecord[] = [
             name: 'Muse Spark 1.1',
             date: '2026-07-09',
             articleSlug: 'muse-spark-1-1',
+            tags: ['ai-race-core', 'major-release'],
+          },
+          {
+            name: 'Muse Spark 1.3',
+            date: '2026-09-02',
+            articleSlug: 'muse-spark-1-3',
             tags: ['ai-race-core', 'major-release'],
           },
         ],
