@@ -631,6 +631,7 @@ export const companies: CompanyRecord[] = [
           {name: 'DALL-E 3', date: '2023-09-20'},
           {name: 'GPT-4o Image', date: '2025-03-25'},
           {name: 'GPT Image 2', date: '2026-04-21'},
+          {name: 'GPT Image 2.5', date: '2026-09-08', articleSlug: 'gpt-image-2-5', tags: ['major-release']},
         ],
       }),
       defineProductLine({
@@ -1507,6 +1508,26 @@ export const companies: CompanyRecord[] = [
           {name: 'Stable Video 3D', date: '2024-03-18'},
           {name: 'Stable Fast 3D', date: '2024-08-01'},
           {name: 'Stable Point Aware 3D', date: '2025-03-18'},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'suno',
+    productLines: [
+      defineProductLine({
+        id: 'suno-music',
+        label: 'Music models',
+        shortLabel: 'Suno',
+        classId: 'audio-generation',
+        defaultPresets: ['audio-generation'],
+        releases: [
+          {
+            name: 'Suno v6',
+            date: '2026-09-09',
+            articleSlug: 'suno-v6',
+            tags: ['major-release', 'landmark-release'],
+          },
         ],
       }),
     ],

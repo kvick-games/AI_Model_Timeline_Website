@@ -26,6 +26,7 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'nvidia', name: 'NVIDIA', accent: '#76b900', logoMark: 'nvidia', raceRank: 25},
   {id: 'midjourney', name: 'Midjourney', accent: '#c0537a', raceRank: 30},
   {id: 'stability-ai', name: 'Stability AI', accent: '#6b8e4e', raceRank: 31},
+  {id: 'suno', name: 'Suno', accent: '#e08a3c', raceRank: 31.5},
   {id: 'black-forest-labs', name: 'Black Forest Labs', accent: '#7b6bd6', raceRank: 32},
   {id: 'runway-video', name: 'Runway', accent: '#d7d0c3', raceRank: 33},
   {id: 'luma-ai', name: 'Luma AI', accent: '#58a9c7', raceRank: 34},
