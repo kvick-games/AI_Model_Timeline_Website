@@ -906,6 +906,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Grok 4.3', date: '2026-04-17', tags: ['ai-race-core']},
           {name: 'Grok 4.5', date: '2026-07-08', articleSlug: 'grok-4-5', tags: ['ai-race-core', 'major-release']},
           {name: 'Grok 4.6', date: '2026-08-12', articleSlug: 'grok-4-6', tags: ['ai-race-core', 'major-release']},
+          {name: 'Grok 4.7', date: '2026-09-21', articleSlug: 'grok-4-7', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -1360,6 +1361,12 @@ export const companies: CompanyRecord[] = [
             articleSlug: 'qwen-image-3-0',
             tags: ['major-release'],
           },
+          {
+            name: 'Qwen-Image-2.1',
+            date: '2026-09-20',
+            articleSlug: 'qwen-image-2-1',
+            tags: ['major-release', 'open-weight'],
+          },
         ],
       }),
       defineProductLine({
@@ -1427,6 +1434,26 @@ export const companies: CompanyRecord[] = [
           {name: 'GLM-5.2', date: '2026-06-13', articleSlug: 'glm-5-2', tags: ['ai-race-core', 'major-release', 'open-weight']},
           {name: 'GLM-5.3', date: '2026-08-14', articleSlug: 'glm-5-3', tags: ['ai-race-core', 'major-release', 'open-weight']},
           {name: 'GLM-5.3-Flash', date: '2026-08-26', articleSlug: 'glm-5-3-flash', tags: ['ai-race-core', 'major-release', 'open-weight']},
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'stepfun',
+    productLines: [
+      defineProductLine({
+        id: 'step-models',
+        label: 'Step models',
+        shortLabel: 'Step',
+        classId: 'frontier-llms',
+        defaultPresets: ['llms'],
+        releases: [
+          {
+            name: 'Step 5 Preview',
+            date: '2026-09-20',
+            articleSlug: 'step-5-preview',
+            tags: ['ai-race-core', 'major-release', 'landmark-release'],
+          },
         ],
       }),
     ],
