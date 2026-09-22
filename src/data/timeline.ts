@@ -594,6 +594,8 @@ export const companies: CompanyRecord[] = [
           {name: 'GPT-5.5', date: '2026-04-23'},
           {name: 'GPT-5.6 Sol', date: '2026-07-09', tags: ['ai-race-core', 'major-release']},
           {name: 'GPT-6 Astra', date: '2026-09-03', articleSlug: 'gpt-6-astra', tags: ['ai-race-core', 'landmark-release']},
+          {name: 'GPT-6 Sol', date: '2026-09-22', articleSlug: 'gpt-6-sol', tags: ['ai-race-core', 'major-release']},
+          {name: 'GPT-6 Luna', date: '2026-09-22', articleSlug: 'gpt-6-luna', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
