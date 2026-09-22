@@ -14,6 +14,7 @@ export const companyProfiles: CompanyProfile[] = [
   {id: 'qwen', name: 'Alibaba', accent: '#8c79d6', raceRank: 9},
   {id: 'zhipu-glm', name: 'Zhipu AI', accent: '#c78f38', raceRank: 4.8},
   {id: 'stepfun', name: 'StepFun', accent: '#5b8def', raceRank: 4.85},
+  {id: 'xiaomi-mimo', name: 'Xiaomi MiMo', accent: '#ff6900', raceRank: 4.9},
   {id: 'meta-ai', name: 'Meta AI', accent: '#4d8df7', raceRank: 11},
   {id: 'hume-ai', name: 'Hume AI', accent: '#8e6bd6', raceRank: 12},
   {id: 'elevenlabs', name: 'ElevenLabs', accent: '#55a6d6', raceRank: 13},

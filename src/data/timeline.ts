@@ -694,6 +694,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude Sonnet 5', date: '2026-06-30', articleSlug: 'claude-sonnet-5', tags: ['ai-race-core', 'major-release']},
           {name: 'Claude Opus 5', date: '2026-07-24', articleSlug: 'claude-opus-5', tags: ['ai-race-core', 'major-release']},
           {name: 'Claude Fable 5.1', date: '2026-09-01', articleSlug: 'claude-fable-5-1', tags: ['ai-race-core', 'major-release']},
+          {name: 'Claude Opus 5.5', date: '2026-09-22', articleSlug: 'claude-opus-5-5', tags: ['ai-race-core', 'major-release', 'landmark-release']},
         ],
       }),
       defineProductLine({
@@ -1453,6 +1454,26 @@ export const companies: CompanyRecord[] = [
             date: '2026-09-20',
             articleSlug: 'step-5-preview',
             tags: ['ai-race-core', 'major-release', 'landmark-release'],
+          },
+        ],
+      }),
+    ],
+  }),
+  defineCompany({
+    profileId: 'xiaomi-mimo',
+    productLines: [
+      defineProductLine({
+        id: 'mimo-models',
+        label: 'MiMo models',
+        shortLabel: 'MiMo',
+        classId: 'frontier-llms',
+        defaultPresets: ['llms', 'open-source'],
+        releases: [
+          {
+            name: 'MiMo-V2.6-Pro',
+            date: '2026-09-22',
+            articleSlug: 'mimo-v2-6-pro',
+            tags: ['ai-race-core', 'major-release', 'open-weight', 'landmark-release'],
           },
         ],
       }),
