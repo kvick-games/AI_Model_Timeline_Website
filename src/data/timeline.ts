@@ -783,6 +783,8 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini 2.0 Multimodal Live API', date: '2024-12-11', eventType: 'product-launch'},
           {name: 'Gemini 2.5 Flash Native Audio', date: '2025-05-23', tags: ['major-release']},
           {name: 'Gemini 3.5 Live Translate', date: '2026-06-09', tags: ['major-release']},
+          {name: 'Gemini 3.8 Flash TTS', date: '2026-09-23', articleSlug: 'gemini-3-8-flash-tts', tags: ['ai-race-core', 'major-release']},
+          {name: 'Gemini 3.8 Flash-Lite TTS', date: '2026-09-23', articleSlug: 'gemini-3-8-flash-lite-tts', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
