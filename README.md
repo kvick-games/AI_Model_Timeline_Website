@@ -4,7 +4,7 @@
 
 A shareable web app that maps major AI foundation model releases, coding harnesses, creative systems, events, and robotics milestones across providers onto one chronological timeline.
 
-Live site: https://kvick-games.github.io/AI_Model_Timeline_Website/
+Live site: https://dreamatron.ai/timeline/
 
 ## Features
 
@@ -60,7 +60,29 @@ Use the **Director** button in the timeline to build a record-ready update showc
 
 Keyboard controls during a showcase: Space pauses or resumes, Left and Right move between scenes, and Escape exits Director mode.
 
-## GitHub Pages deployment
+## Production deployment
+
+Cloudflare Worker `dreamatron-timeline` serves `/timeline/` on `dreamatron.ai`
+from the GitHub Pages publishing origin. `/timeline` and the `www` variant
+redirect to the canonical address, preserving query parameters. The rest of
+the website continues to use its existing Vercel deployment.
+
+The Vite production build uses relative asset URLs so both the new address and
+old GitHub Pages links work with the same build. Keep `VITE_BASE_PATH` unset in
+the production workflow. The canonical metadata and Director sharing links
+point to the new address.
+
+Timeline content updates use the existing Pages workflow below; no Worker
+redeployment is needed. Routing code lives in `cloudflare/timeline-worker.mjs`
+and deployment settings in `wrangler.jsonc`. To change routing, run
+`node --test cloudflare/timeline-worker.test.mjs`, then deploy through the
+Cloudflare Workers API or an authenticated Wrangler CLI (`npx wrangler deploy`).
+The Worker only forwards public asset headers, never Dreamatron account cookies.
+
+To roll back the public route, remove the two `dreamatron-timeline` routes in
+Cloudflare. The GitHub Pages address remains a working fallback.
+
+### GitHub Pages publishing origin
 
 This repo includes a GitHub Actions workflow that builds the Vite app and publishes the `dist` output to GitHub Pages.
 
@@ -69,4 +91,4 @@ This repo includes a GitHub Actions workflow that builds the Vite app and publis
 3. Set the source to `GitHub Actions`.
 4. Push to `main` or run the `Deploy GitHub Pages` workflow manually.
 
-The Vite config is set up so repository Pages deployments use the correct base path automatically.
+The Vite config uses relative production paths so the build works at both hosting paths.

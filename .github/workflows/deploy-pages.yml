@@ -43,6 +43,11 @@ jobs:
       - name: Build site
         run: npm run build
 
+      - name: Verify types and timeline routing
+        run: |
+          npm run lint
+          node --test cloudflare/timeline-worker.test.mjs
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

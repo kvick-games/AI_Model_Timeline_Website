@@ -205,7 +205,7 @@ function DirectorStageOverlay({
             <h2>{selectedEntries.length} additions on one timeline</h2>
             <p className="director-outro-link">
               <span>Explore the full chronology at</span>
-              <span>kvick-games.github.io/AI_Model_Timeline_Website</span>
+              <span>dreamatron.ai/timeline</span>
             </p>
           </motion.div>
         ) : null}

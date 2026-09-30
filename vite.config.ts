@@ -5,9 +5,8 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
-  const repoName = process.env.GITHUB_REPOSITORY?.split('/')[1] ?? 'AI_Model_Timeline_Website';
-  const isUserOrOrgPage = repoName.endsWith('.github.io');
-  const base = env.VITE_BASE_PATH ?? (mode === 'production' ? (isUserOrOrgPage ? '/' : `/${repoName}/`) : '/');
+  // The same Pages build is served at dreamatron.ai/timeline/ and the legacy URL.
+  const base = env.VITE_BASE_PATH ?? (mode === 'production' ? './' : '/');
 
   return {
     base,

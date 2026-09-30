@@ -295,7 +295,7 @@ export function buildDirectorCaption(state: DirectorState, entries: ModelRelease
     ...lines,
     '',
     'Explore the full AI timeline:',
-    'https://kvick-games.github.io/AI_Model_Timeline_Website/',
+    'https://dreamatron.ai/timeline/',
   ]
     .filter((line, index, values) => line || (index > 0 && values[index - 1]))
     .join('\n')
