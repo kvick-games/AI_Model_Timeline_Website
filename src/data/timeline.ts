@@ -596,6 +596,7 @@ export const companies: CompanyRecord[] = [
           {name: 'GPT-6 Astra', date: '2026-09-03', articleSlug: 'gpt-6-astra', tags: ['ai-race-core', 'landmark-release']},
           {name: 'GPT-6 Sol', date: '2026-09-22', articleSlug: 'gpt-6-sol', tags: ['ai-race-core', 'major-release']},
           {name: 'GPT-6 Luna', date: '2026-09-22', articleSlug: 'gpt-6-luna', tags: ['ai-race-core', 'major-release']},
+          {name: 'GPT-6.1 Sol', date: '2026-09-29', articleSlug: 'gpt-6-1-sol', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -697,6 +698,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude Opus 5', date: '2026-07-24', articleSlug: 'claude-opus-5', tags: ['ai-race-core', 'major-release']},
           {name: 'Claude Fable 5.1', date: '2026-09-01', articleSlug: 'claude-fable-5-1', tags: ['ai-race-core', 'major-release']},
           {name: 'Claude Opus 5.5', date: '2026-09-22', articleSlug: 'claude-opus-5-5', tags: ['ai-race-core', 'major-release', 'landmark-release']},
+          {name: 'Claude Sonnet 5.5', date: '2026-09-28', articleSlug: 'claude-sonnet-5-5', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({

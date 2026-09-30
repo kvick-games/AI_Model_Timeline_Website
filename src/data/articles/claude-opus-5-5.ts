@@ -43,7 +43,7 @@ export const article: ModelArticle = {
       heading: 'Safety and availability',
       body: [
         'Because Opus 5.5 is comparable to Mythos/Fable-class models in biology and cybersecurity, Anthropic deploys similar safeguards, with Life Sciences and Cyber Verification Programs for vetted access. The model also launches with preserved-thinking anti-distillation controls and watermarking measures described for Fable 5.1.',
-        'Claude Opus 5.5 is available the same day on Anthropic’s platforms and major clouds as `claude-opus-5-5`. Sonnet 5.5 and Haiku 5.5 are promised for the coming weeks and are not part of this timeline entry.',
+        'Claude Opus 5.5 is available the same day on Anthropic’s platforms and major clouds as `claude-opus-5-5`. At launch Anthropic said Sonnet 5.5 and Haiku 5.5 would follow in the coming weeks; Claude Sonnet 5.5 later shipped on September 28, 2026. Claude Haiku 5.5 remains forthcoming and is not part of this timeline entry.',
       ],
     },
   ],
