@@ -1364,6 +1364,19 @@ button[data-timeline-pin] > .z-\[2\] {
   opacity: 1;
 }
 
+/* Label leader lines sit beside their pin button, so mirror the pin's dimming. */
+.timeline-shell.director-open [data-timeline-label-leader] {
+  opacity: 0.12;
+}
+
+.timeline-shell.director-open :has(> [data-timeline-label-leader]):has([data-director-selected]) > [data-timeline-label-leader] {
+  opacity: 0.72;
+}
+
+.timeline-shell.director-open :has(> [data-timeline-label-leader]):has([data-director-active]) > [data-timeline-label-leader] {
+  opacity: 1;
+}
+
 .timeline-shell.director-open button[data-timeline-pin][data-director-active] .timeline-pin-marker {
   animation: director-pin-pulse 1.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
   transform: translate(-50%, -50%) scale(1.38) !important;
