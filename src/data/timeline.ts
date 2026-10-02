@@ -1604,6 +1604,12 @@ export const companies: CompanyRecord[] = [
           {name: 'Stable Diffusion 3.5', date: '2024-10-22'},
           {name: 'FLUX.1 Tools', date: '2024-11-21'},
           {name: 'FLUX.1 Kontext', date: '2025-05-29'},
+          {
+            name: 'FLUX 3 Image',
+            date: '2026-10-01',
+            articleSlug: 'flux-3-image',
+            tags: ['major-release'],
+          },
         ],
       }),
     ],
