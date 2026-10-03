@@ -40,14 +40,28 @@ jobs:
           fi
 
           current_spec="$(node -p "require('./package.json').dependencies['@kvick-games/timeline-library']")"
-          current_tag="${current_spec##*#}"
+          current_ref="${current_spec##*#}"
+          current_sha="$(gh api "repos/kvick-games/timeline-library/commits/$current_ref" --jq '.sha')"
+          latest_sha="$(gh api "repos/kvick-games/timeline-library/commits/$latest_tag" --jq '.sha')"
+          comparison_status="$(gh api "repos/kvick-games/timeline-library/compare/$current_sha...$latest_sha" --jq '.status')"
 
           echo "tag=$latest_tag" >> "$GITHUB_OUTPUT"
-          if [ "$latest_tag" = "$current_tag" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+          case "$comparison_status" in
+            ahead)
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              ;;
+            identical)
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              ;;
+            behind)
+              echo "Latest tag $latest_tag is older than current ref $current_ref; skipping downgrade."
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Latest tag $latest_tag has diverged from current ref $current_ref; refusing an automatic update." >&2
+              exit 1
+              ;;
+          esac
 
       - name: Update dependency
         if: steps.latest.outputs.changed == 'true'
