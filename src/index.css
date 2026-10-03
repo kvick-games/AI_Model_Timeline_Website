@@ -601,6 +601,12 @@ button[data-timeline-pin] > .z-\[2\] {
   transform: scale(0.98);
 }
 
+@media (max-width: 767px) {
+  .director-launcher {
+    display: none;
+  }
+}
+
 .director-loading-panel {
   background: rgba(7, 10, 15, 0.97);
   border-right: 1px solid rgba(237, 242, 248, 0.16);
