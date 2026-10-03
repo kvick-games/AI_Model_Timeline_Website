@@ -496,6 +496,11 @@ button[data-timeline-pin] > .z-\[2\] {
   button[data-timeline-pin]:focus-visible > .z-\[2\] {
     --tw-translate-y: calc(var(--spacing) * -10);
   }
+
+  /* Matches the hover rise above (-8 → -10) so leader lines stay attached. */
+  .timeline-label-leader {
+    --timeline-label-hover-lift: calc(var(--spacing) * 2);
+  }
 }
 
 @media (max-width: 767px) {
