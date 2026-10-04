@@ -491,7 +491,106 @@ button[data-timeline-pin] > .z-\[2\] {
   --tw-translate-x: calc(var(--spacing) * -1);
 }
 
+/* Match the library's 28px tile and translation: 14px dash, 14px gap.
+   The old 18px repeat was clipped by each tile, creating paired dashes. */
+.quiet-extension-flow::before {
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--quiet-line-color) 0 14px,
+    transparent 14px 28px
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 0,
+    #000 max(0px, calc(100% - 72px)),
+    transparent 100%
+  );
+}
+
+/* Fill the gaps gently as the tail meets the white Today marker. */
+.quiet-extension-flow::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: min(72px, 45%);
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--quiet-line-color) 65%, #edf2fa) 65%,
+    #edf2fa
+  );
+}
+
+button[data-timeline-pin] .timeline-map-screen-label {
+  position: relative;
+}
+
+/* Inherit each label's provider color, including neutral event labels.
+   Overlay the outline so latest/selected styling keeps its own surface. */
+button[data-timeline-pin] .timeline-map-screen-label::before,
+button[data-timeline-pin] .timeline-map-screen-label::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+}
+
+button[data-timeline-pin] .timeline-map-screen-label::before {
+  border: 1px solid currentColor;
+  box-shadow:
+    0 0 10px color-mix(in srgb, currentColor 48%, transparent),
+    inset 0 0 6px color-mix(in srgb, currentColor 18%, transparent);
+  transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+button[data-timeline-pin] .timeline-map-screen-label::after {
+  padding: 1px;
+  background: linear-gradient(
+    110deg,
+    transparent 35%,
+    currentColor 46%,
+    #fff 50%,
+    currentColor 54%,
+    transparent 65%
+  ) 120% 0 / 300% 100%;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+button[data-timeline-pin]:focus-visible .timeline-map-screen-label::before {
+  opacity: 1;
+}
+
+button[data-timeline-pin]:focus-visible .timeline-map-screen-label::after {
+  animation: timeline-label-outline-sweep 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes timeline-label-outline-sweep {
+  0% {
+    opacity: 0;
+    background-position: 120% 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    background-position: -20% 0;
+  }
+}
+
 @media (hover: hover) {
+  button[data-timeline-pin]:hover .timeline-map-screen-label::before {
+    opacity: 1;
+  }
+
+  button[data-timeline-pin]:hover .timeline-map-screen-label::after {
+    animation: timeline-label-outline-sweep 700ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
   button[data-timeline-pin]:hover > .z-\[2\],
   button[data-timeline-pin]:focus-visible > .z-\[2\] {
     --tw-translate-y: calc(var(--spacing) * -10);
@@ -500,6 +599,16 @@ button[data-timeline-pin] > .z-\[2\] {
   /* Matches the hover rise above (-8 → -10) so leader lines stay attached. */
   .timeline-label-leader {
     --timeline-label-hover-lift: calc(var(--spacing) * 2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button[data-timeline-pin] .timeline-map-screen-label::before {
+    transition: none;
+  }
+
+  button[data-timeline-pin] .timeline-map-screen-label::after {
+    animation: none !important;
   }
 }
 
