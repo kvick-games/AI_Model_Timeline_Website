@@ -16,7 +16,7 @@ export const article: ModelArticle = {
   title: 'Claude Sonnet 5.5 delivered a large jump over Sonnet 5 as a faster, cheaper Opus 5.5 complement',
   dek: 'Anthropic released Claude Sonnet 5.5 on September 28, 2026 as the second model in its Claude 5.5 family: a clear upgrade over Claude Sonnet 5 that runs 30%+ faster and typically costs up to 30% less per task, while complementing Claude Opus 5.5 on everyday work.',
   summary:
-    'Claude Sonnet 5.5 (`claude-sonnet-5-5`) ships with a 1M-token context window, 128k max output, adaptive thinking, and API pricing of $2 / $10 per million input/output tokens (cache reads $0.20)—the same list price as Sonnet 5, with fewer tokens per task. Anthropic reports large gains over Sonnet 5 on agentic coding and knowledge-work suites, and GA availability across the Claude API, Amazon Bedrock, Claude Platform on AWS, Google Cloud, and Microsoft Foundry. Haiku 5.5 remains promised for the coming weeks.',
+    'Claude Sonnet 5.5 (`claude-sonnet-5-5`) ships with a 1M-token context window, 128k max output, adaptive thinking, and API pricing of $2 / $10 per million input/output tokens (cache reads $0.20)—the same list price as Sonnet 5, with fewer tokens per task. Anthropic reports large gains over Sonnet 5 on agentic coding and knowledge-work suites, and GA availability across the Claude API, Amazon Bedrock, Claude Platform on AWS, Google Cloud, and Microsoft Foundry. Claude Haiku 5.5 later shipped on October 7, 2026.',
   impact:
     'Sonnet 5.5 is Anthropic’s high-volume 5.5-family workhorse: strongest at well-scoped everyday tasks, bug fixes, and polished documents, slides, and spreadsheets, while Opus 5.5 stays the pick for complex work requiring careful judgment. Same-day multi-cloud GA makes it a direct upgrade path from Sonnet 5 at equal list prices and lower typical run cost.',
   facts: [
@@ -43,7 +43,7 @@ export const article: ModelArticle = {
       heading: 'Safety and availability',
       body: [
         'Because Sonnet 5.5’s cybersecurity capabilities are comparable to Opus 5’s, Anthropic launches it with cyber safeguards and fallbacks similar to those on its most capable models; biology safeguards match Sonnet 5. It is also the first Sonnet model to launch with distillation/reasoning-extraction classifiers and expanded preserved thinking.',
-        'Claude Sonnet 5.5 is available the same day on Anthropic’s platforms and major clouds as `claude-sonnet-5-5`. Claude Haiku 5.5 is still promised for the coming weeks and is not part of this timeline entry.',
+        'Claude Sonnet 5.5 is available the same day on Anthropic’s platforms and major clouds as `claude-sonnet-5-5`. Claude Haiku 5.5 later shipped on October 7, 2026, and has its own timeline entry.',
       ],
     },
   ],
