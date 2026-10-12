@@ -699,6 +699,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude Fable 5.1', date: '2026-09-01', articleSlug: 'claude-fable-5-1', tags: ['ai-race-core', 'major-release']},
           {name: 'Claude Opus 5.5', date: '2026-09-22', articleSlug: 'claude-opus-5-5', tags: ['ai-race-core', 'major-release', 'landmark-release']},
           {name: 'Claude Sonnet 5.5', date: '2026-09-28', articleSlug: 'claude-sonnet-5-5', tags: ['ai-race-core', 'major-release']},
+          {name: 'Claude Haiku 5.5', date: '2026-10-07', articleSlug: 'claude-haiku-5-5', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -1832,6 +1833,18 @@ export const companies: CompanyRecord[] = [
             name: 'Muse Spark 1.3',
             date: '2026-09-02',
             articleSlug: 'muse-spark-1-3',
+            tags: ['ai-race-core', 'major-release'],
+          },
+          {
+            name: 'Muse Wonder',
+            date: '2026-10-12',
+            articleSlug: 'muse-wonder',
+            tags: ['ai-race-core', 'major-release'],
+          },
+          {
+            name: 'Muse Wonder Full',
+            date: '2026-10-12',
+            articleSlug: 'muse-wonder-full',
             tags: ['ai-race-core', 'major-release'],
           },
         ],
