@@ -597,6 +597,7 @@ export const companies: CompanyRecord[] = [
           {name: 'GPT-6 Sol', date: '2026-09-22', articleSlug: 'gpt-6-sol', tags: ['ai-race-core', 'major-release']},
           {name: 'GPT-6 Luna', date: '2026-09-22', articleSlug: 'gpt-6-luna', tags: ['ai-race-core', 'major-release']},
           {name: 'GPT-6.1 Sol', date: '2026-09-29', articleSlug: 'gpt-6-1-sol', tags: ['ai-race-core', 'major-release']},
+          {name: 'GPT-6.1 Terra', date: '2026-10-26', articleSlug: 'gpt-6-1-terra', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -1422,6 +1423,14 @@ export const companies: CompanyRecord[] = [
             classes: ['frontier-llms'],
             presets: ['llms'],
             tags: ['ai-race-core', 'major-release', 'landmark-release'],
+          },
+          {
+            name: 'Kimi K3.1 Pro',
+            date: '2026-10-23',
+            articleSlug: 'kimi-k3-1-pro',
+            classes: ['frontier-llms'],
+            presets: ['llms'],
+            tags: ['ai-race-core', 'major-release'],
           },
         ],
       }),
