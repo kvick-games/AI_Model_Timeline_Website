@@ -701,6 +701,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Claude Opus 5.5', date: '2026-09-22', articleSlug: 'claude-opus-5-5', tags: ['ai-race-core', 'major-release', 'landmark-release']},
           {name: 'Claude Sonnet 5.5', date: '2026-09-28', articleSlug: 'claude-sonnet-5-5', tags: ['ai-race-core', 'major-release']},
           {name: 'Claude Haiku 5.5', date: '2026-10-07', articleSlug: 'claude-haiku-5-5', tags: ['ai-race-core', 'major-release']},
+          {name: 'Claude Fable 5.2', date: '2026-11-09', articleSlug: 'claude-fable-5-2', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -775,6 +776,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini 3.7 Flash', date: '2026-08-13', articleSlug: 'gemini-3-7-flash', tags: ['ai-race-core', 'major-release']},
           {name: 'Gemini 3.8 Flash', date: '2026-09-02', articleSlug: 'gemini-3-8-flash', tags: ['ai-race-core', 'major-release']},
           {name: 'Gemini 4 Argon', date: '2026-10-13', articleSlug: 'gemini-4-argon', tags: ['ai-race-core', 'major-release']},
+          {name: 'Gemini 4 Carbon', date: '2026-11-10', articleSlug: 'gemini-4-carbon', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
