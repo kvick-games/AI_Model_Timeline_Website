@@ -598,6 +598,8 @@ export const companies: CompanyRecord[] = [
           {name: 'GPT-6 Luna', date: '2026-09-22', articleSlug: 'gpt-6-luna', tags: ['ai-race-core', 'major-release']},
           {name: 'GPT-6.1 Sol', date: '2026-09-29', articleSlug: 'gpt-6-1-sol', tags: ['ai-race-core', 'major-release']},
           {name: 'GPT-6.1 Terra', date: '2026-10-26', articleSlug: 'gpt-6-1-terra', tags: ['ai-race-core', 'major-release']},
+          {name: 'GPT-6.2 Astra', date: '2026-11-17', articleSlug: 'gpt-6-2-astra', tags: ['ai-race-core', 'major-release']},
+          {name: 'GPT-6.2 Sol', date: '2026-11-17', articleSlug: 'gpt-6-2-sol', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -1354,6 +1356,14 @@ export const companies: CompanyRecord[] = [
             name: 'Qwen3.8-Max',
             date: '2026-08-03',
             articleSlug: 'qwen-3-8-max',
+            classes: ['frontier-llms'],
+            presets: ['llms'],
+            tags: ['ai-race-core', 'major-release', 'landmark-release'],
+          },
+          {
+            name: 'Qwen4-Max',
+            date: '2026-11-17',
+            articleSlug: 'qwen-4-max',
             classes: ['frontier-llms'],
             presets: ['llms'],
             tags: ['ai-race-core', 'major-release', 'landmark-release'],
