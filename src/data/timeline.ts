@@ -779,6 +779,7 @@ export const companies: CompanyRecord[] = [
           {name: 'Gemini 3.8 Flash', date: '2026-09-02', articleSlug: 'gemini-3-8-flash', tags: ['ai-race-core', 'major-release']},
           {name: 'Gemini 4 Argon', date: '2026-10-13', articleSlug: 'gemini-4-argon', tags: ['ai-race-core', 'major-release']},
           {name: 'Gemini 4 Carbon', date: '2026-11-10', articleSlug: 'gemini-4-carbon', tags: ['ai-race-core', 'major-release']},
+          {name: 'Gemini 4 Neon', date: '2026-11-18', articleSlug: 'gemini-4-neon', tags: ['ai-race-core', 'major-release']},
         ],
       }),
       defineProductLine({
@@ -1464,6 +1465,7 @@ export const companies: CompanyRecord[] = [
           {name: 'GLM-5.2', date: '2026-06-13', articleSlug: 'glm-5-2', tags: ['ai-race-core', 'major-release', 'open-weight']},
           {name: 'GLM-5.3', date: '2026-08-14', articleSlug: 'glm-5-3', tags: ['ai-race-core', 'major-release', 'open-weight']},
           {name: 'GLM-5.3-Flash', date: '2026-08-26', articleSlug: 'glm-5-3-flash', tags: ['ai-race-core', 'major-release', 'open-weight']},
+          {name: 'GLM-5.4', date: '2026-11-23', articleSlug: 'glm-5-4', tags: ['ai-race-core', 'major-release']},
         ],
       }),
     ],
